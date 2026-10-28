@@ -80,8 +80,8 @@ def _(
     LAYER_STACK = LayerStack(
         layers={
             "oxide": LayerLevel(layer="WAFER", zmin=-5.0, thickness=5.0, material="oxide", mesh_order=9),
-            "lower": LayerLevel(layer=LOWER, zmin=-0.22, thickness=0.1, material="sin", mesh_order=1),
-            "upper": LayerLevel(layer=UPPER, zmin=0.0, thickness=0.2, material="sin", mesh_order=1),
+            "lower": LayerLevel(layer=LOWER, zmin=-0.21, thickness=0.11, material="sin", mesh_order=1),
+            "upper": LayerLevel(layer=UPPER, zmin=0.0, thickness=0.19, material="sin", mesh_order=1),
         }
     )
     MATERIALS = {
@@ -94,7 +94,7 @@ def _(
         coupler, LAYER_STACK, MATERIALS, background="air", name="stack",
         included_layers=["lower", "upper"],
         extend_ports=(("o1", 1.0), ("o2", 1.0)),
-        boundary_offset=(0.0, 0.0, 2.0 - W_MAX / 2, -2.0 + W_MAX / 2, 1.4 - 0.2, -1.6 + 0.22),
+        boundary_offset=(0.0, 0.0, 2.0 - W_MAX / 2, -2.0 + W_MAX / 2, 1.4 - 0.19, -1.6 + 0.21),
     )
     return (stack,)
 

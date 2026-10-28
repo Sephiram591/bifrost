@@ -2,9 +2,9 @@
 
 The gdsfactory component and its LayerStack go straight into the simulation as
 one StackDevice; its ports get straight extensions through the PML, and the
-source and mode monitors are placed on the ports. TE0 at 619 nm is launched into the upper taper (200 nm SiN on
-the oxide) and its transfer into the TE0 mode of the lower taper (100 nm SiN,
-top 120 nm below the oxide surface) is measured while sweeping the overlap of
+source and mode monitors are placed on the ports. TE0 at 619 nm is launched into the upper taper (190 nm SiN on
+the oxide) and its transfer into the TE0 mode of the lower taper (110 nm SiN,
+top 100 nm below the oxide surface) is measured while sweeping the overlap of
 the two 10 um tapers (650 nm -> 50 nm wide).
 
 Run on a GPU node:  python examples/fdtdx_elevator_coupler.py
@@ -34,8 +34,8 @@ EXTENSION = 1.0  # port extensions (um): to the box faces, through the PML
 LAYER_STACK = LayerStack(
     layers={
         "oxide": LayerLevel(layer="WAFER", zmin=-5.0, thickness=5.0, material="oxide", mesh_order=9),
-        "lower": LayerLevel(layer=LOWER, zmin=-0.22, thickness=0.1, material="sin", mesh_order=1),
-        "upper": LayerLevel(layer=UPPER, zmin=0.0, thickness=0.2, material="sin", mesh_order=1),
+        "lower": LayerLevel(layer=LOWER, zmin=-0.21, thickness=0.11, material="sin", mesh_order=1),
+        "upper": LayerLevel(layer=UPPER, zmin=0.0, thickness=0.19, material="sin", mesh_order=1),
     }
 )
 MATERIALS = {
@@ -73,9 +73,9 @@ def build_stack(overlap: float) -> bf.stack.StackDevice:
     (_, _), (y0, y1), (z0, z1) = domain(overlap)
     return bf.stack.StackDevice.from_layer_stack(
         elevator_coupler(overlap), LAYER_STACK, MATERIALS, background="air", name="stack",
-        included_layers=["lower", "upper"],  # z: the two SiN levels, -0.22 to 0.2 um
+        included_layers=["lower", "upper"],  # z: the two SiN levels, -0.21 to 0.19 um
         extend_ports=(("o1", EXTENSION), ("o2", EXTENSION)),
-        boundary_offset=(0.0, 0.0, y1 - W_MAX / 2, y0 + W_MAX / 2, z1 - 0.2, z0 + 0.22),
+        boundary_offset=(0.0, 0.0, y1 - W_MAX / 2, y0 + W_MAX / 2, z1 - 0.19, z0 + 0.21),
     )
 
 
