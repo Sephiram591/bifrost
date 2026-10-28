@@ -1,0 +1,91 @@
+site_name: bifrost
+site_description: The rainbow bridge between your GDSFactory(X) pipeline and FDTD(X) simulation
+repo_url: https://github.com/Sephiram591/bifrost
+repo_name: Sephiram591/bifrost
+site_url: https://sephiram591.github.io/bifrost/
+docs_dir: .
+site_dir: _build/html
+exclude_docs: |
+  _build/
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Getting started: getting-started.md
+  - User guide:
+      - Layer stacks and StackDevice: guide/stack-device.md
+      - Geometry options and cost: guide/options.md
+      - Gradients and inverse design: guide/gradients.md
+      - Diagnostics and timing: guide/diagnostics.md
+      - Geometry model: guide/geometry-model.md
+  - Viewer: viewer.md
+  - Validation: validation.md
+  - Examples:
+      - Elevator coupler: examples/elevator-coupler.md
+  - API reference:
+      - Overview: api/index.md
+      - bf.stack: api/stack.md
+      - bf.geometry: api/geometry.md
+      - bf.subpixel and bf.timing: api/subpixel-timing.md
+      - bf.viewer: api/viewer.md
+  - Development:
+      - Contributing and tests: development.md
+      - Viewer design spec: design/viewer-spec.md
+  - gdsfactory docs: https://gdsfactory.github.io/gdsfactory/
+  - gdsfactoryx: https://github.com/Sephiram591/gdsfactoryx
+
+theme:
+  name: material
+  logo: logo.png
+  favicon: logo.png
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+  palette:
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.superfences
+  - pymdownx.tasklist
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:zensical.extensions.emoji.twemoji
+      emoji_generator: !!python/name:zensical.extensions.emoji.to_svg
+  - pymdownx.snippets:
+      base_path: ["..", "."]
+      check_paths: true
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - search
+  - mkdocstrings:
+      enabled: true
+      default_handler: python
+      handlers:
+        python:
+          options:
+            show_source: true
+            docstring_style: google
+            separate_signature: true
+            show_signature_annotations: true
+            members_order: alphabetical
+            show_root_heading: true
+            show_root_full_path: false
+  - autorefs

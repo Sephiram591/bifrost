@@ -1,0 +1,41 @@
+[build-system]
+build-backend = "flit_core.buildapi"
+requires = ["flit_core>=3.2,<5"]
+
+[project]
+name = "bifrost"
+version = "0.1.0"
+description = "The rainbow bridge between your GDSFactory(X) pipeline and FDTD(X) simulation"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [{name = "Helaman Flores"}]
+requires-python = ">=3.12,<3.15"
+dependencies = [
+  # the distribution of gdsfactoryx is still named "gdsfactory"
+  "gdsfactory @ git+https://github.com/Sephiram591/gdsfactoryx.git",
+  "fdtdx>=0.6.3",
+  "jax>=0.6",
+  "numpy",
+  "scipy<2",
+  "shapely<3",
+  "anywidget>=0.9",
+  "manifold3d>=3.0",
+  "traitlets",
+  "imageio-ffmpeg",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-xdist", "pytest-randomly", "ruff", "mypy", "marimo"]
+docs = ["zensical>=0.0.46,<0.1.0", "mkdocstrings[python]"]
+meep = ["meep"]
+
+[tool.flit.module]
+name = "bifrost"
+
+[tool.pytest.ini_options]
+addopts = "--tb=short"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["docs/"]

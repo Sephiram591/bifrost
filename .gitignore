@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# bifrost
+js/node_modules/
+docs/_build/
+examples/output/
+.scratch/
