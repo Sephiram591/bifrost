@@ -44,5 +44,10 @@ component + LayerStack --> bf.StackDevice --> fdtdx simulation --> bf.view
 - [API reference](api/index.md)
 - [Development](development.md)
 
-For everything about components, cells, PDKs and routing, see the
-[gdsfactory documentation](https://gdsfactory.github.io/gdsfactory/).
+## Related projects
+
+- [gdsfactory](https://gdsfactory.github.io/gdsfactory/): components, cells, PDKs and routing. For anything about
+  building a layout, use its documentation.
+- [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx): the JAX port of gdsfactory that bifrost builds on, which
+  makes layouts differentiable.
+- [fdtdx](https://github.com/ymahlau/fdtdx): the differentiable FDTD solver that bifrost drives.

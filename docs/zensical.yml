@@ -31,8 +31,6 @@ nav:
   - Development:
       - Contributing and tests: development.md
       - Viewer design spec: design/viewer-spec.md
-  - gdsfactory docs: https://gdsfactory.github.io/gdsfactory/
-  - gdsfactoryx: https://github.com/Sephiram591/gdsfactoryx
 
 theme:
   name: material
