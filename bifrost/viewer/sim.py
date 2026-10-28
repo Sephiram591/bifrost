@@ -891,7 +891,7 @@ def _absolute_lines(spec: ObjectSpec, kind: ObjectType, settings: SimSettings,
     lines.append(")")
     lines.append(f"cons_{spec.name} = [{spec.name}.place_relative_to(")
     # a detector plane is anchored on its sampled point, as ``_create_absolute`` does
-    own = f"detector_plane_own_positions({axis})" if kind.plane and kind.category == "detector" else "(0, 0, 0)"
+    own = f"bf.stack.detector_plane_own_positions({axis})" if kind.plane and kind.category == "detector" else "(0, 0, 0)"
     lines.append(f"    stack, axes=(0, 1, 2), own_positions={own}, other_positions=(0, 0, 0),")
     lines.append("    margins=(")
     lines.append(f"        ({_num(center[0])} - float(stack.center[0])) * 1e-6,")
@@ -906,9 +906,8 @@ _LAUNCH_PRELUDE = """\
 
 # --- helpers the viewer's run uses -------------------------------------------
 import fdtdx
+import bifrost as bf
 import jax
-
-from ..stack import apply_stack, detector_plane_own_positions, init_stack_params
 
 
 def _wave(wavelength_um):
@@ -978,8 +977,7 @@ def launch_code(stack: Any, state: Any) -> str:
     # a viewer-edited boundary_offset re-boxed the device (spec R13): the
     # emitted code must reproduce that box before anything is placed on it
     if tuple(settings.boundary_offset) != (0.0,) * 6:
-        lines.append("from .state import rebox_stack")
-        lines.append(f"stack = rebox_stack(stack, {_seq(settings.boundary_offset)})")
+        lines.append(f"stack = bf.viewer.state.rebox_stack(stack, {_seq(settings.boundary_offset)})")
         lines.append("")
 
     # an averaging picked in the viewer replaces the one the device was built
@@ -1051,7 +1049,7 @@ def launch_code(stack: Any, state: Any) -> str:
     lines.append("key = jax.random.PRNGKey(0)")
     lines.append("objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)")
     lines.append("objects = _pml_coeffs_in_config_dtype(objects, config)")
-    lines.append("arrays, objects, _ = apply_stack(arrays, objects, {**params, **init_stack_params(objects)}, key)")
+    lines.append("arrays, objects, _ = bf.apply_stack(arrays, objects, {**params, **bf.init_stack_params(objects)}, key)")
     lines.append("_, arrays = fdtdx.run_fdtd(")
     lines.append("    arrays=arrays,")
     lines.append("    objects=objects,")
