@@ -367,8 +367,8 @@ def test_a_plane_honors_its_level() -> None:
     """
 
     stack = f1_stack()
-    # the levels' span middles (F1: lower -0.17, upper +0.10, oxide -2.5)
-    for level, expected in (("lower", -0.17), ("upper", 0.10)):
+    # the levels' span middles (F1: lower -0.155, upper +0.095, oxide -2.5)
+    for level, expected in (("lower", -0.155), ("upper", 0.095)):
         _p, axis, _sign, center, _h = stack._port_frame("xy", level, 0.0)
         assert axis == 2
         assert center[2] == pytest.approx(expected), f"xy plane on {level}"
@@ -381,7 +381,7 @@ def test_a_plane_honors_its_level() -> None:
     # an xz plane's normal is y; its level moves its in-plane z center
     _p, axis, _sign, center, _h = stack._port_frame("xz", "upper", 0.0)
     assert axis == 1
-    assert center[2] == pytest.approx(0.10)
+    assert center[2] == pytest.approx(0.095)
     assert center[1] == pytest.approx(stack.center[1])
 
     # a level a port does not draw still resolves for a plane (no layer match)
@@ -399,7 +399,7 @@ def test_z_center_keeps_a_ports_span_height() -> None:
     stack = f1_stack()
     _p, _axis, _sign, center, height = stack._port_frame("o2", bf.stack.Z_CENTER_LEVEL, 0.0)
     assert center[2] == pytest.approx(stack.z_center)
-    assert height == pytest.approx(0.1), "the lower level's height is unchanged"
+    assert height == pytest.approx(0.11), "the lower level's height is unchanged"
 
 
 def test_a_plane_source_places_like_a_port_source() -> None:

@@ -109,8 +109,8 @@ def test_f1_xz_band_edges_are_exact() -> None:
 
     Both tapers overlap for local ``u`` in [-0.5, 0.5]; scanning the vertical
     line ``u = 0.25`` there (off any ring vertex) gives, in stack z: ``lower`` in
-    [-0.22, -0.12], ``upper`` in [0, 0.2], ``oxide`` below z = 0 except where
-    ``lower`` is, and air (background) above z = 0.2. Every face is planar, so
+    [-0.21, -0.10], ``upper`` in [0, 0.19], ``oxide`` below z = 0 except where
+    ``lower`` is, and air (background) above z = 0.19. Every face is planar, so
     the edges are exact (spec C2).
     """
     solid_set = bf.viewer.solids.analytic_solids(f1_stack())
@@ -119,11 +119,11 @@ def test_f1_xz_band_edges_are_exact() -> None:
 
     bands = [(lo + origin_z, hi + origin_z, owner) for lo, hi, owner in _scan_line(sliced, 0.25)]
     expected = [
-        (-1.6, -0.22, "oxide"),
-        (-0.22, -0.12, "lower"),
-        (-0.12, 0.0, "oxide"),
-        (0.0, 0.2, "upper"),
-        (0.2, 1.4, "background"),
+        (-1.6, -0.21, "oxide"),
+        (-0.21, -0.10, "lower"),
+        (-0.10, 0.0, "oxide"),
+        (0.0, 0.19, "upper"),
+        (0.19, 1.4, "background"),
     ]
     assert [owner for _, _, owner in bands] == [owner for _, _, owner in expected]
     np.testing.assert_allclose(

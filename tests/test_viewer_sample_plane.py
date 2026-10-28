@@ -46,7 +46,7 @@ def test_sampled_coordinate_snaps_to_the_recorded_point() -> None:
 @pytest.mark.parametrize(
     ("type_name", "expected"),
     [
-        ("ModeOverlapDetector", "own_positions=detector_plane_own_positions(1)"),
+        ("ModeOverlapDetector", "own_positions=bf.stack.detector_plane_own_positions(1)"),
         ("ModePlaneSource", "own_positions=(0, 0, 0)"),
     ],
 )
@@ -60,7 +60,7 @@ def test_launch_code_anchors_an_absolute_plane_like_the_run(type_name: str, expe
     )
     lines = bf.viewer.sim._absolute_lines(spec, bf.viewer.sim.TYPES[type_name], viewer.settings, [1.55], viewer.stack)
     assert expected in "\n".join(lines)
-    assert "detector_plane_own_positions" in bf.viewer.sim._LAUNCH_PRELUDE
+    assert "import bifrost as bf" in bf.viewer.sim._LAUNCH_PRELUDE
 
 
 def _run(viewer: Any) -> Any:
