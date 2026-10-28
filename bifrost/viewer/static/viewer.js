@@ -1,4 +1,4 @@
-// ../../../../js/node_modules/three/build/three.core.js
+// node_modules/three/build/three.core.js
 var REVISION = "186";
 var MOUSE = { LEFT: 0, MIDDLE: 1, RIGHT: 2, ROTATE: 0, DOLLY: 1, PAN: 2 };
 var TOUCH = { ROTATE: 0, PAN: 1, DOLLY_PAN: 2, DOLLY_ROTATE: 3 };
@@ -17918,7 +17918,7 @@ if (typeof window !== "undefined") {
   }
 }
 
-// ../../../../js/node_modules/three/build/three.module.js
+// node_modules/three/build/three.module.js
 function WebGLAnimation() {
   let context = null;
   let isAnimating = false;
@@ -31458,7 +31458,7 @@ var LevelMeshes = class {
   }
 };
 
-// ../../../../js/node_modules/three/examples/jsm/controls/ArcballControls.js
+// node_modules/three/examples/jsm/controls/ArcballControls.js
 var STATE = {
   IDLE: /* @__PURE__ */ Symbol(),
   ROTATE: /* @__PURE__ */ Symbol(),
@@ -33429,7 +33429,7 @@ function onWheel(event) {
   }
 }
 
-// ../../../../js/node_modules/three/examples/jsm/controls/OrbitControls.js
+// node_modules/three/examples/jsm/controls/OrbitControls.js
 var _changeEvent2 = { type: "change" };
 var _startEvent2 = { type: "start" };
 var _endEvent2 = { type: "end" };
@@ -34345,7 +34345,7 @@ function interceptControlUp(event) {
   }
 }
 
-// ../../../../js/node_modules/three/examples/jsm/controls/TrackballControls.js
+// node_modules/three/examples/jsm/controls/TrackballControls.js
 var _changeEvent3 = { type: "change" };
 var _startEvent3 = { type: "start" };
 var _endEvent3 = { type: "end" };
@@ -36386,7 +36386,37 @@ function render({ model, el }) {
   const toast = document.createElement("div");
   toast.className = "gfx-toast";
   toast.hidden = true;
-  el.append(menubar, sectionControls, explorer.root, viewport, toast);
+  const errorOverlay = document.createElement("div");
+  errorOverlay.className = "gfx-error-overlay";
+  errorOverlay.hidden = true;
+  const errorDialog = document.createElement("div");
+  errorDialog.className = "gfx-error-dialog";
+  errorDialog.setAttribute("role", "alertdialog");
+  errorDialog.setAttribute("aria-modal", "true");
+  errorDialog.setAttribute("aria-labelledby", "gfx-error-title");
+  const errorTitle = document.createElement("div");
+  errorTitle.className = "gfx-error-title";
+  errorTitle.id = "gfx-error-title";
+  errorTitle.textContent = "Simulation failed";
+  const errorMessage = document.createElement("pre");
+  errorMessage.className = "gfx-error-message";
+  const errorClose = document.createElement("button");
+  errorClose.type = "button";
+  errorClose.className = "gfx-error-close";
+  errorClose.textContent = "Dismiss";
+  errorDialog.append(errorTitle, errorMessage, errorClose);
+  errorOverlay.append(errorDialog);
+  const hideError = () => {
+    errorOverlay.hidden = true;
+  };
+  errorClose.addEventListener("click", hideError);
+  errorOverlay.addEventListener("click", (event) => {
+    if (event.target === errorOverlay) hideError();
+  });
+  errorOverlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideError();
+  });
+  el.append(menubar, sectionControls, explorer.root, viewport, toast, errorOverlay);
   const scene = new Scene3D(sceneRoot);
   controlSelect.value = scene.control;
   sensitivityInput.value = String(scene.sensitivity);
@@ -36964,6 +36994,16 @@ function render({ model, el }) {
     else if (payload.folder) showToast(`save folder: ${payload.folder}`);
     else if (payload.path) showToast(`saved ${payload.path}`);
   };
+  const applyRunResult = () => {
+    const payload = model.get("run_result");
+    if (payload?.status === "error") {
+      errorMessage.textContent = payload.message || "The run failed with no message.";
+      errorOverlay.hidden = false;
+      errorClose.focus();
+    } else if (payload?.status === "running") {
+      hideError();
+    }
+  };
   const applySaveDir = () => {
     const folder = model.get("save_dir");
     if (typeof folder === "string" && document.activeElement !== folderInput) {
@@ -37007,6 +37047,7 @@ function render({ model, el }) {
   model.on("change:geometry", applyGeometry);
   model.on("change:meta", applyGeometry);
   model.on("change:save_result", applySaveResult);
+  model.on("change:run_result", applyRunResult);
   model.on("change:save_dir", applySaveDir);
   applySection();
   applyState();
