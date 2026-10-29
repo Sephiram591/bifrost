@@ -158,12 +158,17 @@ def test_the_full_screen_link_and_the_poster_are_served(browser, base_url):
     page = browser.new_page()
     try:
         page.goto(f"{base_url}/guide/viewer/")
-        href = page.get_by_role("link", name="Open the demo full screen").get_attribute("href")
-        assert page.request.get(page.url.rsplit("/", 2)[0] + "/" + href.replace("../", "", 1).lstrip("/")).ok or True
-        full = page.request.get(f"{base_url}/demo/index.html")
-        assert full.ok
+        link = page.get_by_role("link", name="Open the demo full screen")
+        target = link.evaluate("(a) => a.href")  # as the browser resolves it
+        assert target == f"{base_url}/demo/index.html"
+        assert page.request.get(target).ok
         poster = page.request.get(f"{base_url}/images/viewer-demo.png")
         assert poster.ok and len(poster.body()) > 10_000
+        # the poster is what shows behind the iframe until the demo loads (and if it cannot)
+        background = page.evaluate(
+            "getComputedStyle(document.querySelector('iframe').parentElement).backgroundImage"
+        )
+        assert "viewer-demo.png" in background
     finally:
         page.close()
 

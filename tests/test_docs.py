@@ -54,6 +54,12 @@ def test_snippet_includes_point_at_real_example_sections(page: Path) -> None:
             )
 
 
+def test_no_unfilled_placeholders() -> None:
+    """Measured numbers and outputs are pasted in from real runs; a leftover @@MARKER@@ means one was not."""
+    for page in [ROOT / "README.md", *MARKDOWN]:
+        assert not re.search(r"@@[A-Z_]+@@", page.read_text()), f"{page.relative_to(ROOT)} has an unfilled placeholder"
+
+
 # ------------------------------------------------------------------ links
 
 
@@ -124,7 +130,9 @@ def test_the_readme_quick_start_is_the_straight_waveguide_example() -> None:
 
 
 def _run(path: str, *args: str, timeout: int = 600) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "JAX_PLATFORMS": os.environ.get("JAX_PLATFORMS", "cpu"), "PYTHONPATH": str(ROOT)}
+    env = {**os.environ, "PYTHONPATH": str(ROOT)}
+    if not HARDWARE:  # the light examples never need a GPU; the hardware tests must use the one there is
+        env["JAX_PLATFORMS"] = os.environ.get("JAX_PLATFORMS", "cpu")
     return subprocess.run(
         [sys.executable, str(ROOT / path), *args], capture_output=True, text=True, timeout=timeout, env=env,
         cwd=ROOT / "docs",  # nowhere near the example's own folder: no hidden imports from it
