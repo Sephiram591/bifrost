@@ -229,6 +229,14 @@ export interface StatePayload {
   simulation: SimSettingsPayload;
   //: true while a mode-1 run is in flight; the setup is locked (spec D15)
   running: boolean;
+  //: set by the static demo (spec: static viewer): the setup and Run need a
+  //: Python session, which a precomputed result does not have. The browser
+  //: disables them and shows `reason` in place of the run's phase label.
+  readonly?: { reason: string };
+  //: the stored positions of the active plane's section, evenly spaced; the
+  //: slider snaps to them and its readout shows exact coordinates. Absent
+  //: when the kernel slices on demand (any position is allowed).
+  plane_stops?: number[];
 }
 
 // The 2D cross-section payload (spec R4). Rings are `[u, v]` pairs in the

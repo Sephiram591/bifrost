@@ -23,7 +23,7 @@ import type {
   StatePayload,
 } from "./wire";
 
-interface AnyModel {
+export interface AnyModel {
   get(key: string): unknown;
   set(key: string, value: unknown): void;
   save_changes(): void;
@@ -234,7 +234,7 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
       void recordAll(fps);
     },
     onGroupDownsample: (stride) => setGroupStride(stride),
-  });
+  }, (model.get("state") as StatePayload | undefined)?.active_tab);
 
   // -- viewport -------------------------------------------------------------
   const viewport = document.createElement("div");
@@ -430,6 +430,9 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
   el.append(menubar, sectionControls, explorer.root, viewport, toast, errorOverlay);
 
   const scene = new Scene3D(sceneRoot);
+  // a static demo can open on a chosen angle (a vector from the device's center)
+  const initialView = model.get("initial_view") as { direction?: [number, number, number] } | undefined;
+  if (initialView?.direction) scene.setViewDirection(initialView.direction);
   controlSelect.value = scene.control; // the scene's default (spec R3)
   sensitivityInput.value = String(scene.sensitivity);
   sensitivityValue.textContent = `${scene.sensitivity.toFixed(1)}×`;
@@ -526,7 +529,7 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
   // -- double-click a port in 3D to add a detector (spec R12) ---------------
   const raycaster = new THREE.Raycaster();
   scene.renderer.domElement.addEventListener("dblclick", (event) => {
-    if (currentState(model)?.running) return;
+    if (currentState(model)?.running || currentState(model)?.readonly) return;
     const rect = scene.renderer.domElement.getBoundingClientRect();
     const pointer = new THREE.Vector2(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -804,6 +807,16 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
   }
 
   /**
+   * A precomputed demo has no kernel to wrap the encoded frames into an MP4, so saving a
+   * video says so instead. Returns whether the save was refused.
+   */
+  function refuseVideo(): boolean {
+    if (!currentState(model)?.readonly) return false;
+    showToast("saving a video needs a Python session; this demo is precomputed");
+    return true;
+  }
+
+  /**
    * Renders every frame of a detector in the active viewport (3D or 2D) and
    * saves it as an MP4 (spec: FieldDetector video). The browser encodes the
    * frames (WebCodecs, faster than real time, no dropped frames); the kernel
@@ -811,6 +824,7 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
    * folder, or hands it back for a download, per the "Save to" setting.
    */
   async function saveVideo(id: string, fps: number): Promise<void> {
+    if (refuseVideo()) return;
     if (exporting.has(id)) return;
     if (!videoSupported()) {
       showToast("this browser cannot encode video (no WebCodecs): use a recent Chrome, Edge, Safari or Firefox");
@@ -958,6 +972,7 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
     const timeline = currentTimeline();
     const state = model.get("state") as StatePayload;
     if (!timeline || state.active_tab !== "result") return;
+    if (refuseVideo()) return;
     if (!videoSupported()) {
       showToast("this browser cannot encode video (no WebCodecs): use a recent Chrome, Edge, Safari or Firefox");
       return;
@@ -1066,8 +1081,21 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
       planeButton.classList.toggle("gfx-active", plane === state.plane);
     }
     const [lo, hi] = state.plane_bounds;
-    positionSlider.min = String(lo);
-    positionSlider.max = String(hi);
+    const stops = state.plane_stops;
+    if (stops && stops.length > 1) {
+      // a precomputed demo: only the stored positions exist, evenly spaced
+      positionSlider.min = String(stops[0]);
+      positionSlider.max = String(stops[stops.length - 1]);
+      // rounded, so floating-point noise does not leak into the step
+      const spacing = String(Math.round(((stops[stops.length - 1] - stops[0]) / (stops.length - 1)) * 1e9) / 1e9);
+      positionSlider.step = spacing;
+      positionBox.step = spacing;
+    } else {
+      positionSlider.min = String(lo);
+      positionSlider.max = String(hi);
+      positionSlider.step = "0.01";
+      positionBox.step = "0.01";
+    }
     if (document.activeElement !== positionBox) positionBox.value = String(state.plane_position);
     if (document.activeElement !== positionSlider) positionSlider.value = String(state.plane_position);
 
@@ -1143,9 +1171,18 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
     const state = currentState(model);
     const running = state?.running ?? false;
     const stopping = (model.get("stopping") as boolean | undefined) ?? false;
+    const readonly = state?.readonly;
     run.innerHTML = running ? STOP_ICON : RUN_ICON;
-    run.title = running ? STOP_TITLE : RUN_TITLE;
-    run.disabled = running && stopping;
+    run.title = readonly ? `${readonly.reason}: running needs a Python session` : running ? STOP_TITLE : RUN_TITLE;
+    run.disabled = Boolean(readonly) || (running && stopping);
+    run.setAttribute("aria-label", readonly ? readonly.reason : "run the simulation");
+    if (readonly) {
+      // the label that names a run's phase carries the reason instead
+      runPhase.hidden = false;
+      runPhase.textContent = readonly.reason;
+      runProgress.hidden = true;
+      return;
+    }
     runPhase.hidden = !running;
     runProgress.hidden = !running;
     if (running && stopping) {

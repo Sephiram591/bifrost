@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bifrost viewer demo</title>
+  <link rel="icon" href="../images/bifrost-icon-rounded-square.svg">
+  <link rel="stylesheet" href="viewer.css">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { background: #1b1b1f; color: #e6e6ea; font: 14px system-ui, sans-serif; }
+    @media (prefers-color-scheme: light) { body { background: #f4f4f6; color: #1b1b1f; } }
+    #stage { position: relative; height: 100%; min-height: 420px; }
+    #viewer { position: absolute; inset: 0; }
+    #status { position: absolute; left: 12px; bottom: 12px; z-index: 10; max-width: calc(100% - 24px);
+      padding: 6px 10px; border-radius: 6px; background: rgba(0, 0, 0, .72); color: #fff; }
+    #status[data-kind="error"] { background: #a1262d; }
+    #status[hidden] { display: none; }
+    noscript { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <div id="viewer" data-src="data/"></div>
+    <div id="status" role="status" aria-live="polite">Loading the demo…</div>
+    <noscript>The viewer needs JavaScript. <a href="../images/viewer-demo.png">A picture of the same result.</a></noscript>
+  </div>
+  <script type="module" src="viewer-demo.js"></script>
+</body>
+</html>

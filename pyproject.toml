@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-xdist", "pytest-randomly", "ruff", "mypy", "marimo"]
+dev = ["pytest", "pytest-xdist", "pytest-randomly", "ruff", "mypy", "marimo", "playwright"]
 docs = ["zensical>=0.0.46,<0.1.0", "mkdocstrings[python]"]
 meep = ["meep"]
 

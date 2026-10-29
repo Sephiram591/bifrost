@@ -26,7 +26,7 @@ from typing import Any
 __all__ = ["view"]
 
 _SUBMODULES = frozenset(
-    {"adopt", "fields", "geometry", "palette", "payload", "section", "sim", "solids", "state", "widget"}
+    {"adopt", "export", "fields", "geometry", "palette", "payload", "section", "sim", "solids", "state", "widget"}
 )
 
 

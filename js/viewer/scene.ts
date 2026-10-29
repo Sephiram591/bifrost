@@ -142,6 +142,8 @@ export class Scene3D {
   private readonly resizeObserver: ResizeObserver;
   private target = new THREE.Vector3(0, 0, 0);
   private radius = 1;
+  //: which way the camera looks from, as a unit vector from the target (spec R3)
+  private viewDirection = VIEW_DIRECTION.clone();
   private zExaggeration = 1;
   //: the simulation region outline (the device box, spec R3); drawn in the
   //: content group so the vertical exaggeration scales it with the solids. Each
@@ -383,12 +385,18 @@ export class Scene3D {
     const distance = this.radius / Math.sin((this.camera.fov * Math.PI) / 360);
     // trackball/arcball can roll `up`, so fit restores the upright frame too
     this.camera.up.set(0, 1, 0);
-    this.camera.position.copy(this.target).addScaledVector(VIEW_DIRECTION, distance);
+    this.camera.position.copy(this.target).addScaledVector(this.viewDirection, distance);
     this.camera.near = Math.max(distance / 1000, 1e-3);
     this.camera.far = distance * 100;
     this.camera.updateProjectionMatrix();
     this.controls.target.copy(this.target);
     this.controls.update();
+  }
+
+  /** Sets the direction `fit` places the camera in (a vector from the target; need not be unit). */
+  setViewDirection(direction: [number, number, number]): void {
+    const next = new THREE.Vector3(...direction);
+    if (next.lengthSq() > 0) this.viewDirection.copy(next.normalize());
   }
 
   /** Scales the z of everything under `content` (spec R3, z-exaggeration). */

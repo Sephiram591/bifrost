@@ -5014,10 +5014,10 @@ class StackOptions:
 
     Each field is the StackDevice field of the same name; pass the options to
     :meth:`StackDevice.from_layer_stack` (``options=``), or the fields one by
-    one as before. The defaults are the most accurate settings. The cost and
-    accuracy benefit of each are in docs/fdtdx.md ("Cost of the geometry
-    features"). ``StackOptions.fast()`` turns off the ones that are not needed
-    for a quick look at a device.
+    one as before. The defaults are the most accurate settings. What each
+    option buys is in docs/guide/options.md and what it costs in
+    docs/validation.md ("Geometry option costs"). ``StackOptions.fast()`` turns
+    off the ones that are not needed for a quick look at a device.
     """
 
     #: "subpixel": Kottke averaging along the normal of each voxel's own model, the

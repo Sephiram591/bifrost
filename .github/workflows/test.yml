@@ -13,7 +13,11 @@ jobs:
         with:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@v7
-      - run: uv pip install --system -e ".[dev]"
+      - run: uv pip install --system -e ".[dev,docs]"
+      # the browser checks of the live demo (tests/test_demo_browser.py) and the strict docs build
+      # (tests/test_docs.py) run with the rest; the full simulations of the tutorial do not (they need
+      # a GPU: BIFROST_HARDWARE=1 pytest tests/test_docs.py -k hardware)
+      - run: playwright install --with-deps chromium
       - run: pytest tests -x -q
   js:
     runs-on: ubuntu-latest

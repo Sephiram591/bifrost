@@ -29657,7 +29657,7 @@ function portHint(name) {
 }
 var FIELD_TRANSFORMS = ["real", "imag", "abs", "phase", "logabs"];
 var Explorer = class {
-  constructor(meta, callbacks) {
+  constructor(meta, callbacks, initialTab = "layout") {
     this.meta = meta;
     this.callbacks = callbacks;
     this.tabButtons = [];
@@ -29781,7 +29781,7 @@ var Explorer = class {
     body.className = "gfx-tabbody";
     body.append(...this.panels);
     this.root.append(tabbar, body, this.properties);
-    this.setTab(0);
+    this.setTab(Math.max(0, ["layout", "sources", "simulation", "result"].indexOf(initialTab)));
   }
   /** (Re)builds the Layers and Ports sections from the current metadata. */
   buildLayout() {
@@ -29907,7 +29907,7 @@ var Explorer = class {
       this.detectorEmpty
     );
     this.renderSettings(state.simulation);
-    this.setLocked(state.running);
+    this.setLocked(state.running || Boolean(state.readonly), state.readonly?.reason);
     this.renderResult(state);
     for (const row2 of this.levelRows.values()) row2.root.classList.remove("gfx-selected");
     for (const row2 of this.portRows.values()) row2.root.classList.remove("gfx-selected");
@@ -30338,7 +30338,7 @@ var Explorer = class {
     this.simFields.get("boundary_offset")?.write(settings.boundary_offset);
   }
   /** Enables or disables every setup control (spec D15). */
-  setLocked(locked) {
+  setLocked(locked, readonlyReason) {
     this.locked = locked;
     const rows = [...this.sourceRows.values(), ...this.detectorRows.values()];
     for (const row2 of rows) {
@@ -30351,7 +30351,9 @@ var Explorer = class {
     this.sourceAdd.disabled = locked;
     this.detectorAdd.disabled = locked;
     this.simNote.hidden = !locked;
-    if (locked) this.simNote.textContent = "The setup is locked while a run is in flight.";
+    if (locked) {
+      this.simNote.textContent = readonlyReason ? `${readonlyReason}: editing the setup and running need a Python session.` : "The setup is locked while a run is in flight.";
+    }
   }
   // ------------------------------------------------------------------ result tab
   /**
@@ -35127,6 +35129,8 @@ var Scene3D = class {
     this.rotateSpeed = 1;
     this.target = new Vector3(0, 0, 0);
     this.radius = 1;
+    //: which way the camera looks from, as a unit vector from the target (spec R3)
+    this.viewDirection = VIEW_DIRECTION.clone();
     this.zExaggeration = 1;
     //: the simulation region outline (the device box, spec R3); drawn in the
     //: content group so the vertical exaggeration scales it with the solids. Each
@@ -35334,12 +35338,17 @@ var Scene3D = class {
   fit() {
     const distance = this.radius / Math.sin(this.camera.fov * Math.PI / 360);
     this.camera.up.set(0, 1, 0);
-    this.camera.position.copy(this.target).addScaledVector(VIEW_DIRECTION, distance);
+    this.camera.position.copy(this.target).addScaledVector(this.viewDirection, distance);
     this.camera.near = Math.max(distance / 1e3, 1e-3);
     this.camera.far = distance * 100;
     this.camera.updateProjectionMatrix();
     this.controls.target.copy(this.target);
     this.controls.update();
+  }
+  /** Sets the direction `fit` places the camera in (a vector from the target; need not be unit). */
+  setViewDirection(direction) {
+    const next = new Vector3(...direction);
+    if (next.lengthSq() > 0) this.viewDirection.copy(next.normalize());
   }
   /** Scales the z of everything under `content` (spec R3, z-exaggeration). */
   setZExaggeration(factor) {
@@ -36351,7 +36360,7 @@ function render({ model, el }) {
       void recordAll(fps);
     },
     onGroupDownsample: (stride) => setGroupStride(stride)
-  });
+  }, model.get("state")?.active_tab);
   const viewport = document.createElement("div");
   viewport.className = "gfx-viewport";
   const sceneRoot = document.createElement("div");
@@ -36516,6 +36525,8 @@ function render({ model, el }) {
   });
   el.append(menubar, sectionControls, explorer.root, viewport, toast, errorOverlay);
   const scene = new Scene3D(sceneRoot);
+  const initialView = model.get("initial_view");
+  if (initialView?.direction) scene.setViewDirection(initialView.direction);
   controlSelect.value = scene.control;
   sensitivityInput.value = String(scene.sensitivity);
   sensitivityValue.textContent = `${scene.sensitivity.toFixed(1)}\xD7`;
@@ -36571,7 +36582,7 @@ function render({ model, el }) {
   });
   const raycaster = new Raycaster();
   scene.renderer.domElement.addEventListener("dblclick", (event) => {
-    if (currentState(model)?.running) return;
+    if (currentState(model)?.running || currentState(model)?.readonly) return;
     const rect = scene.renderer.domElement.getBoundingClientRect();
     const pointer = new Vector2(
       (event.clientX - rect.left) / rect.width * 2 - 1,
@@ -36794,7 +36805,13 @@ function render({ model, el }) {
       spec: { id, params: { field_freq: frame } }
     });
   }
+  function refuseVideo() {
+    if (!currentState(model)?.readonly) return false;
+    showToast("saving a video needs a Python session; this demo is precomputed");
+    return true;
+  }
   async function saveVideo(id, fps) {
+    if (refuseVideo()) return;
     if (exporting.has(id)) return;
     if (!videoSupported()) {
       showToast("this browser cannot encode video (no WebCodecs): use a recent Chrome, Edge, Safari or Firefox");
@@ -36906,6 +36923,7 @@ function render({ model, el }) {
     const timeline = currentTimeline();
     const state = model.get("state");
     if (!timeline || state.active_tab !== "result") return;
+    if (refuseVideo()) return;
     if (!videoSupported()) {
       showToast("this browser cannot encode video (no WebCodecs): use a recent Chrome, Edge, Safari or Firefox");
       return;
@@ -36994,8 +37012,19 @@ function render({ model, el }) {
       planeButton.classList.toggle("gfx-active", plane === state.plane);
     }
     const [lo, hi] = state.plane_bounds;
-    positionSlider.min = String(lo);
-    positionSlider.max = String(hi);
+    const stops = state.plane_stops;
+    if (stops && stops.length > 1) {
+      positionSlider.min = String(stops[0]);
+      positionSlider.max = String(stops[stops.length - 1]);
+      const spacing = String(Math.round((stops[stops.length - 1] - stops[0]) / (stops.length - 1) * 1e9) / 1e9);
+      positionSlider.step = spacing;
+      positionBox.step = spacing;
+    } else {
+      positionSlider.min = String(lo);
+      positionSlider.max = String(hi);
+      positionSlider.step = "0.01";
+      positionBox.step = "0.01";
+    }
     if (document.activeElement !== positionBox) positionBox.value = String(state.plane_position);
     if (document.activeElement !== positionSlider) positionSlider.value = String(state.plane_position);
     for (const [name, meshes] of levels) {
@@ -37045,9 +37074,17 @@ function render({ model, el }) {
     const state = currentState(model);
     const running = state?.running ?? false;
     const stopping = model.get("stopping") ?? false;
+    const readonly = state?.readonly;
     run.innerHTML = running ? STOP_ICON : RUN_ICON;
-    run.title = running ? STOP_TITLE : RUN_TITLE;
-    run.disabled = running && stopping;
+    run.title = readonly ? `${readonly.reason}: running needs a Python session` : running ? STOP_TITLE : RUN_TITLE;
+    run.disabled = Boolean(readonly) || running && stopping;
+    run.setAttribute("aria-label", readonly ? readonly.reason : "run the simulation");
+    if (readonly) {
+      runPhase.hidden = false;
+      runPhase.textContent = readonly.reason;
+      runProgress.hidden = true;
+      return;
+    }
     runPhase.hidden = !running;
     runProgress.hidden = !running;
     if (running && stopping) {

@@ -280,6 +280,8 @@ export class Explorer {
   constructor(
     private meta: MetaPayload,
     private readonly callbacks: ExplorerCallbacks,
+    //: the tab to open on: the state's own, so a precomputed demo opens on the Result tab
+    initialTab: StatePayload["active_tab"] = "layout",
   ) {
     this.root = document.createElement("div");
     this.root.className = "gfx-explorer";
@@ -387,7 +389,7 @@ export class Explorer {
     body.append(...this.panels);
 
     this.root.append(tabbar, body, this.properties);
-    this.setTab(0);
+    this.setTab(Math.max(0, ["layout", "sources", "simulation", "result"].indexOf(initialTab)));
   }
 
   /** (Re)builds the Layers and Ports sections from the current metadata. */
@@ -531,7 +533,7 @@ export class Explorer {
       state.detectors, "detector", this.detectorRows, this.detectorList, this.detectorEmpty,
     );
     this.renderSettings(state.simulation);
-    this.setLocked(state.running);
+    this.setLocked(state.running || Boolean(state.readonly), state.readonly?.reason);
     this.renderResult(state);
 
     for (const row of this.levelRows.values()) row.root.classList.remove("gfx-selected");
@@ -1000,7 +1002,7 @@ export class Explorer {
   }
 
   /** Enables or disables every setup control (spec D15). */
-  private setLocked(locked: boolean): void {
+  private setLocked(locked: boolean, readonlyReason?: string): void {
     this.locked = locked;
     const rows = [...this.sourceRows.values(), ...this.detectorRows.values()];
     for (const row of rows) {
@@ -1013,7 +1015,11 @@ export class Explorer {
     this.sourceAdd.disabled = locked;
     this.detectorAdd.disabled = locked;
     this.simNote.hidden = !locked;
-    if (locked) this.simNote.textContent = "The setup is locked while a run is in flight.";
+    if (locked) {
+      this.simNote.textContent = readonlyReason
+        ? `${readonlyReason}: editing the setup and running need a Python session.`
+        : "The setup is locked while a run is in flight.";
+    }
   }
 
   // ------------------------------------------------------------------ result tab

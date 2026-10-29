@@ -224,3 +224,6 @@ js/node_modules/
 docs/_build/
 examples/output/
 .scratch/
+
+# esbuild also writes the demo bundle's stylesheet next to it; the page loads viewer.css instead
+docs/demo/viewer-demo.css
