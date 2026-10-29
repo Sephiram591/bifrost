@@ -66,14 +66,18 @@ def test_no_unfilled_placeholders() -> None:
 def _links(page: Path) -> list[tuple[str, Path]]:
     """Every link with the folder it resolves against.
 
-    A Markdown link is relative to the source file (the build rewrites it); a path in raw HTML is
-    left alone, so it is relative to the built page, whose URL is one folder deeper (`guide/viewer/`).
+    A Markdown link is relative to the source file, and so is a `src` or `href` in raw HTML: the build
+    rewrites both (an iframe's `../demo/index.html` in docs/guide/viewer.md becomes `../../demo/index.html`
+    in the page, and a `../../demo/...` written there would climb out of the site). Only a CSS `url(...)`
+    in a `style` attribute is left alone, so it is relative to the built page, whose URL is one folder
+    deeper (`guide/viewer/`).
     """
     text = prose(page)
     built = page.parent if page.stem == "index" else page.parent / page.stem
     return [
         *((link, page.parent) for link in LINK.findall(text)),
-        *((a or b, built) for a, b in HTML_REF.findall(text)),
+        *((a, page.parent) for a, _ in HTML_REF.findall(text) if a),
+        *((b, built) for _, b in HTML_REF.findall(text) if b),
     ]
 
 

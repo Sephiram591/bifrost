@@ -30,9 +30,19 @@ if not (ROOT / "docs" / "demo" / "data" / "manifest.json").exists():
     pytest.skip("the demo data is not generated (python scripts/build_demo.py)", allow_module_level=True)
 
 
+#: GitHub Pages serves a project site under its name, with nothing at the root: a path that climbs out of
+#: the project (an extra `../`) 404s there, and would not on a server that serves the site at `/`.
+PREFIX = "/bifrost"
+
+
 class _Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args: object) -> None:
         pass
+
+    def translate_path(self, path: str) -> str:
+        if path != PREFIX and not path.startswith(PREFIX + "/"):
+            return str(SITE / "__not_found__")  # the user site's root: nothing there
+        return super().translate_path(path[len(PREFIX):] or "/")
 
 
 @pytest.fixture(scope="module")
@@ -46,7 +56,7 @@ def base_url():
         assert done.returncode == 0, (done.stdout + done.stderr)[-3000:]
     server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), functools.partial(_Handler, directory=str(SITE)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{server.server_address[1]}"
+    yield f"http://127.0.0.1:{server.server_address[1]}{PREFIX}"
     server.shutdown()
 
 
@@ -148,6 +158,7 @@ def test_the_embedded_demo_loads_with_run_disabled(browser, base_url):
         page.goto(f"{base_url}/guide/viewer/")
         frame = page.frame_locator("iframe[title*='bifrost viewer']")
         frame.locator(".gfx-shell .gfx-menubar").wait_for(timeout=90000)
+        assert any(f.url == f"{base_url}/demo/index.html" for f in page.frames), [f.url for f in page.frames]
         assert frame.locator("button[title*='Precomputed demo']").is_disabled()
         assert errors == []
     finally:
@@ -179,5 +190,27 @@ def test_moved_urls_forward_to_their_new_pages(browser, base_url, old, new):
     try:
         page.goto(f"{base_url}/{old}")
         page.wait_for_url(f"**{new}", timeout=10000)
+    finally:
+        page.close()
+
+
+# ------------------------------------------------------------------ nothing 404s
+
+
+@pytest.mark.parametrize("path", PAGES)
+def test_no_page_makes_a_failing_request(browser, base_url, path):
+    """Every image, stylesheet, script and frame a page loads is served (the site is mounted under /bifrost/)."""
+    page = browser.new_page(viewport={"width": 1200, "height": 900})
+    failed = []
+    origin = base_url.removesuffix(PREFIX)  # our own server: the theme's GitHub repository widget asks
+    # api.github.com for the latest release, which 404s while the repository has none (not ours to serve)
+    page.on("response", lambda r: failed.append(f"{r.status} {r.url}") if r.status >= 400 and r.url.startswith(origin) else None)
+    try:
+        page.goto(f"{base_url}/{path}")
+        page.wait_for_load_state("networkidle")
+        if path == "guide/viewer/":
+            page.frame_locator("iframe[title*='bifrost viewer']").locator(".gfx-shell .gfx-menubar").wait_for(timeout=90000)
+            page.wait_for_load_state("networkidle")
+        assert failed == [], f"/{path} loads things that are not served: {failed}"
     finally:
         page.close()

@@ -55,7 +55,7 @@ with the settings of that page. It runs in your browser with no installation and
 and use the **Result** tab to choose what to display.
 
 <div style="position: relative; width: 100%; height: min(72vh, 640px); min-height: 380px; border-radius: 8px; overflow: hidden; background: #101014 url(../../images/viewer-demo.png) center / cover no-repeat;">
-  <iframe src="../../demo/index.html" title="bifrost viewer: a precomputed 90 degree waveguide bend" loading="lazy" allowfullscreen style="width: 100%; height: 100%; border: 0;"></iframe>
+  <iframe src="../demo/index.html" title="bifrost viewer: a precomputed 90 degree waveguide bend" loading="lazy" allowfullscreen style="width: 100%; height: 100%; border: 0;"></iframe>
 </div>
 
 [Open the demo full screen](../demo/index.html){ target="_blank" }
