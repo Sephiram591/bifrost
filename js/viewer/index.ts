@@ -394,7 +394,40 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
   toast.className = "gfx-toast";
   toast.hidden = true;
 
-  el.append(menubar, sectionControls, explorer.root, viewport, toast);
+  // a modal over the shell for a failed run: unlike the toast it stays until
+  // the user dismisses it, so the error is not missed
+  const errorOverlay = document.createElement("div");
+  errorOverlay.className = "gfx-error-overlay";
+  errorOverlay.hidden = true;
+  const errorDialog = document.createElement("div");
+  errorDialog.className = "gfx-error-dialog";
+  errorDialog.setAttribute("role", "alertdialog");
+  errorDialog.setAttribute("aria-modal", "true");
+  errorDialog.setAttribute("aria-labelledby", "gfx-error-title");
+  const errorTitle = document.createElement("div");
+  errorTitle.className = "gfx-error-title";
+  errorTitle.id = "gfx-error-title";
+  errorTitle.textContent = "Simulation failed";
+  const errorMessage = document.createElement("pre");
+  errorMessage.className = "gfx-error-message";
+  const errorClose = document.createElement("button");
+  errorClose.type = "button";
+  errorClose.className = "gfx-error-close";
+  errorClose.textContent = "Dismiss";
+  errorDialog.append(errorTitle, errorMessage, errorClose);
+  errorOverlay.append(errorDialog);
+  const hideError = (): void => {
+    errorOverlay.hidden = true;
+  };
+  errorClose.addEventListener("click", hideError);
+  errorOverlay.addEventListener("click", (event) => {
+    if (event.target === errorOverlay) hideError();
+  });
+  errorOverlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideError();
+  });
+
+  el.append(menubar, sectionControls, explorer.root, viewport, toast, errorOverlay);
 
   const scene = new Scene3D(sceneRoot);
   controlSelect.value = scene.control; // the scene's default (spec R3)
@@ -1167,6 +1200,19 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
     else if (payload.path) showToast(`saved ${payload.path}`);
   };
 
+  // a run that raised in the kernel: show its message in a modal. The kernel
+  // resets run_result to "running" at the next run, so a repeat error re-fires
+  const applyRunResult = (): void => {
+    const payload = model.get("run_result") as { status?: string; message?: string } | undefined;
+    if (payload?.status === "error") {
+      errorMessage.textContent = payload.message || "The run failed with no message.";
+      errorOverlay.hidden = false;
+      errorClose.focus();
+    } else if (payload?.status === "running") {
+      hideError();
+    }
+  };
+
   // the kernel is the authority on the save folder (it resolves and creates
   // it), so reflect its value back into the field (spec D14)
   const applySaveDir = (): void => {
@@ -1219,6 +1265,7 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
   model.on("change:geometry", applyGeometry);
   model.on("change:meta", applyGeometry);
   model.on("change:save_result", applySaveResult);
+  model.on("change:run_result", applyRunResult);
   model.on("change:save_dir", applySaveDir);
   applySection();
   applyState();
