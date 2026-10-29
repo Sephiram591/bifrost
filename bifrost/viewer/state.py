@@ -341,6 +341,14 @@ class ViewerState:
         self.specs.append(spec)
         return spec
 
+    def clear_adopted(self) -> None:
+        """Drops every adopted spec (R16), keeping the ones the user added."""
+        gone = self.adopted
+        self.specs = [spec for spec in self.specs if spec.id not in gone]
+        if self.selection and self.selection.get("name") in gone:
+            self.selection = None
+        self.adopted = set()
+
     def find_spec(self, spec_id: str) -> ObjectSpec:
         """The spec with ``spec_id`` (spec R12).
 

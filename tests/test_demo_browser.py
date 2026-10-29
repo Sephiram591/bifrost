@@ -92,6 +92,17 @@ class Demo:
         )]
 
 
+    def listed(self) -> list[tuple[str, str]]:
+        """(kind, name) of every source and monitor the open tab lists, in order."""
+        return [
+            tuple(item)
+            for item in self.page.evaluate(
+                """() => [...document.querySelectorAll('.gfx-tabpanel:not([hidden]) [data-kind=source], .gfx-tabpanel:not([hidden]) [data-kind=detector]')]
+                         .map(e => [e.dataset.kind, (e.querySelector('.gfx-spec-header') ?? e).innerText.replace(/[▼▶]/g, '').trim()])"""
+            )
+        ]
+
+
 @pytest.fixture
 def demo(browser, base_url):
     d = Demo(browser, base_url).ready()
@@ -128,6 +139,39 @@ def test_it_starts_in_the_result_view_with_the_fields_loaded(demo):
     assert {"field", "movie"} <= names
     for entry in MANIFEST["fields"].values():
         assert f"/demo/data/fields/{entry['id']}.real.bin" in demo.requests
+
+
+def test_every_result_card_starts_checked_and_filled_in(demo):
+    """The cards are built when the fields arrive, after the state: they must still show it."""
+    names = {entry["name"] for entry in MANIFEST["fields"].values()}
+    demo.page.wait_for_function(f"document.querySelectorAll('.gfx-field-group').length === {len(names)}", timeout=60000)
+    cards = demo.page.evaluate(
+        """() => [...document.querySelectorAll('.gfx-field-group')].map(g => ({
+               name: g.querySelector('.gfx-spec-header').innerText.replace(/[▼▶]/g, '').trim(),
+               checked: g.querySelector('.gfx-spec-header input[type=checkbox]').checked,
+               component: g.querySelector('select').value }))"""
+    )
+    assert {c["name"] for c in cards} == names
+    assert all(c["checked"] for c in cards), cards
+    assert all(c["component"] == "|E|" for c in cards), cards  # filled in, not the blank default
+
+
+def test_every_monitors_field_is_shown_when_it_opens(demo):
+    """Frequency-domain monitors (the mode monitors and the phasor plane) open shaded, like the movie."""
+    state = json.loads((DEMO / "data" / "result.json").read_text())["state"]
+    assert state["field_settings"] and all(s["field_visible"] for s in state["field_settings"].values())
+    demo.page.wait_for_function("document.querySelector('.gfx-colorbar') && !document.querySelector('.gfx-colorbar').hidden", timeout=60000)
+    title = demo.page.locator(".gfx-colorbar").inner_text().split("·")[0].strip()
+    assert title in {"field", "movie"}, f"the colorbar describes {title!r}, a small mode monitor's plane"
+
+
+def test_the_editor_lists_the_same_sources_and_monitors_as_the_result(demo):
+    demo.page.wait_for_function("document.querySelectorAll('.gfx-field-group').length > 0", timeout=60000)
+    in_result = demo.listed()
+    assert {kind for kind, _ in in_result} == {"source", "detector"}
+    demo.tab("Sources / Detectors")
+    in_editor = demo.listed()
+    assert sorted(in_editor) == sorted(in_result), (in_editor, in_result)
 
 
 def test_setup_geometry_and_slices_load_lazily(demo):

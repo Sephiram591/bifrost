@@ -230,6 +230,65 @@ def test_load_result_same_stack_adopts_detectors() -> None:
     assert viewer.geometry["size"] == before_geometry["size"]
 
 
+def _listing(state: Any) -> list[tuple[str, str, str, tuple[float, ...]]]:
+    """(kind, name, type, center) of every source and detector a world lists, in order."""
+    wire = state.to_state()
+    return [
+        (kind, spec["params"]["name"], spec["type"], tuple(round(float(v), 6) for v in spec["params"]["center"]))
+        for kind in ("sources", "detectors")
+        for spec in wire[kind]
+    ]
+
+
+def test_load_result_lists_the_same_sources_and_detectors_in_the_editor() -> None:
+    """R16/R17: a result from user code leaves the editor listing what the Result tab does."""
+    result = _run(_detector_viewer())
+    viewer = bf.viewer.widget.view(f1_stack())  # a fresh viewer: nothing in its editor
+    _coarse(viewer)
+    assert viewer._viewer_state.specs == []
+    viewer.load_result(*result)
+    editor, shown = viewer._viewer_state, viewer._result_state
+    assert _listing(editor) and _listing(editor) == _listing(shown)
+    assert [s.id for s in editor.specs] == [s.id for s in shown.specs]
+    assert editor.adopted == {s.id for s in editor.specs}  # read-only copies: never re-created by a run
+    assert editor.to_state()["detectors"][0]["adopted"] is True
+    # the editor's tab puts them on the wire with a glyph each, so its 3D view draws the same planes
+    assert len(editor.to_state()["glyphs"]) == len(editor.specs)
+
+
+def test_loading_a_result_twice_does_not_duplicate_the_editor_listing() -> None:
+    result = _run(_detector_viewer())
+    viewer = bf.viewer.widget.view(f1_stack())
+    _coarse(viewer)
+    viewer.load_result(*result)
+    first = _listing(viewer._viewer_state)
+    viewer.load_result(*result)
+    assert _listing(viewer._viewer_state) == first
+
+
+def test_loading_the_widgets_own_run_adds_no_copies_to_the_editor() -> None:
+    """The editor already holds the setup that produced the result: nothing is listed twice."""
+    viewer = _detector_viewer()
+    result = _run(viewer)
+    own = len(viewer._viewer_state.specs)
+    viewer.load_result(*result)
+    assert len(viewer._viewer_state.specs) == own
+    assert viewer._viewer_state.adopted == set()
+
+
+def test_a_users_own_specs_survive_when_a_result_is_loaded_and_replaced() -> None:
+    result = _run(_detector_viewer())
+    viewer = bf.viewer.widget.view(f1_stack())
+    _coarse(viewer)
+    viewer._on_msg(None, {"event": "add_source", "port": "o2"}, [])
+    mine = [s.id for s in viewer._viewer_state.specs]
+    viewer.load_result(*result)
+    assert set(mine) <= {s.id for s in viewer._viewer_state.specs}
+    assert viewer._viewer_state.adopted and not set(mine) & viewer._viewer_state.adopted
+    viewer._viewer_state.clear_adopted()
+    assert [s.id for s in viewer._viewer_state.specs] == mine
+
+
 def test_load_result_different_stack_rebuilds_geometry() -> None:
     """R16/R17: a foreign stack becomes the result world's geometry; the editor is untouched."""
     viewer = _detector_viewer()

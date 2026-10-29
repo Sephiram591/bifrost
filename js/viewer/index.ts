@@ -1016,8 +1016,9 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
    *
    * The bar is a canvas ramp beside the 3D viewport, labelled with the
    * detector's component, transform and the plane's own value range. Only one is
-   * shown — the first detector with a field — so the overlay stays readable when
-   * several detectors are shaded.
+   * shown — the shaded detector with the largest plane (the first of equals) — so
+   * the overlay stays readable when several detectors are shaded and the bar
+   * describes the picture, not a small mode monitor's plane.
    */
   function renderColorbar(
     state: StatePayload,
@@ -1030,12 +1031,16 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
     }
     const settings = state.field_settings ?? {};
     const logRange = state.simulation?.log_range ?? 6;
-    const entry = (state.glyphs ?? []).find((glyph) => {
+    const shaded = (state.glyphs ?? []).filter((glyph) => {
       if (glyph.kind !== "detector" || !glyph.visible) return false;
       const s = settings[glyph.id];
       const field = fields[glyph.id];
       return Boolean(s?.field_visible && field && s.field_component);
     });
+    const area = (glyph: { u_half: number; v_half: number }): number => glyph.u_half * glyph.v_half;
+    const entry = shaded.reduce<(typeof shaded)[number] | undefined>(
+      (best, glyph) => (best && area(best) >= area(glyph) ? best : glyph), undefined,
+    );
     if (!entry) {
       colorbar.hidden = true;
       return;

@@ -62,7 +62,8 @@ any fdtdx detector, sized and placed with constraints, as in the script.
 
 `viewer.load_result` takes the three things fdtdx hands out: the placed objects, the arrays and the config. The result
 appears in the viewer's **Result** tab: one read-only entry per monitor, with the field of every plane-shaped monitor
-drawn on its plane and a frame slider for monitors that recorded several frames. In a notebook, end the cell with
+drawn on its plane and a frame slider for monitors that recorded several frames. The **Sources / Detectors** tab lists
+the same sources and monitors. In a notebook, end the cell with
 `viewer`. See [Viewer and live demo](viewer.md) for what you can do there.
 
 ## Troubleshooting

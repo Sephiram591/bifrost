@@ -276,6 +276,8 @@ export class Explorer {
   private locked = false;
   /** the latest simulation settings, for the defaults a spec's unset fields show */
   private settings: SimSettingsPayload | null = null;
+  /** the last state rendered, so a result whose fields arrive later is filled in at once */
+  private lastState: StatePayload | null = null;
 
   constructor(
     private meta: MetaPayload,
@@ -427,12 +429,14 @@ export class Explorer {
    *
    * The Result tab is rebuilt from these — one section per detector that has a
    * payload — and the frame slider's range is each payload's frame count (its
-   * recorded frequencies or time steps). Called before :meth:`render`, which
-   * writes the rows.
+   * recorded frequencies or time steps). Called before :meth:`render` with a
+   * new state, which writes the rows; a payload that arrives on its own (the
+   * demo loads fields lazily, a kernel may send them after the state) is filled
+   * from the last state rendered, so the cards never sit at their blank defaults.
    */
   setFields(fields: Record<string, FieldPayload>): void {
     this.fields = fields ?? {};
-    this.renderResult();
+    this.renderResult(this.lastState ?? undefined);
   }
 
   /** Moves a detector's frame slider and readout without an edit (playback). */
@@ -510,6 +514,7 @@ export class Explorer {
   }
 
   render(state: StatePayload): void {
+    this.lastState = state;
     this.settings = state.simulation;
     for (const level of this.meta.levels) {
       const row = this.levelRows.get(level.name);

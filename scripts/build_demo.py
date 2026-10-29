@@ -74,18 +74,8 @@ def main() -> None:
             "peak_gib": None if result.peak_gib is None else round(result.peak_gib, 2),
         },
     }
-    # open on the movie, at its most energetic frame, shaded by |E|; the static phasor field and the
-    # mode monitors' fields are one click away in the Result tab (they share planes, so only one shows)
-    show = {"field_component": "|E|", "field_transform": "abs"}
-    defaults = {
-        "movie": {**show, "field_visible": True},
-        "field": {**show, "field_visible": False},
-        "in": {**show, "field_visible": False},
-        "out": {**show, "field_visible": False},
-    }
-    data = bf.viewer.export.export_demo(
-        viewer, args.out, section_step_um=args.section_step, field_defaults=defaults, manifest=manifest
-    )
+    # every monitor opens with its field shown (|E|); the movie opens at its most energetic frame
+    data = bf.viewer.export.export_demo(viewer, args.out, section_step_um=args.section_step, manifest=manifest)
     print(f"wrote {args.out}: {data['total_bytes'] / 1e6:.1f} MB in total")
     for spec_id, entry in data["fields"].items():
         print(f"  field {entry['name']}: {entry['frames']} frames, {sum(entry['bytes'].values()) / 1e6:.2f} MB")

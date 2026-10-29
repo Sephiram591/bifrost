@@ -206,6 +206,33 @@ class Viewer(anywidget.AnyWidget):
         self._result_meta = meta
         self._result_section = build_section_payload(new_state)
 
+    def _list_in_editor(self, result: RunResult, stack: Any) -> None:
+        """Makes the editor's sources and detectors the result's (spec R16, R17).
+
+        A result loaded from user code has no setup in the editor, so the Sources /
+        Detectors tab would be empty while the Result tab lists them. The result's
+        sources and detectors are adopted into the editor too: the same read-only
+        specs, drawn on the same planes. Nothing is added when the editor already
+        holds them (the widget's own run loaded back) or when the result is on another
+        device, whose box the editor does not share.
+        """
+        from .adopt import adopt_result
+
+        state = self._viewer_state
+        state.clear_adopted()
+        if stack is not state.stack:
+            return
+        placed = [
+            (category, str(obj.name))
+            for category, objects in (
+                ("source", getattr(result.objects, "sources", ())), ("detector", result.objects.detectors)
+            )
+            for obj in objects
+        ]
+        own = {(spec.category, spec.name) for spec in state.specs}
+        if not set(placed) <= own:
+            adopt_result(state, result.objects, result.config)
+
     def _active_state(self) -> ViewerState:
         """The state whose traits are on the wire (spec R17).
 
@@ -409,7 +436,9 @@ class Viewer(anywidget.AnyWidget):
                 self._run_result = result
                 self.run_result = {"status": "done", "detectors": _detector_names(result)}
                 # the result lands in the result world (spec R17): the editor's
-                # setup and styles are untouched, the Result tab shades from it
+                # setup and styles are untouched, the Result tab shades from it;
+                # the editor's own setup is what ran, so a loaded result's copies go
+                self._viewer_state.clear_adopted()
                 self._install_result(result, self.stack)
                 # the field buffers ride the same worker-thread context install
                 self._sync_active()
@@ -489,6 +518,7 @@ class Viewer(anywidget.AnyWidget):
         self.run_result = {"status": "done", "detectors": _detector_names(result)}
         # the result lands in the result world too (spec R17): same stack as the
         # editor here, but the Result tab shades from the result world's specs
+        self._viewer_state.clear_adopted()
         self._install_result(result, self.stack)
         self._sync_active()
 
@@ -510,14 +540,16 @@ class Viewer(anywidget.AnyWidget):
         ``load_result(*result)``. The result lands in the viewer's **result
         world** (spec R17): a separate state built from ``stack`` (defaulting
         to the stack the widget was built from) that the Result tab shows —
-        its own geometry, one read-only adopted spec per detector in
-        ``objects.detectors`` (spec R16), and the phasor-family detectors
-        shaded from ``arrays.detector_states``. The editor's setup, geometry
-        and styles are untouched.
+        its own geometry, one read-only adopted spec per source and detector in
+        ``objects`` (spec R16), and the phasor-family detectors shaded from
+        ``arrays.detector_states``. The editor's geometry and styles are
+        untouched. When the result is on the widget's own stack, the editor
+        lists the same sources and detectors, as read-only copies, so the two
+        tabs agree.
 
-        The adopted detectors are excluded from a later :meth:`run`: the setup
-        after a ``load_result`` is effectively fresh, and the foreign detectors
-        are not re-created in it.
+        The adopted sources and detectors are excluded from a later
+        :meth:`run`, and a run (or a second ``load_result``) replaces them: the
+        setup you add yourself is what runs, and is never re-created from them.
 
         Args:
             objects: the result's placed :class:`fdtdx.objects.container.ObjectContainer`.
@@ -543,6 +575,7 @@ class Viewer(anywidget.AnyWidget):
         validate_foreign_result(objects, arrays, config, stack=stack)
         result = RunResult(objects, arrays, config)
         self._install_result(result, stack, settings=settings)
+        self._list_in_editor(result, stack)
         self._run_result = result
         self._run_error = None
         self._previous_result = None

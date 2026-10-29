@@ -286,7 +286,10 @@ def validate_result(state: Any, result: Any) -> None:
             "show_result needs an object with .arrays.detector_states, .objects and .config"
         ) from exc
 
-    expected = {spec.name: spec for spec in state.specs if spec.category == "detector"}
+    adopted = getattr(state, "adopted", ())  # a loaded result's copies are not the widget's own setup
+    expected = {
+        spec.name: spec for spec in state.specs if spec.category == "detector" and spec.id not in adopted
+    }
     found = set(detector_states)
     missing = sorted(set(expected) - found)
     if missing:

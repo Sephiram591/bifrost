@@ -48,6 +48,10 @@ viewer.load_result(objects, arrays, config, stack=stack)
 `objects`, `arrays` and `config` are what `fdtdx.place_objects` and `fdtdx.run_fdtd` return, and `stack` is the
 `StackDevice` the result was recorded on. (This snippet is not runnable by itself: it is the last step of those scripts.)
 
+The **Result** tab and the **Sources / Detectors** tab then list the same sources and monitors, each with its name, type
+and plane. They are read-only there, because the viewer only has the objects fdtdx placed, not the calls that made them.
+To simulate again from the viewer, add your own sources and monitors: running replaces the listed ones.
+
 ## Live demo
 
 This is the viewer on the result of the [bend tutorial](../getting-started.md): a 90° silicon waveguide bend simulated
