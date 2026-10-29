@@ -13,14 +13,16 @@ nav:
   - Installation: installation.md
   - Getting started: getting-started.md
   - User guide:
-      - Layer stacks and StackDevice: guide/stack-device.md
-      - Geometry options and cost: guide/options.md
+      - Layer stacks and materials: guide/layer-stacks.md
+      - Simulation setup and ports: guide/simulation-setup.md
+      - Results and field monitors: guide/results.md
+      - Viewer and live demo: guide/viewer.md
+      - Geometry options: guide/options.md
       - Gradients and inverse design: guide/gradients.md
       - Diagnostics and timing: guide/diagnostics.md
       - Geometry model: guide/geometry-model.md
-  - Viewer: viewer.md
-  - Validation: validation.md
   - Examples:
+      - Waveguide bend: examples/waveguide-bend.md
       - Elevator coupler: examples/elevator-coupler.md
   - API reference:
       - Overview: api/index.md
@@ -30,6 +32,7 @@ nav:
       - bf.viewer: api/viewer.md
   - Development:
       - Contributing and tests: development.md
+      - Validation and benchmarks: validation.md
       - Viewer design spec: design/viewer-spec.md
 
 theme:
@@ -78,6 +81,7 @@ plugins:
       default_handler: python
       handlers:
         python:
+          paths: [..]  # the repository root, so the docs build reads bifrost from source
           options:
             show_source: true
             docstring_style: google

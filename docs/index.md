@@ -5,51 +5,37 @@
 The rainbow bridge between your [GDSFactory(X)](https://gdsfactory.github.io/gdsfactory/) pipeline and
 [FDTD(X)](https://github.com/ymahlau/fdtdx) simulation.
 
-bifrost takes a gdsfactory component and its `LayerStack` and turns them into a differentiable fdtdx simulation, with
-a 3D/field viewer for setting up and inspecting the run. No GDS export, no re-describing the geometry with fdtdx
-primitives.
+bifrost turns a gdsfactory component and its layer stack into a differentiable [fdtdx](https://github.com/ymahlau/fdtdx)
+simulation, and ships a 3D viewer for setting up the run and inspecting its fields. There is no GDS export and no
+re-describing of the geometry with fdtdx primitives. This is a complete example: it builds a straight silicon waveguide
+and opens it in the viewer (in a Jupyter or marimo cell, end the cell with `viewer` to display it).
 
 ```python
-import bifrost as bf
-import gdsfactory as gf
-
-gf.gpdk.PDK.activate()
-stack = bf.StackDevice.from_layer_stack(component, layer_stack, materials=materials, background="sio2")
-viewer = bf.view(stack)   # interactive 3D viewer, sources/detectors, run
+--8<-- "examples/straight_waveguide.py:straight"
 ```
 
-```
-component + LayerStack --> bf.StackDevice --> fdtdx simulation --> bf.view
-   (gdsfactory(x))        (voxelize, ports)   (apply_stack, run)    (fields, video)
-```
-
-## Features
-
-- **Layer-stack voxelization**: every `LayerLevel` (logical and derived layers, `mesh_order`, sidewall angle, bias) into
-  one multi-material region, with sub-pixel smoothing and full permittivity tensors.
-- **Gradients**: differentiable with respect to polygon vertices and level heights, so `jax.grad` flows from the
-  simulation result back to the cell function parameters
-  (needs [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx)'s JAX backend).
-- **Ports to sources and detectors**: simulation volume and sources/detectors placed on the component's ports.
-- **Viewer**: an `anywidget` with a 3D viewport, cross-sections, field display, timeline and video export.
-- **Diagnostics and timing** of the geometry steps.
+`bf.StackDevice` is the device the solver sees: the component's polygons, extruded through the layer stack into
+permittivity, with ports ready to take sources and monitors. [Installation](installation.md) explains how to get the
+packages.
 
 ## Where to go next
 
-- [Installation](installation.md)
-- [Getting started](getting-started.md)
-- User guide: [StackDevice](guide/stack-device.md), [options](guide/options.md),
-  [gradients](guide/gradients.md), [diagnostics](guide/diagnostics.md), [geometry model](guide/geometry-model.md)
-- [Viewer](viewer.md)
-- [Validation and benchmarks](validation.md)
-- [Examples](examples/elevator-coupler.md)
-- [API reference](api/index.md)
-- [Development](development.md)
+<div class="grid cards" markdown>
 
-## Related projects
+- **[Run your first simulation](getting-started.md)**
 
-- [gdsfactory](https://gdsfactory.github.io/gdsfactory/): components, cells, PDKs and routing. For anything about
-  building a layout, use its documentation.
-- [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx): the JAX port of gdsfactory that bifrost builds on, which
-  makes layouts differentiable.
-- [fdtdx](https://github.com/ymahlau/fdtdx): the differentiable FDTD solver that bifrost drives.
+    A 90° waveguide bend from an empty file to a transmission value and a field image.
+
+- **[Explore the live demo](guide/viewer.md#live-demo)**
+
+    The result of that simulation in the viewer, in your browser, with no installation.
+
+- **[Read the user guide](guide/layer-stacks.md)**
+
+    Layer stacks, simulation setup, results, the viewer, gradients and diagnostics.
+
+</div>
+
+bifrost builds on [gdsfactory](https://gdsfactory.github.io/gdsfactory/) (components, cells, PDKs and routing: use its
+documentation for anything about building a layout), on [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx) (the JAX
+port of gdsfactory that makes layouts differentiable) and on [fdtdx](https://github.com/ymahlau/fdtdx) (the solver).

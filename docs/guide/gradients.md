@@ -1,6 +1,52 @@
 # Gradients through the simulation
 
-The stack's parameters live in `params[name]`, in stack units (µm and degrees):
+Every number in a `StackDevice` (the vertices of every polygon, the heights, thicknesses and sidewall angles of every
+level) is differentiable through the whole simulation. This script is complete: it differentiates the **phase** a 90° bend
+adds to the light with respect to the bend's **radius** with `jax.value_and_grad`, and compares the result with a central
+finite difference of the same simulation. Run it on a GPU.
+
+```python
+--8<-- "examples/guide/gradients.py:gradient"
+```
+
+It prints:
+
+```text
+phase shift at 2.0 um: +0.000 rad (zero by construction)
+d(phase)/dR: autodiff -5.64 rad per um, finite difference -5.64 rad per um
+```
+
+The two derivatives agree to the digits shown. (On an NVIDIA L40S the script took 133 s: four simulations, one of them
+also run backward. In a scan of the phase shift at radii from 1.95 to 2.1 µm, the finite difference was -5.39, -5.58
+and -5.64 rad per µm for steps of ±0.01, ±0.02 and ±0.05 µm: the smallest steps are the noisiest, because the grid's
+cells are 0.04 µm wide.) How the script works:
+
+- `stack.pack(component)` returns the stack's vertex parameters for a new component *of the same polygon topology*. Rebuilding
+  the bend with a new radius inside the objective and merging its vertices into the parameters
+  (`{**params["stack"], **placed.pack(bend)}`) makes the result a function of the radius.
+- `bf.apply_stack` writes the stack into the arrays, `fdtdx.run_fdtd` solves, and JAX differentiates through all of it.
+  `fdtdx.GradientConfig(method="checkpointed", ...)` bounds the memory of the backward pass: without a gradient
+  configuration the run stores every time step and a GPU runs out of memory quickly.
+- As with the layout backend, do not wrap the objective in `jax.jit` (the cell functions need concrete values). The
+  derivative is that of the *discretized* simulation, as explained below.
+
+Three things in the script are worth copying into your own objectives:
+
+- **Choose an objective with a signal.** The transmission of a good bend is nearly flat in the radius (it barely moves around
+  2 µm), and the grid's cell-scale noise is as large as its slope, so its derivative tells you little. The phase changes by
+  several radians per µm.
+- **Keep monitors in the straight lead for every parameter value.** The output monitor sits 0.5 µm out in the port
+  extension. On the port itself, a larger radius would put the end of the arc past the monitor.
+- **A mode's overall sign is arbitrary in each mode solve.** The ratio of two mode amplitudes is therefore defined only up to
+  a sign, and the phase of the ratio jumps by π between some parameter values, which would ruin a finite difference. The
+  script compares `ratio**2`, which does not depend on the sign, with a reference at the base radius.
+
+The rest of this page is reference.
+
+## The stack's parameters
+
+The stack's parameters live in `params[name]`, in stack units (µm and degrees). This is an illustration of the
+dictionary's layout, not a runnable example:
 
 ```python
 params["stack"] = {
@@ -14,7 +60,7 @@ params["stack"] = {
 Every level's `zmin` is independent: making a film thicker does not lift the
 levels deposited on it. To keep them stacked, derive their `zmin` from the
 level below inside the objective, e.g. for a cladding deposited on a 0.22 µm
-core:
+core (a sketch, not runnable by itself):
 
 ```python
 def stacked(t_core):
@@ -27,22 +73,8 @@ the box are not part of the device: pass `level_margin=` (µm) to
 `from_layer_stack` to include the levels within that distance of the box, so
 that they can be moved into it.
 
-To differentiate with respect to a cell parameter, rebuild the component inside
-the objective and swap in its vertices with `stack.pack`:
-
-```python
-stack = objects["stack"]
-
-def transmission(width):
-    p = {**params, "stack": {**params["stack"], **stack.pack(gf.components.mmi1x2(width_mmi=width))}}
-    arrays2, objects2, _ = bf.apply_stack(arrays, objects, p, key)
-    _, arrays2 = fdtdx.run_fdtd(arrays=arrays2, objects=objects2, config=config, key=key)
-    return jnp.abs(objects2["out"].compute_overlap(arrays2.detector_states["out"])) ** 2
-
-jax.grad(transmission)(2.5)
-```
-
-`pack` requires the same polygon topology as the component the device was built
+To differentiate with respect to a cell parameter, rebuild the component inside the objective and swap in its vertices
+with `stack.pack`, as the script above does. `pack` requires the same polygon topology as the component the device was built
 from, meaning the same number of polygons and vertices per polygon on every
 layer. Thicknesses and sidewall angles are ordinary entries of the params dict
 and can be differentiated directly. Where a surface lies exactly on a voxel
@@ -109,7 +141,7 @@ builds a device for them; `retopologize` raises.
 When the new topology is intended, `stack.retopologize(component)` returns the
 same device (box, levels, materials, placement) with the topology of the new
 component; its polygons may also change in number and size. Swap it into the
-placed objects and refresh its parameters:
+placed objects and refresh its parameters (a sketch, not runnable by itself):
 
 ```python
 objects = objects.copy()
@@ -124,7 +156,7 @@ found again. `pack(component,
 check=False)` skips the check.
 
 As with the layout backend, don't wrap the cell function in `jax.jit`; see
-[Differentiable layouts](https://github.com/Sephiram591/gdsfactoryx). Simulations with lossy materials
+[the gdsfactoryx README](https://github.com/Sephiram591/gdsfactoryx#differentiability). Simulations with lossy materials
 should use `fdtdx.GradientConfig(method="checkpointed")`, because fdtdx's
 reversible gradients amplify round-off in lossy voxels. `StackDevice` warns
 when it detects that combination.

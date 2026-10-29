@@ -1,5 +1,22 @@
 # Geometry diagnostics
 
+A grid can only draw what it resolves. When a device is placed, bifrost checks what each level draws against the grid and
+warns about the parts it cannot represent. This script is complete: a 40 nm strip on a 50 nm grid, placed without a run.
+
+```python
+--8<-- "examples/guide/diagnostics.py:diagnostics"
+```
+
+It prints one warning for the strip:
+
+```text
+StackDevice 'stack', level 'core': 1 part narrower than 0.075 um (1.5 cells); the narrowest is 0.04 um (0.8 cells) wide, at (2.5000, 0.0000) um and z = 0.0000 um. The grid does not resolve it: refine the grid, raise xy_subsamples, or widen the part (diagnostics=False turns these warnings off)
+```
+
+The rest of this page describes what is checked.
+
+## What is checked
+
 When fdtdx places the device, the device checks the shape every level draws at
 the grid's resolution. It warns with a `StackDiagnosticWarning`, one per level
 and kind of problem, about:
