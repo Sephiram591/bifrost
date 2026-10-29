@@ -29685,6 +29685,8 @@ var Explorer = class {
     this.locked = false;
     /** the latest simulation settings, for the defaults a spec's unset fields show */
     this.settings = null;
+    /** the last state rendered, so a result whose fields arrive later is filled in at once */
+    this.lastState = null;
     this.root = document.createElement("div");
     this.root.className = "gfx-explorer";
     this.properties = document.createElement("div");
@@ -29816,12 +29818,14 @@ var Explorer = class {
    *
    * The Result tab is rebuilt from these — one section per detector that has a
    * payload — and the frame slider's range is each payload's frame count (its
-   * recorded frequencies or time steps). Called before :meth:`render`, which
-   * writes the rows.
+   * recorded frequencies or time steps). Called before :meth:`render` with a
+   * new state, which writes the rows; a payload that arrives on its own (the
+   * demo loads fields lazily, a kernel may send them after the state) is filled
+   * from the last state rendered, so the cards never sit at their blank defaults.
    */
   setFields(fields) {
     this.fields = fields ?? {};
-    this.renderResult();
+    this.renderResult(this.lastState ?? void 0);
   }
   /** Moves a detector's frame slider and readout without an edit (playback). */
   showFrame(id, frame) {
@@ -29881,6 +29885,7 @@ var Explorer = class {
     row2.save.title = saving ? "saving the video\u2026" : SAVE_VIDEO_HINT;
   }
   render(state) {
+    this.lastState = state;
     this.settings = state.simulation;
     for (const level of this.meta.levels) {
       const row2 = this.levelRows.get(level.name);
@@ -36967,12 +36972,17 @@ function render({ model, el }) {
     }
     const settings2 = state.field_settings ?? {};
     const logRange = state.simulation?.log_range ?? 6;
-    const entry = (state.glyphs ?? []).find((glyph) => {
+    const shaded = (state.glyphs ?? []).filter((glyph) => {
       if (glyph.kind !== "detector" || !glyph.visible) return false;
       const s2 = settings2[glyph.id];
       const field2 = fields[glyph.id];
       return Boolean(s2?.field_visible && field2 && s2.field_component);
     });
+    const area = (glyph) => glyph.u_half * glyph.v_half;
+    const entry = shaded.reduce(
+      (best, glyph) => best && area(best) >= area(glyph) ? best : glyph,
+      void 0
+    );
     if (!entry) {
       colorbar.hidden = true;
       return;
