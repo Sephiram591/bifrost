@@ -35,9 +35,9 @@ included) and, on a GPU, the peak memory.
 
 | Grid cell | Transmission | Wall time | Peak GPU memory |
 |---|---|---|---|
-| 50 nm | 0.9991 | 25 s | 0.7 GiB |
-| 40 nm (the script's default) | 0.9991 | 32 s | 1.2 GiB |
-| 25 nm | 0.9985 | 107 s | 4.6 GiB |
-| 20 nm | 0.9982 | 228 s | 8.7 GiB |
+| 50 nm | 1.0012 | 24 s | 0.7 GiB |
+| 40 nm (the script's default) | 1.0008 | 32 s | 1.2 GiB |
+| 25 nm | 0.9998 | 106 s | 4.6 GiB |
+| 20 nm | 0.9994 | 227 s | 8.7 GiB |
 
-Measured on an NVIDIA L40S, each row in its own process; A run 1.5 times as long (600 fs) gives the same transmission to four digits at 25 nm (0.9985), so 400 fs is enough time for the pulse to cross the device and ring down. `scripts/bend_sweep.py` reproduces this table.
+Measured on an NVIDIA L40S, each row in its own process; A run 1.5 times as long (600 fs) gives the same transmission to four digits at 25 nm (0.9998), so 400 fs is enough time for the pulse to cross the device and ring down. `scripts/bend_sweep.py` reproduces this table.

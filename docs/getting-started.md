@@ -19,8 +19,8 @@ python waveguide_bend.py
 You should see (the numbers are from an NVIDIA L40S; yours will differ slightly):
 
 ```text
-transmission: 0.9991
-wall time:    33.2 s (compilation included)
+transmission: 1.0008
+wall time:    32.4 s (compilation included)
 peak memory:  1.2 GiB on cuda:0
 field image:  waveguide_bend_field.png
 ```
@@ -30,12 +30,14 @@ and the file `waveguide_bend_field.png` appears next to the script:
 ![|E|² on the middle of the bend, with the guide's outline](images/waveguide_bend_field.png)
 
 The light enters at the bottom left, follows the 90° turn and leaves at the top right. The transmission is the fraction of
-the input TE0 power that comes out of `o2` in TE0: **0.9991**, so the bend loses about 0.09 % at this setting.
+the input TE0 power that comes out of `o2` in TE0: **1.0008**. A transmission a little above 1 is not gain: it is the
+numerical error of the mode amplitudes at this grid, a few parts in a thousand, and it shrinks as the grid is refined (see
+[Choosing the settings](#choosing-the-settings)). A bend this wide loses less than that error.
 
 !!! note "How long it takes"
-    On an NVIDIA L40S the script took **33 s** and a peak of **1.2 GiB** of GPU memory. The first
-    run includes the time JAX needs to compile the solver: in one process the first simulation took 34.9 s and an identical second one 16.1 s, so about half of the first run is compilation. Without a GPU, try a coarser grid first
-    (`--resolution 0.1` took about 30 s on 8 CPU cores). The introductory settings are chosen to be quick: they are not a
+    On an NVIDIA L40S the script took **32 s** and a peak of **1.2 GiB** of GPU memory. The first
+    run includes the time JAX needs to compile the solver: in one process the first simulation took 32.7 s and an identical second one 16.1 s, so about half of the first run is compilation. Without a GPU, try a coarser grid first
+    (`--resolution 0.1` took 31 s on 4 CPU cores, with a transmission of 0.980). The introductory settings are chosen to be quick: they are not a
     convergence study (see [Choosing the settings](#choosing-the-settings)).
 
 ## The script, step by step
@@ -148,18 +150,18 @@ the movie. You can try exactly this result, precomputed, in the [live demo](guid
 
 ## Choosing the settings
 
-These runs of the same script on an NVIDIA L40S show what the grid costs and buys. The transmission barely moves, which is
-why the script uses 40 nm; a finer grid would matter for a more sensitive device. This is a short study to choose the
+These runs of the same script on an NVIDIA L40S show what the grid costs and buys. The transmission moves by less than 0.2 %
+across these grids, which is why the script uses 40 nm; a finer grid would matter for a more sensitive device. This is a short study to choose the
 setting, not a convergence study.
 
 | Grid cell | Transmission | Wall time | Peak GPU memory |
 |---|---|---|---|
-| 50 nm | 0.9991 | 25 s | 0.7 GiB |
-| 40 nm (the script's default) | 0.9991 | 32 s | 1.2 GiB |
-| 25 nm | 0.9985 | 107 s | 4.6 GiB |
-| 20 nm | 0.9982 | 228 s | 8.7 GiB |
+| 50 nm | 1.0012 | 24 s | 0.7 GiB |
+| 40 nm (the script's default) | 1.0008 | 32 s | 1.2 GiB |
+| 25 nm | 0.9998 | 106 s | 4.6 GiB |
+| 20 nm | 0.9994 | 227 s | 8.7 GiB |
 
-A run 1.5 times as long (600 fs) gives the same transmission to four digits at 25 nm (0.9985), so 400 fs is enough time for the pulse to cross the device and ring down.
+A run 1.5 times as long (600 fs) gives the same transmission to four digits at 25 nm (0.9998), so 400 fs is enough time for the pulse to cross the device and ring down.
 
 ## Troubleshooting
 

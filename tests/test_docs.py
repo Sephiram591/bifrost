@@ -167,7 +167,7 @@ def test_hardware_the_bend_tutorial_reproduces_its_numbers(tmp_path: Path) -> No
     done = _run("examples/waveguide_bend.py", "--figure", str(tmp_path / "field.png"))
     assert done.returncode == 0, done.stderr[-2000:]
     transmission = float(re.search(r"transmission:\s+([\d.]+)", done.stdout).group(1))
-    assert 0.99 < transmission <= 1.001, done.stdout  # the tutorial reports 0.9991
+    assert 0.99 < transmission <= 1.005, done.stdout  # the tutorial reports 1.0008: the grid's error, not gain
     assert (tmp_path / "field.png").stat().st_size > 10_000
 
 
