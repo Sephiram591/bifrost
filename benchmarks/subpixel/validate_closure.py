@@ -72,7 +72,7 @@ def device_junctions(polygon, corner_lines: int, picked=None):
     ls = LayerStack(layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.4, material="si",
                                                 mesh_order=1)})
     d = bf.stack.StackDevice.from_layer_stack(
-        c, ls, mats, background="air", name="s", included_layers=["core"],
+        c, ls, mats, background="air", name="s", zrange_layers=["core"],
         boundary_offset=(0.1 + SHIFT[0], -0.1 + SHIFT[0], 0.1 + SHIFT[1], -0.1 + SHIFT[1], -0.1, 0.1),
         averaging="subpixel_full", corner_lines=corner_lines,
         diagnostics=False,

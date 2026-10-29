@@ -81,7 +81,7 @@ def fdtdx_run(res_nm: float, kind: str | None, averaging: str, angle: float, off
     ls = LayerStack(layers={"rod": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=-1.0, thickness=2.0, material="rod",
                                                mesh_order=1)})
     device = bf.stack.StackDevice.from_layer_stack(
-        c, ls, mats, background="air", name="stack", included_layers=["rod"],
+        c, ls, mats, background="air", name="stack", zrange_layers=["rod"],
         boundary_offset=(PERIOD / 2 - max(xs), -PERIOD / 2 - min(xs), BOX_Y - max(ys), -BOX_Y - min(ys),
                          res / 2 - 1.0, 1.0 - res / 2),
         averaging=averaging, diagnostics=False,

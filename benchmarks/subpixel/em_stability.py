@@ -89,7 +89,7 @@ def main() -> None:
         "pad": LayerLevel(layer=L.M1, zmin=0.4, thickness=0.1, material="pad", mesh_order=1),
     })
     device = bf.stack.StackDevice.from_layer_stack(
-        c, ls, mats, background="air", name="stack", included_layers=list(ls.layers),
+        c, ls, mats, background="air", name="stack", zrange_layers=list(ls.layers),
         boundary_offset=(0.3, -0.3, 0.3, -0.3, 0.1, 0.0), averaging=args.averaging, diagnostics=False,
     )
     wave = fdtdx.WaveCharacter(wavelength=1.55e-6)

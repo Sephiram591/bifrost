@@ -35,7 +35,7 @@ and the 0.22 µm core plus 1.5 µm above and below in z.
 - **`materials`** maps every material name that is drawn, plus the `background`, to an `fdtdx.Material`. Here the
   permittivity is constant: the indices are 3.48 (silicon) and 1.444 (silica).
 - **`background`** fills everything no level covers: here the cladding.
-- **`included_layers`** picks the levels whose z range sets the box's height before `boundary_offset` is applied.
+- **`zrange_layers`** picks the levels whose z range sets the box's height before `boundary_offset` is applied.
 - **`extend_ports`** continues a port's cross-section straight out of the component, so the waveguide can run through
   the absorbing boundary instead of ending inside the simulation.
 - **`boundary_offset`** `= (x+, x-, y+, y-, z+, z-)` moves the box's faces by that many µm; positive values move a face
@@ -57,8 +57,8 @@ needs no polygon of its own. This second device is the same guide on a 2 µm sil
 --8<-- "examples/guide/layer_stacks.py:substrate"
 ```
 
-Every level that overlaps the box is drawn, including the `box` level here, which `included_layers` does not list. The
-box starts as the xy bounding box of the polygons (extensions included) and the z range of `included_layers`, so the
+Every level that overlaps the box is drawn, including the `box` level here, which `zrange_layers` does not list. The
+box starts as the xy bounding box of the polygons (extensions included) and the z range of `zrange_layers`, so the
 substrate shows up in the geometry without enlarging the simulation.
 
 ## Parameters
@@ -67,7 +67,7 @@ substrate shows up in the geometry without enlarging the simulation.
 | --- | --- |
 | `materials` | name → `fdtdx.Material` for every drawn level and the `background` |
 | `background` | the material outside every level |
-| `included_layers` | levels whose z span sets the box's height |
+| `zrange_layers` | levels whose z span sets the box's height |
 | `boundary_offset` | the six box faces' offsets in µm |
 | `extend_ports` | `(port, length)` pairs, or `(port, length, [layers])` to extend only some layers |
 | `fill_layers` | layers that cover the whole plane (default `WAFER`) |

@@ -20,7 +20,7 @@ materials = {"core": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Materia
 
 def build(options: bf.StackOptions) -> bf.StackDevice:
     return bf.StackDevice.from_layer_stack(
-        component, layer_stack, materials, background="clad", included_layers=["core"],
+        component, layer_stack, materials, background="clad", zrange_layers=["core"],
         extend_ports=(("o1", 1.0), ("o2", 1.0)), boundary_offset=(0, 0, 1.5, -1.5, 1.5, -1.5),
         options=options, name="stack",
     )

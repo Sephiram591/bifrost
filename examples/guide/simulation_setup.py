@@ -24,7 +24,7 @@ materials = {
     "clad": fdtdx.Material(permittivity=1.444**2),
 }
 stack = bf.StackDevice.from_layer_stack(
-    component, layer_stack, materials, background="clad", included_layers=["core"],
+    component, layer_stack, materials, background="clad", zrange_layers=["core"],
     extend_ports=(("o1", 2.0), ("o2", 2.0)),          # the leads end at the box faces ...
     # ... which are 1.6 um from the guide in y and 1.59 um from the core in z. The box is then
     # 9 x 3.7 x 3.4 um: a whole number of cells at the 50 nm grid below.

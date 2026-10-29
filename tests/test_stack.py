@@ -93,14 +93,14 @@ def box(ls: LayerStack, z_range=(-0.3, 0.6), padding=0.3) -> dict:
     spans = [sorted((lv.zmin, lv.zmin + lv.thickness)) for lv in ls.layers.values()]
     lo, hi = min(a for a, _ in spans), max(b for _, b in spans)
     return dict(
-        included_layers=list(ls.layers),
+        zrange_layers=list(ls.layers),
         boundary_offset=(padding, -padding, padding, -padding, z_range[1] - hi, z_range[0] - lo),
     )
 
 
 def build(c=None, ls=None, materials=None, z_range=(-0.3, 0.6), padding=0.3, **kwargs) -> bf.stack.StackDevice:
     ls = ls or stack()
-    if "included_layers" not in kwargs:
+    if "zrange_layers" not in kwargs:
         kwargs.update(box(ls, z_range, padding))
     return bf.stack.StackDevice.from_layer_stack(
         c or circuit(),
@@ -356,7 +356,7 @@ def test_gpdk_layer_stack_smoke() -> None:
     c = gf.components.straight(length=2.0)
     device = bf.stack.StackDevice.from_layer_stack(
         c, ls, mats, background="air", name="stack",
-        included_layers=["core"], boundary_offset=(0.2, -0.2, 0.2, -0.2, 0.28, -0.4),
+        zrange_layers=["core"], boundary_offset=(0.2, -0.2, 0.2, -0.2, 0.28, -0.4),
     )
     objects, _, params = place(device)
     names, w = objects["stack"].material_weights(params["stack"])
@@ -515,7 +515,7 @@ def test_subpixel_in_a_2d_simulation() -> None:
     # x [-0.3, 2.3], y one cell around 0 (bbox y [-0.5, 0.7]), z [-0.3, 0.6] (levels [-0.3, 0.5])
     device = build(
         averaging="subpixel",
-        included_layers=list(stack().layers),
+        zrange_layers=list(stack().layers),
         boundary_offset=(0.3, -0.3, RES / 2 - 0.7, -RES / 2 + 0.5, 0.1, 0.0),
     )
     config = fdtdx.SimulationConfig(
@@ -599,7 +599,7 @@ def _placed(component, ls, materials, size, center, z_center=0.14, **kwargs):
     lo, hi = min(a for a, _ in spans), max(b for _, b in spans)
     (cx, cy), (sx, sy, sz) = center, size
     device = bf.stack.StackDevice.from_layer_stack(
-        component, ls, materials, background="air", name="s", included_layers=list(ls.layers),
+        component, ls, materials, background="air", name="s", zrange_layers=list(ls.layers),
         boundary_offset=(cx + sx / 2 - bx1, cx - sx / 2 - bx0, cy + sy / 2 - by1, cy - sy / 2 - by0,
                          z_center + sz / 2 - hi, z_center - sz / 2 - lo),
         **kwargs,
@@ -2083,8 +2083,8 @@ def _named(objects, params):
     return {n: np.asarray(w[i]) for i, n in enumerate(names)}
 
 
-def test_box_from_included_layers_and_offsets() -> None:
-    d = build(included_layers=["core"], boundary_offset=(0.1, -0.1, 0.2, 0.0, 0.08, -0.3))
+def test_box_from_zrange_layers_and_offsets() -> None:
+    d = build(zrange_layers=["core"], boundary_offset=(0.1, -0.1, 0.2, 0.0, 0.08, -0.3))
     # bbox x [0, 2], y [-0.5, 0.7]; core z [0, 0.22]
     x0, x1, y0, y1, z0, z1 = -0.1, 2.1, -0.5, 0.9, -0.3, 0.3
     np.testing.assert_allclose(np.array(d.partial_real_shape) * 1e6, [x1 - x0, y1 - y0, z1 - z0], atol=1e-9)
@@ -2096,26 +2096,26 @@ def test_box_from_included_layers_and_offsets() -> None:
 
 def test_box_errors() -> None:
     no_metal = {k: v for k, v in MATERIALS.items() if k != "metal"}
-    build(materials=no_metal, included_layers=["core"])  # the pad is outside: no material needed
+    build(materials=no_metal, zrange_layers=["core"])  # the pad is outside: no material needed
     with pytest.raises(KeyError, match="'metal' is not in materials"):
-        build(materials=no_metal, included_layers=["pad"])
+        build(materials=no_metal, zrange_layers=["pad"])
     with pytest.raises(KeyError, match="Unknown levels"):
-        build(included_layers=["nope"])
+        build(zrange_layers=["nope"])
     with pytest.raises(TypeError, match="z_center"):
         build(z_center=0.1)
     with pytest.raises(ValueError, match="Empty box"):
-        build(included_layers=["core"], boundary_offset=(0, 0, 0, 0, -0.3, 0))
+        build(zrange_layers=["core"], boundary_offset=(0, 0, 0, 0, -0.3, 0))
     with pytest.raises(KeyError, match="Unknown port"):
-        build(_straight(0), included_layers=["core"], extend_ports=(("nope", 1.0),))
+        build(_straight(0), zrange_layers=["core"], extend_ports=(("nope", 1.0),))
     with pytest.raises(ValueError, match="length > 0"):
-        build(_straight(0), included_layers=["core"], extend_ports=(("o1", 0.0),))
+        build(_straight(0), zrange_layers=["core"], extend_ports=(("o1", 0.0),))
 
 
 def test_boundary_offset_shows_more_of_the_same_stack() -> None:
     """A bigger box keeps the voxels it had, extends the WAFER levels and adds levels it now reaches."""
-    small = _named(*_place_own_volume(build(included_layers=["core"], boundary_offset=(0,) * 6))[::2])
+    small = _named(*_place_own_volume(build(zrange_layers=["core"], boundary_offset=(0,) * 6))[::2])
     big = _named(*_place_own_volume(
-        build(included_layers=["core"], boundary_offset=(0.2, -0.2, 0.2, -0.2, 0.3, -0.2))
+        build(zrange_layers=["core"], boundary_offset=(0.2, -0.2, 0.2, -0.2, 0.3, -0.2))
     )[::2])
     n = round(0.2 / RES)  # x [0, 2] -> [-0.2, 2.2], y [-0.5, 0.7] -> [-0.7, 0.9], z [0, 0.22] -> [-0.2, 0.52]
     for m, w in small.items():
@@ -2135,7 +2135,7 @@ def test_port_extensions_continue_the_waveguide(clockwise: bool) -> None:
     """Straight waveguides out of the ports: same sidewalls, no seam, they follow the ports."""
     ls = LayerStack(layers={k: stack().layers[k] for k in ("box", "core", "clad")})  # core: 10 deg sidewall
     device = build(
-        _waveguide(clockwise=clockwise), ls, included_layers=["box", "clad"],
+        _waveguide(clockwise=clockwise), ls, zrange_layers=["box", "clad"],
         extend_ports=(("o1", 0.3), ("o2", 0.5)), boundary_offset=(0.1, 0.0, 0.5, -0.5, 0.0, 0.0),
     )
     np.testing.assert_allclose(np.array(device.partial_real_shape[0]) * 1e6, 2.8 + 0.1)  # x [-0.3, 2.6]
@@ -2182,7 +2182,7 @@ def _rib(slab_width: float = 3.0, clockwise: bool = False) -> gf.Component:
 def _rib_device(extend_ports, slab_width: float = 3.0, clockwise: bool = False) -> bf.stack.StackDevice:
     ls = LayerStack(layers={k: stack().layers[k] for k in ("box", "core", "slab", "clad")})
     return build(
-        _rib(slab_width, clockwise), ls, included_layers=["box", "clad"],
+        _rib(slab_width, clockwise), ls, zrange_layers=["box", "clad"],
         extend_ports=extend_ports, boundary_offset=(0.1, 0.0, 0.3, -0.3, 0.0, 0.0),
     )
 
@@ -2288,7 +2288,7 @@ def test_sources_and_detectors_on_ports(rotation: float) -> None:
     ls = LayerStack(layers={k: stack().layers[k] for k in ("box", "core", "clad")})
     along = rotation == 0
     d = bf.stack.StackDevice.from_layer_stack(
-        _straight(rotation), ls, MATERIALS, background="air", name="stack", included_layers=["core"],
+        _straight(rotation), ls, MATERIALS, background="air", name="stack", zrange_layers=["core"],
         extend_ports=(("o1", 0.4), ("o2", 0.4)),
         boundary_offset=((0, 0, 0.6, -0.6) if along else (0.6, -0.6, 0, 0)) + (0.4, -0.3),
     )
@@ -2360,7 +2360,7 @@ def test_sources_and_detectors_on_ports(rotation: float) -> None:
 
 def test_port_errors() -> None:
     d = bf.stack.StackDevice.from_layer_stack(
-        _straight(0), stack(), MATERIALS, background="air", name="stack", included_layers=["core"]
+        _straight(0), stack(), MATERIALS, background="air", name="stack", zrange_layers=["core"]
     )
     wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
     with pytest.raises(KeyError, match="Unknown port"):
@@ -2380,13 +2380,13 @@ def test_levels_without_polygons_need_no_material() -> None:
     mats = {"si": MATERIALS["si"], "sio2": MATERIALS["sio2"], "air": MATERIALS["air"]}
     # z [-0.5, 2.0] reaches the etch, slab, nitride, ge, via, metal and heater levels: no polygons there
     d = bf.stack.StackDevice.from_layer_stack(
-        c, ls, mats, background="air", included_layers=["core"], boundary_offset=(0, 0, 0, 0, 1.78, -0.5)
+        c, ls, mats, background="air", zrange_layers=["core"], boundary_offset=(0, 0, 0, 0, 1.78, -0.5)
     )
     assert {lv.name for lv in d.levels} == {"box", "core", "clad"}
     with pytest.raises(KeyError, match="Level 'box'"):  # WAFER level: fills the plane without polygons
         bf.stack.StackDevice.from_layer_stack(
             c, ls, {k: v for k, v in mats.items() if k != "sio2"}, background="air",
-            included_layers=["core"], boundary_offset=(0, 0, 0, 0, 0, -0.5),
+            zrange_layers=["core"], boundary_offset=(0, 0, 0, 0, 0, -0.5),
         )
 
 
@@ -2426,7 +2426,7 @@ def test_from_layer_stack_rejects_an_opening() -> None:
 def _unplaced(component, **kwargs) -> bf.stack.StackDevice:
     """A core-only device for the component, not placed (enough for pack and the topology checks)."""
     return bf.stack.StackDevice.from_layer_stack(
-        component, _core(), CORE_ONLY, background="air", name="s", included_layers=["core"], **kwargs
+        component, _core(), CORE_ONLY, background="air", name="s", zrange_layers=["core"], **kwargs
     )
 
 
@@ -2566,7 +2566,7 @@ def test_port_extensions_must_still_meet_the_port_face() -> None:
 
     # a slab that reaches the face later gets an extension too, unless the port only extends the core
     ls = LayerStack(layers={k: stack().layers[k] for k in ("box", "core", "slab", "clad")})
-    kwargs = dict(included_layers=["box", "clad"], boundary_offset=(0.1, 0.0, 0.3, -0.3, 0.0, 0.0))
+    kwargs = dict(zrange_layers=["box", "clad"], boundary_offset=(0.1, 0.0, 0.3, -0.3, 0.0, 0.0))
     d = build(_rib_to(1.9), ls, extend_ports=(("o2", 0.5),), **kwargs)
     with pytest.raises(
         ValueError, match=r"vertices/SLAB\w*: its cross-section at port 'o2' changed: the device has no extension"
@@ -2681,7 +2681,7 @@ def test_polygons_on_a_layer_the_device_was_built_without() -> None:
     slab or etch polygons later need a new device: pack and check_topology report them and retopologize
     raises."""
     ls = LayerStack(layers={k: stack().layers[k] for k in ("box", "core", "slab", "clad")})
-    kwargs = dict(included_layers=["box", "clad"], boundary_offset=(0.1, 0.0, 0.3, -0.3, 0.0, 0.0))
+    kwargs = dict(zrange_layers=["box", "clad"], boundary_offset=(0.1, 0.0, 0.3, -0.3, 0.0, 0.0))
     d = build(_waveguide_to(2.0, 2.0), ls, **kwargs)
     assert [lv.name for lv in d.levels] == ["box", "core", "clad"]
     with pytest.raises(
@@ -2722,7 +2722,7 @@ def _diagnose(
 ) -> dict[str, bf.stack.StackDiagnostic]:
     """Findings by kind of an unplaced device for the component (a core on WG with ``level``, or ``ls``)."""
     device = bf.stack.StackDevice.from_layer_stack(
-        component, ls or _core(**level), CORE_ONLY, background="air", name="s", included_layers=["core"],
+        component, ls or _core(**level), CORE_ONLY, background="air", name="s", zrange_layers=["core"],
         boundary_offset=(0.3, -0.3, 0.3, -0.3, 0.0, 0.0), xy_subsamples=xy_subsamples, derived_shapes=derived_shapes,
     )
     found = device.diagnose(resolution)
@@ -2792,7 +2792,7 @@ def test_diagnostics_follow_the_sidewalls() -> None:
 def test_resolved_designs_are_not_diagnosed() -> None:
     """A rib waveguide continued through both ports, with fill levels, and placed: no findings or warnings."""
     ls = LayerStack(layers={k: stack().layers[k] for k in ("box", "core", "slab", "clad")})
-    kwargs = dict(included_layers=["box", "clad"], boundary_offset=(0.1, 0.0, 0.3, -0.3, 0.0, 0.0))
+    kwargs = dict(zrange_layers=["box", "clad"], boundary_offset=(0.1, 0.0, 0.3, -0.3, 0.0, 0.0))
     device = build(_rib(), ls, extend_ports=(("o1", 0.5), ("o2", 0.5)), corner_lines=0, **kwargs)
     assert device.diagnose(RES) == []
     with warnings.catch_warnings():
@@ -2810,7 +2810,7 @@ def _etched_end(extend: float, beyond: float, derived_shapes: str = "exact") -> 
     c.add_polygon(_rect(1.4, -0.5, 2.0, 0.5), layer=ETCH)
     return bf.stack.StackDevice.from_layer_stack(
         c, LayerStack(layers={"core": stack().layers["core"]}), CORE_ONLY, background="air", name="s",
-        included_layers=["core"], extend_ports=(("o2", extend),) if extend else (),
+        zrange_layers=["core"], extend_ports=(("o2", extend),) if extend else (),
         boundary_offset=(beyond, 0.0, 0.3, -0.3, 0.0, 0.0), derived_shapes=derived_shapes,
     )
 
@@ -3044,7 +3044,7 @@ def test_narrow_places_outside_the_box_are_not_diagnosed() -> None:
     for center, expected in (((1.806, 1.806), None), ((0.6, 0.6), (0.745, 0.745))):
         device = bf.stack.StackDevice.from_layer_stack(
             _polygons(*anchors, *strips(center)), _core(), CORE_ONLY, background="air", name="s",
-            included_layers=["core"], boundary_offset=(-1.3, 1.3, -1.3, 1.3, 0.0, 0.0),
+            zrange_layers=["core"], boundary_offset=(-1.3, 1.3, -1.3, 1.3, 0.0, 0.0),
         )
         found = device.diagnose(RES)
         if expected is None:
@@ -3061,7 +3061,7 @@ def test_narrow_places_are_measured_in_the_box() -> None:
     c = _polygons(_rect(0, 0, 2, 0.5), [(0, 0.505), (2, 0.525), (2, 1.0), (0, 1.0)])  # 0.005 + 0.01 x wide
     for x_offsets, size, x in (((0.0, 1.0), 0.015, 1.0), ((0.3, -0.3), 0.005, 0.0)):  # box x in [1, 2], [-0.3, 2.3]
         device = bf.stack.StackDevice.from_layer_stack(
-            c, _core(), CORE_ONLY, background="air", name="s", included_layers=["core"],
+            c, _core(), CORE_ONLY, background="air", name="s", zrange_layers=["core"],
             boundary_offset=(*x_offsets, 0.3, -0.3, 0.0, 0.0),
         )
         (f,) = device.diagnose(RES)
@@ -3500,7 +3500,7 @@ def test_subpixel_normal_gradient() -> None:
 def _exact_device(component, expr, **level) -> bf.stack.StackDevice:
     """A StackDevice drawing a layer expression (exact derived shapes), the box 0.3 um around the polygons."""
     return bf.stack.StackDevice.from_layer_stack(
-        component, _core_of(expr, **level), CORE_ONLY, background="air", name="s", included_layers=["core"],
+        component, _core_of(expr, **level), CORE_ONLY, background="air", name="s", zrange_layers=["core"],
         boundary_offset=(0.3, -0.3, 0.3, -0.3, 0.0, 0.0),
     )
 
@@ -3685,7 +3685,7 @@ def test_fdtd_solve_forward_and_gradient() -> None:
 
     ls = LayerStack(layers={k: stack().layers[k] for k in ("box", "core", "clad")})
     d = bf.stack.StackDevice.from_layer_stack(
-        _straight(0.0, width=0.5), ls, MATERIALS, background="air", name="stack", included_layers=["core"],
+        _straight(0.0, width=0.5), ls, MATERIALS, background="air", name="stack", zrange_layers=["core"],
         boundary_offset=(0.0, 0.0, 0.3, -0.3, 0.3, -0.2),
     )
     wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
@@ -3725,7 +3725,7 @@ def test_mode_objects_on_a_stack_see_the_stack_permittivity() -> None:
     dominant-material painting. A second call with the same parameters reuses them; a thicker core solves again."""
     ls = LayerStack(layers={k: stack().layers[k] for k in ("box", "core", "clad")})
     d = bf.stack.StackDevice.from_layer_stack(
-        _straight(0.0), ls, MATERIALS, background="air", name="stack", included_layers=["core"],
+        _straight(0.0), ls, MATERIALS, background="air", name="stack", zrange_layers=["core"],
         extend_ports=(("o1", 0.4),), boundary_offset=(0, 0, 0.6, -0.6, 0.4, -0.3),
     )
     wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
@@ -3827,23 +3827,23 @@ def test_material_contract_rejects_what_it_cannot_write() -> None:
     and non-finite tensors, and the reserved placeholder name, are rejected when the device is built."""
     poly = _polygons(_rect(-0.5, -0.3, 0.5, 0.3))
     with pytest.raises(ValueError, match="subpixel_full"):
-        bf.stack.StackDevice.from_layer_stack(poly, _core(), ANISO_MATERIALS, background="air", included_layers=["core"])
+        bf.stack.StackDevice.from_layer_stack(poly, _core(), ANISO_MATERIALS, background="air", zrange_layers=["core"])
     bad = np.diag([2.0, 3.0, 4.0])
     bad[0, 1] = 0.5
     with pytest.raises(ValueError, match="non-symmetric"):
         bf.stack.StackDevice.from_layer_stack(
             poly, _core(), {"air": fdtdx.Material(), "si": fdtdx.Material(permittivity=tuple(map(tuple, bad)))},
-            background="air", included_layers=["core"], averaging="subpixel_full",
+            background="air", zrange_layers=["core"], averaging="subpixel_full",
         )
     with pytest.raises(ValueError, match="reserved"):
         bf.stack.StackDevice.from_layer_stack(
             poly, _core(), {**CORE_ONLY, "__diagonal_anisotropy__": fdtdx.Material()}, background="air",
-            included_layers=["core"],
+            zrange_layers=["core"],
         )
     # diagonal anisotropy stays allowed with "subpixel" (each E component takes its diagonal entry)
     bf.stack.StackDevice.from_layer_stack(
         poly, _core(), {"air": fdtdx.Material(), "si": fdtdx.Material(permittivity=(11.0, 12.0, 13.0))},
-        background="air", included_layers=["core"],
+        background="air", zrange_layers=["core"],
     )
 
 
@@ -4122,7 +4122,7 @@ def test_a_detector_without_a_wave_needs_a_wavelength_for_its_padding() -> None:
     """Field, energy and flux detectors take ``wavelength_um`` as the padding's unit."""
     ls = LayerStack(layers={"core": LayerLevel(layer=(1, 0), zmin=0.0, thickness=0.22, material="si", mesh_order=1)})
     d = bf.stack.StackDevice.from_layer_stack(
-        _straight(0.0, width=0.5), ls, MATERIALS, background="air", name="stack", included_layers=["core"],
+        _straight(0.0, width=0.5), ls, MATERIALS, background="air", name="stack", zrange_layers=["core"],
         boundary_offset=(0.0, 0.0, 0.3, -0.3, 0.3, -0.2),
     )
     with pytest.raises(ValueError, match="wavelength_um"):

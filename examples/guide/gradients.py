@@ -26,7 +26,7 @@ materials = {"core": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Materia
 # 2 um is tighter than the strip's 3.5 um minimum radius, so that check is off.
 component = gf.components.bend_circular(radius=RADIUS, angle=90, allow_min_radius_violation=True)
 stack = bf.StackDevice.from_layer_stack(
-    component, layer_stack, materials, background="clad", included_layers=["core"],
+    component, layer_stack, materials, background="clad", zrange_layers=["core"],
     extend_ports=(("o1", 2.0), ("o2", 2.0)), boundary_offset=(1.75, 0, 0, -1.75, 1.59, -1.59), name="stack",
 )
 

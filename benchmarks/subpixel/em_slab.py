@@ -105,7 +105,7 @@ class Slab:
         ls = LayerStack(layers={"slab": LayerLevel(layer=gf.gpdk.LAYER.WAFER, zmin=z0, thickness=thickness,
                                                     material="slab", mesh_order=1)})
         self.device = bf.stack.StackDevice.from_layer_stack(
-            c, ls, mats, background="air", name="stack", included_layers=["slab"],
+            c, ls, mats, background="air", name="stack", zrange_layers=["slab"],
             boundary_offset=(0.0, 0.0, 0.0, 0.0, BOX[1] - (z0 + thickness), BOX[0] - z0),
             averaging=averaging, diagnostics=False,
         )

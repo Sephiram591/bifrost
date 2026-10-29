@@ -72,7 +72,7 @@ def f2_stack() -> bf.stack.StackDevice:
     )
     return bf.stack.StackDevice.from_layer_stack(
         c, ls, MATERIALS, background="air", name="stack",
-        included_layers=["box", "core"],
+        zrange_layers=["box", "core"],
         boundary_offset=(0.5, -0.5, 0.5, -0.5, 0.0, 0.0),
     )
 
@@ -103,7 +103,7 @@ def f3_stack() -> bf.stack.StackDevice:
     )
     return bf.stack.StackDevice.from_layer_stack(
         c, ls, MATERIALS, background="air", name="stack",
-        included_layers=["box", "core", "slab"],
+        zrange_layers=["box", "core", "slab"],
         boundary_offset=(0.5, -0.5, 0.5, -0.5, 0.0, 0.0),
     )
 

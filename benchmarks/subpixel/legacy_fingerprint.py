@@ -50,7 +50,7 @@ def main(out: str) -> None:
         "nocorner": {"corner_lines": 0},
     }.items():
         d = bf.stack.StackDevice.from_layer_stack(
-            c, ls, mats, background="air", name="s", included_layers=["core"],
+            c, ls, mats, background="air", name="s", zrange_layers=["core"],
             boundary_offset=(0.2, -0.2, 0.2, -0.2, 0.1, -0.1), **kwargs,
         )
         config = fdtdx.SimulationConfig(time=1e-15, grid=fdtdx.core.grid.UniformGrid(spacing=0.02e-6), dtype=jnp.float32)

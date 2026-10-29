@@ -26,7 +26,7 @@ materials = {
 stack = bf.StackDevice.from_layer_stack(
     component, layer_stack, materials,
     background="clad",                              # fills everything no level covers
-    included_layers=["core"],                       # the box's z range starts as the core's
+    zrange_layers=["core"],                         # the box's z range starts as the core's
     extend_ports=(("o1", 1.0), ("o2", 1.0)),        # straight leads out of both ports
     boundary_offset=(0, 0, 1.5, -1.5, 1.5, -1.5),   # (x+, x-, y+, y-, z+, z-) in um
     name="stack",
@@ -51,7 +51,7 @@ substrate_materials = {
 on_substrate = bf.StackDevice.from_layer_stack(
     component, substrate_stack, substrate_materials,
     background="air",
-    included_layers=["core"],
+    zrange_layers=["core"],
     extend_ports=(("o1", 1.0), ("o2", 1.0)),
     boundary_offset=(0, 0, 1.5, -1.5, 1.5, -1.5),
     name="on_substrate",

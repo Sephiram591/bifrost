@@ -92,7 +92,7 @@ def _(
 
     stack = bf.stack.StackDevice.from_layer_stack(
         coupler, LAYER_STACK, MATERIALS, background="air", name="stack",
-        included_layers=["lower", "upper"],
+        zrange_layers=["lower", "upper"],
         extend_ports=(("o1", 1.0), ("o2", 1.0)),
         boundary_offset=(0.0, 0.0, 2.0 - W_MAX / 2, -2.0 + W_MAX / 2, 1.4 - 0.19, -1.6 + 0.21),
     )

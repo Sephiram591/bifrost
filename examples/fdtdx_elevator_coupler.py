@@ -73,7 +73,7 @@ def build_stack(overlap: float) -> bf.stack.StackDevice:
     (_, _), (y0, y1), (z0, z1) = domain(overlap)
     return bf.stack.StackDevice.from_layer_stack(
         elevator_coupler(overlap), LAYER_STACK, MATERIALS, background="air", name="stack",
-        included_layers=["lower", "upper"],  # z: the two SiN levels, -0.21 to 0.19 um
+        zrange_layers=["lower", "upper"],    # z: the two SiN levels, -0.21 to 0.19 um
         extend_ports=(("o1", EXTENSION), ("o2", EXTENSION)),
         boundary_offset=(0.0, 0.0, y1 - W_MAX / 2, y0 + W_MAX / 2, z1 - 0.19, z0 + 0.21),
     )

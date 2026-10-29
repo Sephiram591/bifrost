@@ -21,7 +21,7 @@ layer_stack = LayerStack(
 )
 materials = {"core": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Material(permittivity=1.444**2)}
 stack = bf.StackDevice.from_layer_stack(
-    component, layer_stack, materials, background="clad", included_layers=["core"],
+    component, layer_stack, materials, background="clad", zrange_layers=["core"],
     extend_ports=(("o1", 2.0), ("o2", 2.0)), name="stack",
     boundary_offset=(0, 0, 1.6, -1.6, 1.59, -1.59),  # a 9 x 3.7 x 3.4 um box: whole cells at 50 nm
 )

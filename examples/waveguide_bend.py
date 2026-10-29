@@ -64,7 +64,7 @@ def build_stack() -> bf.StackDevice:
     return bf.StackDevice.from_layer_stack(
         component, LAYER_STACK, MATERIALS,
         background="clad",
-        included_layers=["core"],  # the box's z range starts as the core's: 0 to 0.22 um
+        zrange_layers=["core"],    # the box's z range starts as the core's: 0 to 0.22 um
         extend_ports=(("o1", EXTENSION), ("o2", EXTENSION)),  # both end at a box face
         # (x+, x-, y+, y-, z+, z-): the faces holding a port stay put, the others move out. The box must
         # be a whole number of grid cells in each direction: 10, 10 and 3.4 um suit 50, 40, 25 and 20 nm.

@@ -87,7 +87,7 @@ Example:
         my_circuit(gap=0.2), gf.gpdk.LAYER_STACK,
         materials={"si": fdtdx.Material(permittivity=12.1), "sio2": fdtdx.Material(permittivity=2.1)},
         background="sio2",
-        included_layers=["core"],                 # z range of the box: the core ...
+        zrange_layers=["core"],                   # z range of the box: the core ...
         extend_ports=(("o1", 1.0), ("o2", 1.0)),  # ... straight waveguides out of both ports ...
         boundary_offset=(0, 0, 1, -1, 1, -1),     # ... and 1 um more in y and z
         name="stack",
@@ -5294,7 +5294,7 @@ class StackDevice(StaticMultiMaterialObject):
         materials: dict[str, fdtdx.Material],
         background: str,
         *,
-        included_layers: Sequence[str],
+        zrange_layers: Sequence[str],
         extend_ports: Sequence[tuple[str, float] | tuple[str, float, Sequence[Any]]] = (),
         boundary_offset: Sequence[float] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         levels: Sequence[str] | None = None,
@@ -5307,10 +5307,10 @@ class StackDevice(StaticMultiMaterialObject):
         ``extend_ports`` first adds a straight waveguide to each listed port. The
         box then starts as the xy bounding box of the polygons on the stack's
         layers (extensions included; all polygons if the levels only fill the
-        plane) and the z range of ``included_layers``, and ``boundary_offset``
+        plane) and the z range of ``zrange_layers``, and ``boundary_offset``
         moves its faces without changing the geometry. Every level that overlaps
         the final box (or comes within ``level_margin`` of it) is drawn, also
-        levels outside ``included_layers``, unless no polygon is on its layers.
+        levels outside ``zrange_layers``, unless no polygon is on its layers.
         Levels within 0.1 um more need a material too; those that do not reach
         the box once fdtdx has placed it on its grid are dropped then.
 
@@ -5321,7 +5321,7 @@ class StackDevice(StaticMultiMaterialObject):
             materials: fdtdx materials by ``LayerLevel.material``; needed for
                 ``background`` and every level that is drawn.
             background: material (key of ``materials``) where no level is.
-            included_layers: level names; the lowest bottom and the highest top
+            zrange_layers: level names; the lowest bottom and the highest top
                 among them are the initial z faces of the box.
             extend_ports: ``((port, length), ...)`` in um, or
                 ``((port, length, layers), ...)``. Each port's cross-section is
@@ -5377,16 +5377,16 @@ class StackDevice(StaticMultiMaterialObject):
         for key in ("partial_real_shape", "partial_grid_shape", "center", "z_center"):
             if key in kwargs:
                 raise TypeError(
-                    f"from_layer_stack sets {key!r} from included_layers, extend_ports and boundary_offset"
+                    f"from_layer_stack sets {key!r} from zrange_layers, extend_ports and boundary_offset"
                 )
         offset = tuple(float(o) for o in boundary_offset)
         if len(offset) != 6:
             raise ValueError(f"boundary_offset must be 6 lengths (x+, x-, y+, y-, z+, z-), got {boundary_offset}")
-        if isinstance(included_layers, str):
-            included_layers = [included_layers]
-        if not included_layers:
-            raise ValueError("included_layers must name at least one level")
-        unknown = [n for n in (*included_layers, *(levels or ())) if n not in layer_stack.layers]
+        if isinstance(zrange_layers, str):
+            zrange_layers = [zrange_layers]
+        if not zrange_layers:
+            raise ValueError("zrange_layers must name at least one level")
+        unknown = [n for n in (*zrange_layers, *(levels or ())) if n not in layer_stack.layers]
         if unknown:
             raise KeyError(f"Unknown levels {unknown}; the stack has {sorted(layer_stack.layers)}")
         if background not in materials:
@@ -5398,7 +5398,7 @@ class StackDevice(StaticMultiMaterialObject):
         fills = {int(get_layer(lay)) for lay in fill_layers if lay is not None}
 
         # z faces: the included levels, then the offsets
-        spans = [_span(layer_stack.layers[n]) for n in included_layers]
+        spans = [_span(layer_stack.layers[n]) for n in zrange_layers]
         z0 = min(lo for lo, _ in spans) + offset[5]
         z1 = max(hi for _, hi in spans) + offset[4]
 
