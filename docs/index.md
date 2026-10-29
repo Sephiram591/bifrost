@@ -1,3 +1,5 @@
+![bifrost](images/bifrost-logo-final.svg){ width="360" }
+
 # bifrost
 
 The rainbow bridge between your [GDSFactory(X)](https://gdsfactory.github.io/gdsfactory/) pipeline and

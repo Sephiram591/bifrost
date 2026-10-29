@@ -34,8 +34,8 @@ nav:
 
 theme:
   name: material
-  logo: logo.png
-  favicon: logo.png
+  logo: images/bifrost-icon-final.svg
+  favicon: images/bifrost-icon-final.svg
   features:
     - navigation.tabs
     - navigation.tabs.sticky

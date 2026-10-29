@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/bifrost-logo-final.svg" alt="bifrost" width="360"></p>
+
 # bifrost
 
 [![docs](https://github.com/Sephiram591/bifrost/actions/workflows/pages.yml/badge.svg)](https://sephiram591.github.io/bifrost/)
