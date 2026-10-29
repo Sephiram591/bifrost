@@ -28,7 +28,7 @@ from .section import (
     section_bounds,
     section_normal_axis,
 )
-from .sim import TYPES
+from .sim import EXTRA_DEFAULTS, TYPES, SimSettings
 from .solids import SolidMesh
 from .state import ViewerState
 
@@ -116,6 +116,7 @@ def build_payload(viewer_state: ViewerState) -> tuple[dict[str, Any], dict[str, 
         ],
         "background": viewer_state.stack.background,
         "types": _types_meta(),
+        "settings_defaults": SimSettings().to_wire(),
     }
     return geometry, meta
 
@@ -123,8 +124,9 @@ def build_payload(viewer_state: ViewerState) -> tuple[dict[str, Any], dict[str, 
 def _types_meta() -> dict[str, Any]:
     """The source/detector types the explorer can add (spec R12).
 
-    Keyed by type name with ``{category, plane, wave, direction, extra}``, so
-    the frontend can build the "type" selector and know which fields to show.
+    Keyed by type name with ``{category, plane, wave, direction, extra, defaults}``,
+    so the frontend can build the "type" selector, know which fields to show and
+    what each extra's field holds when unset.
     """
     return {
         name: {
@@ -133,6 +135,7 @@ def _types_meta() -> dict[str, Any]:
             "wave": kind.wave,
             "direction": kind.direction,
             "extra": list(kind.extra),
+            "defaults": dict(EXTRA_DEFAULTS.get(name, {})),
         }
         for name, kind in TYPES.items()
     }

@@ -48,7 +48,7 @@ class ObjectType:
     """One creatable source or detector type (spec R12).
 
     ``method`` is the :class:`~bifrost.stack.StackDevice` factory;
-    ``plane`` marks types sized by ``port_size_mult`` (all but the point dipole);
+    ``plane`` marks types sized by ``port_padding`` (all but the point dipole);
     ``wave`` is how many wave characters the type takes (``"one"``, ``"many"``
     or ``"none"``); ``direction`` marks types with an ``in``/``out`` field;
     ``extra`` lists the additional editable parameter names it accepts.
@@ -89,6 +89,36 @@ TYPES: dict[str, ObjectType] = {
     )
 }
 
+#: The default of each type's extras (spec R12), by type name. The card shows
+#: the value in the extra's field when the spec leaves it unset, and clearing the
+#: field resets to it. They mirror fdtdx's own class defaults and
+#: ``StackDevice``'s factory defaults, which ``tests/test_viewer_defaults.py``
+#: checks against the installed fdtdx; ``None`` means the field stays empty (the
+#: extra is off or unrestricted). ``scaling_mode`` is also ``"pulse"`` whenever
+#: the settings' ``pulse_width_frac`` is positive (see ``_extra_kwargs`` callers).
+#: ``polarization`` has no fdtdx default; ``"y"`` is this viewer's. When fdtdx
+#: changes, update this table (docs/development.md, "Maintenance").
+EXTRA_DEFAULTS: dict[str, dict[str, Any]] = {
+    "ModePlaneSource": {"mode_index": 0, "filter_pol": None},
+    "PointDipoleSource": {"polarization": "y", "source_type": "electric"},
+    "ModeOverlapDetector": {
+        "mode_index": 0, "filter_pol": None, "scaling_mode": "continuous", "dft_subsample": 1,
+    },
+    "PoyntingFluxDetector": {"reduce_volume": True, "record_interval": 1},
+    "PhasorDetector": {
+        "components": ["Ex", "Ey", "Ez", "Hx", "Hy", "Hz"], "reduce_volume": False,
+        "scaling_mode": "continuous", "dft_subsample": 1,
+    },
+    "FieldDetector": {
+        "components": ["Ex", "Ey", "Ez", "Hx", "Hy", "Hz"], "reduce_volume": False, "record_interval": 1,
+    },
+    "EnergyDetector": {"reduce_volume": False, "aggregate": None, "record_interval": 1},
+}
+
+#: Extras the factory cannot default (fdtdx has none), so the viewer supplies
+#: :data:`EXTRA_DEFAULTS` when the spec leaves them unset.
+_REQUIRED_EXTRAS = frozenset({"polarization"})
+
 #: The temporal-downsampling extras (spec R12). ``record_interval`` is the
 #: viewer's name for a time-domain detector's recording stride — it becomes
 #: fdtdx's ``switch=OnOffSwitch(interval=n)``, so only every n-th step is
@@ -126,7 +156,7 @@ DEFAULT_DETECTOR = "ModeOverlapDetector"
 #: are first-class; the rest live in ``params`` and are validated per type.
 #: ``visible`` is display-only — the viewports' pre-placement toggle (R12) —
 #: and is never passed to ``create_*_at``.
-_COMMON = ("port_offset", "level", "direction", "name", "wavelengths", "port_size_mult", "visible")
+_COMMON = ("port_offset", "level", "direction", "name", "wavelengths", "port_padding", "visible")
 
 #: The absolute-placement parameters a spec with ``port == "None"`` carries
 #: (spec R18): the plane's normal axis (0=x, 1=y, 2=z), the center in µm in
@@ -184,7 +214,7 @@ class ObjectSpec:
         type: a key of :data:`TYPES`.
         port: the port name the object sits on, or ``"None"`` for absolute
             placement (spec R18).
-        params: the editable parameters (``port_offset``, ``port_size_mult``,
+        params: the editable parameters (``port_offset``, ``port_padding``,
             ``level``, ``direction``, ``wavelengths``, the absolute-placement
             keys and any type-specific extras). Absent keys fall back to the
             settings (spec R13).
@@ -258,7 +288,7 @@ class ObjectSpec:
         if not port:
             raise ValueError("A source/detector needs a port")
         params = dict(data.get("params") or {})
-        allowed = set(_COMMON) - ({"port_offset", "level", "port_size_mult"} if port == "None" else set())
+        allowed = set(_COMMON) - ({"port_offset", "level", "port_padding"} if port == "None" else set())
         if port == "None":
             allowed |= set(_ABSOLUTE)
         unknown = set(params) - allowed - set(TYPES[type_name].extra)
@@ -283,8 +313,10 @@ class SimSettings:
         wavelength_um: the default wavelength, in µm, for new sources/detectors.
         pulse_width_frac: the Gaussian pulse's spectral width as a fraction of
             the center frequency; ``0`` means a single-frequency (CW) run.
-        port_size_mult: ``(a, b)`` — a new plane is ``a`` port widths wide and
-            ``b`` level heights tall.
+        port_padding: ``(lateral, vertical)`` — a new plane extends this far past
+            the port's width and the level's height on each side, in units of the
+            mean wavelength of the source or detector (the settings' wavelength
+            for one with none of its own); negative values shrink the plane.
         pml_thickness: the PML thickness, in grid cells.
         resolution_um: the grid resolution, in µm.
         time_s: the simulation time, in seconds.
@@ -298,7 +330,7 @@ class SimSettings:
 
     wavelength_um: float = 1.55
     pulse_width_frac: float = 0.0
-    port_size_mult: tuple[float, float] = (3.0, 6.0)
+    port_padding: tuple[float, float] = (3.0, 2.0)
     pml_thickness: int = 10
     resolution_um: float = 0.02
     time_s: float = 400e-15
@@ -327,7 +359,7 @@ class SimSettings:
         return {
             "wavelength_um": float(self.wavelength_um),
             "pulse_width_frac": float(self.pulse_width_frac),
-            "port_size_mult": [float(self.port_size_mult[0]), float(self.port_size_mult[1])],
+            "port_padding": [float(self.port_padding[0]), float(self.port_padding[1])],
             "pml_thickness": int(self.pml_thickness),
             "resolution_um": float(self.resolution_um),
             "time_s": float(self.time_s),
@@ -341,9 +373,13 @@ class SimSettings:
     def from_wire(cls, data: dict[str, Any]) -> SimSettings:
         """Rebuilds settings from a browser patch, validating each field."""
         defaults = cls()
-        mult = data.get("port_size_mult", defaults.port_size_mult)
-        if not (isinstance(mult, (list, tuple)) and len(mult) == 2 and min(mult) > 0):
-            raise ValueError(f"port_size_mult must be two positive numbers, got {mult!r}")
+        padding = data.get("port_padding", defaults.port_padding)
+        if not (
+            isinstance(padding, (list, tuple))
+            and len(padding) == 2
+            and all(math.isfinite(float(v)) for v in padding)
+        ):
+            raise ValueError(f"port_padding must be two finite numbers, got {padding!r}")
         wavelength = float(data.get("wavelength_um", defaults.wavelength_um))
         resolution = float(data.get("resolution_um", defaults.resolution_um))
         time_s = float(data.get("time_s", defaults.time_s))
@@ -365,7 +401,7 @@ class SimSettings:
         return cls(
             wavelength_um=wavelength,
             pulse_width_frac=float(data.get("pulse_width_frac", defaults.pulse_width_frac)),
-            port_size_mult=(float(mult[0]), float(mult[1])),
+            port_padding=(float(padding[0]), float(padding[1])),
             pml_thickness=pml,
             resolution_um=resolution,
             time_s=time_s,
@@ -538,15 +574,15 @@ def _default_params(type_name: str, port: str, settings: SimSettings) -> dict[st
     """The starting parameters for a new spec, taken from the settings (spec Q18).
 
     A spec on a simulation-volume plane (spec R12) defaults to
-    ``port_size_mult=(1, 1)``: the plane's width and height are already the
-    volume's in-plane extents, so a port's multiplier would overflow the volume.
+    ``port_padding=(0, 0)``: the plane's width and height are already the
+    volume's in-plane extents, so any padding would overflow the volume.
     """
     kind = TYPES[type_name]
     params: dict[str, Any] = {"port_offset": 0.0, "level": None, "visible": True}
     if kind.plane:
         from ..stack import PLANE_PORTS
 
-        params["port_size_mult"] = [1.0, 1.0] if port in PLANE_PORTS else list(settings.port_size_mult)
+        params["port_padding"] = [0.0, 0.0] if port in PLANE_PORTS else list(settings.port_padding)
     if kind.wave != "none":
         params["wavelengths"] = [settings.wavelength_um]
     if kind.direction:
@@ -567,6 +603,19 @@ def _wave_characters(spec: ObjectSpec, settings: SimSettings) -> tuple[Any, ...]
     """The spec's wavelengths, or the settings default (spec R13, Q18)."""
     wavelengths = spec.params.get("wavelengths") or [settings.wavelength_um]
     return tuple(_wave_character(float(w)) for w in wavelengths)
+
+
+def _padding_wavelengths_um(kind: ObjectType, spec: ObjectSpec, settings: SimSettings) -> list[float]:
+    """The wavelengths (um) whose mean is a spec's ``port_padding`` unit.
+
+    A source with one wave character uses its first wavelength, as the factory
+    does; a detector uses all of its wavelengths; one with none of its own uses
+    the settings' wavelength.
+    """
+    if kind.wave == "none":
+        return [float(settings.wavelength_um)]
+    wavelengths = [float(w) for w in spec.params.get("wavelengths") or [settings.wavelength_um]]
+    return wavelengths[:1] if kind.wave == "one" else wavelengths
 
 
 def _temporal_profile(settings: SimSettings, wave: Any) -> Any | None:
@@ -671,8 +720,10 @@ def _create(stack: Any, spec: ObjectSpec, settings: SimSettings,
     if params.get("level") is not None:
         kwargs["level"] = params["level"]
     if kind.plane:
-        mult = params.get("port_size_mult") or list(settings.port_size_mult)
-        kwargs["port_size_mult"] = (float(mult[0]), float(mult[1]))
+        padding = params.get("port_padding") or list(settings.port_padding)
+        kwargs["port_padding"] = (float(padding[0]), float(padding[1]))
+        if kind.wave == "none":  # no wavelength of its own: the padding unit is the settings'
+            kwargs["wavelength_um"] = float(settings.wavelength_um)
 
     waves = _wave_characters(spec, settings)
     wave = waves[0] if waves else _wave_character(settings.wavelength_um)
@@ -703,8 +754,11 @@ def _extra_kwargs(kind: ObjectType, params: dict[str, Any]) -> dict[str, Any]:
     """
     kwargs: dict[str, Any] = {}
     for key in kind.extra:
+        if key in _REQUIRED_EXTRAS and params.get(key) is None:
+            kwargs[key] = EXTRA_DEFAULTS[kind.name][key]
+            continue
         value = params.get(key)
-        if key not in params or (key in _SAMPLING and value is None):
+        if key not in params or value is None:
             continue
         if key == "record_interval":
             if int(value) > 1:
@@ -726,8 +780,11 @@ def _extra_args(kind: ObjectType, params: dict[str, Any]) -> list[str]:
     """
     args: list[str] = []
     for key in kind.extra:
+        if key in _REQUIRED_EXTRAS and params.get(key) is None:
+            args.append(f"{key}={_repr(EXTRA_DEFAULTS[kind.name][key])}")
+            continue
         value = params.get(key)
-        if key not in params or (key in _SAMPLING and value is None):
+        if key not in params or value is None:
             continue
         if key == "record_interval":
             if int(value) > 1:
@@ -1008,8 +1065,10 @@ def launch_code(stack: Any, state: Any) -> str:
             continue
         args = [f"port={spec.port!r}"]
         if kind.plane:
-            mult = spec.params.get("port_size_mult") or list(settings.port_size_mult)
-            args.append(f"port_size_mult={_seq(mult)}")
+            padding = spec.params.get("port_padding") or list(settings.port_padding)
+            args.append(f"port_padding={_seq(padding)}")
+            if kind.wave == "none":
+                args.append(f"wavelength_um={_num(settings.wavelength_um)}")
         if kind.wave == "one":
             args.append(f"wave_character=_wave({wavelengths[0]})")
             if settings.pulse_width_frac > 0:
@@ -1291,9 +1350,24 @@ def spec_glyph(stack: Any, spec: ObjectSpec, origin: tuple[float, float, float],
         return _empty_glyph(spec)
 
     if kind.plane:
-        mult = spec.params.get("port_size_mult") or list(settings.port_size_mult)
-        u_half = 0.5 * float(mult[0]) * float(p.width)
-        v_half = 0.5 * float(mult[1]) * float(height)
+        from ..stack import plane_extents
+
+        padding = spec.params.get("port_padding") or list(settings.port_padding)
+        try:
+            u_size, v_size = plane_extents(
+                float(p.width), float(height), padding, _padding_wavelengths_um(kind, spec, settings)
+            )
+        except ValueError:  # e.g. a negative padding that empties the plane: nothing to draw yet
+            return _empty_glyph(spec)
+        # a plane larger than the simulation volume is placed at the volume's
+        # extent (a padding of 3 wavelengths can outgrow a small box), so draw
+        # and validate that
+        box = stack.partial_real_shape
+        if box is not None and None not in tuple(box):
+            u_axis, v_axis = _IN_PLANE[int(axis)]
+            u_size = min(u_size, float(box[u_axis]) * 1e6)
+            v_size = min(v_size, float(box[v_axis]) * 1e6)
+        u_half, v_half = 0.5 * u_size, 0.5 * v_size
     else:
         u_half = v_half = 0.0
 

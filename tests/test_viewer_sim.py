@@ -166,13 +166,51 @@ def test_default_wavelength_feeds_a_new_detector() -> None:
     assert spec.params["wavelengths"] == [1.31]
 
 
-def test_default_port_size_feeds_a_new_source() -> None:
-    """R13/Q18: a new plane's size comes from the settings' port_size_mult."""
+def test_default_port_padding_feeds_a_new_source() -> None:
+    """R13/Q18: a new plane's padding comes from the settings' port_padding."""
     viewer = bf.viewer.widget.view(f1_stack())
-    viewer._on_msg(None, {"event": "set_settings", "settings": {"port_size_mult": [2.0, 4.0]}}, [])
+    viewer._on_msg(None, {"event": "set_settings", "settings": {"port_padding": [2.0, 4.0]}}, [])
     viewer._on_msg(None, {"event": "add_source", "port": "o1"}, [])
     (spec,) = viewer.specs
-    assert spec.params["port_size_mult"] == [2.0, 4.0]
+    assert spec.params["port_padding"] == [2.0, 4.0]
+
+
+def test_port_padding_must_be_two_finite_numbers() -> None:
+    """R13: zero and negative paddings are valid; a malformed or non-finite one is rejected."""
+    assert bf.viewer.sim.SimSettings.from_wire({"port_padding": [0, 0]}).port_padding == (0.0, 0.0)
+    assert bf.viewer.sim.SimSettings.from_wire({"port_padding": [-0.5, 1.0]}).port_padding == (-0.5, 1.0)
+    assert bf.viewer.sim.SimSettings().port_padding == (3.0, 2.0)
+    for bad in ([1.0], [1.0, 2.0, 3.0], "ab", [float("nan"), 1.0], [float("inf"), 1.0]):
+        with pytest.raises(ValueError, match="port_padding"):
+            bf.viewer.sim.SimSettings.from_wire({"port_padding": bad})
+
+
+def test_the_glyph_pads_by_the_cards_mean_wavelength() -> None:
+    """The drawn plane is the port's size plus the padding in mean wavelengths of the card."""
+    viewer = bf.viewer.widget.view(f1_stack())
+    viewer._on_msg(None, {"event": "add_detector", "port": "o2"}, [])
+    (spec,) = viewer.specs
+    spec.params.update({"wavelengths": [1.0, 2.0], "port_padding": [0.5, 0.25]})
+    stack = viewer.stack
+    p, _axis, _sign, _center, height = stack._port_frame("o2", spec.params.get("level"), 0.0)
+    glyph = bf.viewer.sim.spec_glyph(stack, spec, (0.0, 0.0, 0.0), viewer.settings)
+    # the mean wavelength is 1.5 um
+    assert glyph["u_half"] == pytest.approx(0.5 * (float(p.width) + 2 * 0.5 * 1.5))
+    assert glyph["v_half"] == pytest.approx(0.5 * (float(height) + 2 * 0.25 * 1.5))
+
+
+def test_a_plane_larger_than_the_volume_is_clipped_to_it() -> None:
+    """The default padding can outgrow a small box: the glyph is the volume's extent, as placed."""
+    viewer = bf.viewer.widget.view(f1_stack())
+    viewer._on_msg(None, {"event": "add_detector", "port": "o2"}, [])
+    (spec,) = viewer.specs
+    spec.params["port_padding"] = [50.0, 50.0]
+    stack = viewer.stack
+    _p, axis, *_ = stack._port_frame("o2", None, 0.0)
+    u_axis, v_axis = bf.viewer.sim._IN_PLANE[axis]
+    glyph = bf.viewer.sim.spec_glyph(stack, spec, (0.0, 0.0, 0.0), viewer.settings)
+    assert glyph["u_half"] == pytest.approx(0.5 * float(stack.partial_real_shape[u_axis]) * 1e6)
+    assert glyph["v_half"] == pytest.approx(0.5 * float(stack.partial_real_shape[v_axis]) * 1e6)
 
 
 def test_pml_thickness_reaches_the_constraints() -> None:
@@ -330,8 +368,8 @@ def test_plane_ports_are_offered_but_are_not_device_ports() -> None:
     assert {"xy", "xz", "yz"} <= set(viewer_state.port_visible)
 
 
-def test_plane_size_one_fills_the_simulation_plane() -> None:
-    """R12/Q18: ``port_size_mult=(1, 1)`` on a plane fills the whole plane."""
+def test_zero_padding_fills_the_simulation_plane() -> None:
+    """R12/Q18: ``port_padding=(0, 0)`` on a plane fills the whole plane."""
     stack = f1_stack()
     size = tuple(float(s) * 1e6 for s in stack.partial_real_shape)
     for plane, (u, v) in (("yz", (1, 2)), ("xz", (0, 2)), ("xy", (0, 1))):
@@ -342,11 +380,11 @@ def test_plane_size_one_fills_the_simulation_plane() -> None:
         assert center[0] == pytest.approx(stack.center[0])
         assert center[1] == pytest.approx(stack.center[1])
         assert center[2] == pytest.approx(stack.z_center)
-        # (1, 1) spans the box's two in-plane extents
+        # zero padding spans the box's two in-plane extents
         assert height == pytest.approx(size[v])
         assert _p.width == pytest.approx(size[u])
         obj, _ = stack.create_uniform_plane_source_at(
-            plane, (1.0, 1.0), wave_character=bf.viewer.sim._wave_character(1.55), name=f"{plane}_s"
+            plane, (0.0, 0.0), wave_character=bf.viewer.sim._wave_character(1.55), name=f"{plane}_s"
         )
         real = obj.partial_real_shape
         # the two in-plane extents are the box's; the normal axis is grid-shaped
@@ -968,3 +1006,50 @@ def test_launch_code_skips_adopted_specs() -> None:
     viewer._viewer_state.adopted.add(viewer._viewer_state.specs[0].id)
     code = bf.viewer.sim.launch_code(viewer.stack, viewer._viewer_state)
     assert "create_mode_plane_source_at" not in code
+
+
+def test_a_padding_that_empties_the_plane_draws_nothing_and_fails_the_build() -> None:
+    """A negative padding larger than half the port leaves no plane: an empty glyph, a clear error on build."""
+    viewer = bf.viewer.widget.view(f1_stack())
+    viewer._on_msg(None, {"event": "add_source", "port": "o1"}, [])
+    (spec,) = viewer.specs
+    spec.params["port_padding"] = [-5.0, 0.0]
+    glyph = bf.viewer.sim.spec_glyph(viewer.stack, spec, (0.0, 0.0, 0.0), viewer.settings)
+    assert glyph["u_half"] == 0.0 and glyph["v_half"] == 0.0
+    with pytest.raises(ValueError, match="negative padding"):
+        bf.viewer.sim.build_objects(viewer.stack, viewer._viewer_state)
+
+
+def test_clearing_a_parameter_resets_it_to_its_default() -> None:
+    """R12: a ``None`` param from the browser drops the override, so the default applies again."""
+    viewer = bf.viewer.widget.view(f1_stack())
+    viewer._on_msg(None, {"event": "add_source", "port": "o1"}, [])
+    (spec,) = viewer.specs
+    patch = {"event": "update_spec", "kind": "source", "spec": {"id": spec.id}}
+    viewer._on_msg(None, {**patch, "spec": {"id": spec.id, "params": {"port_offset": 0.3, "name": "probe"}}}, [])
+    assert spec.params["port_offset"] == 0.3 and spec.name == "probe"
+    viewer._on_msg(None, {**patch, "spec": {"id": spec.id, "params": {"port_offset": None, "name": None}}}, [])
+    assert "port_offset" not in spec.params and "name" not in spec.params
+    assert spec.name == "o1_ModePlaneSource"  # the default name
+
+
+def test_a_dipole_without_a_polarization_uses_the_viewers_default() -> None:
+    """fdtdx has no polarization default, so the viewer supplies the one its field shows."""
+    kind = bf.viewer.sim.TYPES["PointDipoleSource"]
+    default = bf.viewer.sim.EXTRA_DEFAULTS["PointDipoleSource"]["polarization"]
+    assert bf.viewer.sim._extra_kwargs(kind, {}) == {"polarization": default}
+    assert bf.viewer.sim._extra_kwargs(kind, {"polarization": "z"}) == {"polarization": "z"}
+    assert f"polarization={default!r}" in bf.viewer.sim._extra_args(kind, {})
+
+
+def test_every_extra_has_a_default_and_the_meta_carries_them() -> None:
+    """R12: the browser gets each type's extra defaults, and the settings' own defaults."""
+    for name, kind in bf.viewer.sim.TYPES.items():
+        defaults = bf.viewer.sim.EXTRA_DEFAULTS.get(name, {})
+        assert set(defaults) == set(kind.extra), f"{name}: defaults must cover exactly its extras"
+    meta = bf.viewer.payload._types_meta()
+    assert meta["ModeOverlapDetector"]["defaults"]["mode_index"] == 0
+    assert meta["PoyntingFluxDetector"]["defaults"]["reduce_volume"] is True
+    _geometry, payload_meta = bf.viewer.payload.build_payload(bf.viewer.state.ViewerState(f1_stack()))
+    assert payload_meta["settings_defaults"]["port_padding"] == [3.0, 2.0]
+    assert payload_meta["settings_defaults"]["wavelength_um"] == 1.55

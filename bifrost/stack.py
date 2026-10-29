@@ -96,8 +96,8 @@ Example:
     objects = [volume, stack]
     wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
     for obj, c in (
-        stack.create_mode_plane_source_at("o1", (3, 4), wave_character=wave, port_offset=-0.5),
-        stack.create_mode_overlap_detector_at("o2", (3, 4), wave_characters=(wave,)),
+        stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave_character=wave, port_offset=-0.5),
+        stack.create_mode_overlap_detector_at("o2", (0.5, 0.5), wave_characters=(wave,)),
     ):
         objects.append(obj)
         constraints += c
@@ -332,8 +332,55 @@ def detector_plane_own_positions(axis: int) -> tuple[float, float, float]:
 Z_CENTER_LEVEL: str = "z_center"
 
 #: The two in-plane axes of each normal axis (0 = x, 1 = y, 2 = z), in the
-#: order a plane's ``port_size_mult`` and its two extents use: (u, v).
+#: order a plane's ``port_padding`` and its two extents use: (u, v).
 _IN_PLANE: tuple[tuple[int, int], ...] = ((1, 2), (0, 2), (0, 1))
+
+
+def plane_extents(
+    width_um: float,
+    height_um: float,
+    port_padding: Sequence[float],
+    wavelengths_um: Sequence[float] | None,
+) -> tuple[float, float]:
+    """The in-plane size of a source or detector plane on a port, in um.
+
+    The plane extends ``port_padding`` mean wavelengths past the port's width and
+    the level's height on each side, so each extent is the port's plus twice the
+    padding.
+
+    Args:
+        width_um: the port's width.
+        height_um: the level's height.
+        port_padding: ``(lateral, vertical)``, each finite and possibly negative (a
+            negative padding shrinks the plane inside the port), in units of the
+            mean of ``wavelengths_um``.
+        wavelengths_um: the vacuum wavelengths of the object's wave characters.
+            May be empty or None only when the padding is zero.
+
+    Returns:
+        The plane's (width, height) in um.
+
+    Raises:
+        ValueError: if the padding is not two finite numbers, a wavelength is
+            missing for a non-zero padding, or a negative padding leaves a
+            plane no larger than zero.
+    """
+    if len(port_padding) != 2 or not all(math.isfinite(v) for v in port_padding):
+        raise ValueError(f"port_padding must be two finite numbers, got {port_padding}")
+    if not wavelengths_um:
+        if any(v != 0 for v in port_padding):
+            raise ValueError(
+                "port_padding is in units of the mean wavelength: pass wavelength_um (or a wave character)"
+            )
+        return float(width_um), float(height_um)
+    mean = float(sum(wavelengths_um)) / len(wavelengths_um)
+    size = (width_um + 2 * port_padding[0] * mean, height_um + 2 * port_padding[1] * mean)
+    if min(size) <= 0:
+        raise ValueError(
+            f"port_padding {tuple(port_padding)} leaves a plane of {size[0]:.4g} x {size[1]:.4g} um: "
+            "a negative padding must stay smaller than half the port's width and the level's height"
+        )
+    return size
 
 
 def _topology_tol(tol: float | None, vertices: Any) -> float:
@@ -7910,9 +7957,10 @@ class StackDevice(StaticMultiMaterialObject):
         self,
         cls: type,
         port: str,
-        port_size_mult: Sequence[float],
+        port_padding: Sequence[float],
         suffix: str,
         *,
+        wavelengths_um: Sequence[float] | None,
         direction: PortDirection | None,
         level: str | None,
         port_offset: float,
@@ -7924,9 +7972,9 @@ class StackDevice(StaticMultiMaterialObject):
         Args:
             cls: fdtdx source or detector class.
             port: port name.
-            port_size_mult: (a, b): the plane is a * port width wide and
-                b * level height tall.
+            port_padding: see :func:`plane_extents`.
             suffix: default name is ``<port>_<suffix>``.
+            wavelengths_um: the wavelengths (um) whose mean is the padding's unit.
             direction: "in" / "out" relative to the component, or None for
                 classes without a direction.
             level: see :meth:`_port_frame`.
@@ -7938,16 +7986,15 @@ class StackDevice(StaticMultiMaterialObject):
             The object and the constraints placing it.
         """
         p, axis, sign, center, height = self._port_frame(port, level, port_offset)
-        if len(port_size_mult) != 2 or min(port_size_mult) <= 0:
-            raise ValueError(f"port_size_mult must be two positive numbers, got {port_size_mult}")
         if p.width <= 0:
             raise ValueError(f"Port {port!r} has no width")
+        width_um, height_um = plane_extents(p.width, height, port_padding, wavelengths_um)
         real: list[float | None] = [None, None, None]
         grid: list[int | None] = [None, None, None]
         grid[axis] = 1  # one cell thick, normal to the plane
         u_axis, v_axis = _IN_PLANE[axis]
-        real[u_axis] = port_size_mult[0] * p.width * 1e-6
-        real[v_axis] = port_size_mult[1] * height * 1e-6
+        real[u_axis] = width_um * 1e-6
+        real[v_axis] = height_um * 1e-6
         if direction is not None:
             fields["direction"] = _axis_direction(direction, sign)
         obj = cls(
@@ -7964,7 +8011,7 @@ class StackDevice(StaticMultiMaterialObject):
     def create_mode_plane_source_at(
         self,
         port: str,
-        port_size_mult: Sequence[float],
+        port_padding: Sequence[float],
         wave_character: fdtdx.WaveCharacter,
         temporal_profile: fdtdx.TemporalProfile | None = None,
         mode_index: int = 0,
@@ -7980,8 +8027,9 @@ class StackDevice(StaticMultiMaterialObject):
         Args:
             port: port name; the plane is centered on it (in z on the middle of
                 the port's level) and normal to it.
-            port_size_mult: (a, b): the plane is a * port width wide and
-                b * level height tall.
+            port_padding: (lateral, vertical): the plane extends this far past the
+                port's width and the level's height on each side, in units of the
+                mean wavelength of this object's wave characters.
             wave_character: wavelength / frequency of the mode.
             temporal_profile: pulse shape (default: fdtdx's single frequency).
             mode_index: mode order (0 = fundamental).
@@ -7999,14 +8047,16 @@ class StackDevice(StaticMultiMaterialObject):
         """
         fields = _given(temporal_profile=temporal_profile, filter_pol=filter_pol)
         return self._at_port(
-            fdtdx.ModePlaneSource, port, port_size_mult, "mode_source", direction=direction, level=level,
+            fdtdx.ModePlaneSource, port, port_padding, "mode_source",
+            wavelengths_um=[wave_character.get_wavelength() * 1e6],
+            direction=direction, level=level,
             port_offset=port_offset, name=name, wave_character=wave_character, mode_index=mode_index, **fields, **kwargs,
         )
 
     def create_gaussian_plane_source_at(
         self,
         port: str,
-        port_size_mult: Sequence[float],
+        port_padding: Sequence[float],
         wave_character: fdtdx.WaveCharacter,
         temporal_profile: fdtdx.TemporalProfile | None = None,
         radius: float | None = None,
@@ -8023,8 +8073,9 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it.
-            port_size_mult: (a, b): the plane is a * port width wide and
-                b * level height tall.
+            port_padding: (lateral, vertical): the plane extends this far past the
+                port's width and the level's height on each side, in units of the
+                mean wavelength of this object's wave characters.
             wave_character: wavelength / frequency.
             temporal_profile: pulse shape (default: fdtdx's single frequency).
             radius: beam radius in um (default: half the smaller plane side).
@@ -8041,16 +8092,19 @@ class StackDevice(StaticMultiMaterialObject):
         Returns:
             The source and the constraints placing it relative to this device.
         """
+        wavelengths_um = [wave_character.get_wavelength() * 1e6]
         if radius is None:
             p, *_, height = self._port_frame(port, level, port_offset)
-            radius = 0.5 * min(port_size_mult[0] * p.width, port_size_mult[1] * height)
+            radius = 0.5 * min(plane_extents(p.width, height, port_padding, wavelengths_um))
         fields = _given(
             temporal_profile=temporal_profile,
             fixed_E_polarization_vector=fixed_E_polarization_vector,
             fixed_H_polarization_vector=fixed_H_polarization_vector,
         )
         return self._at_port(
-            fdtdx.GaussianPlaneSource, port, port_size_mult, "gaussian_source", direction=direction,
+            fdtdx.GaussianPlaneSource, port, port_padding, "gaussian_source",
+            wavelengths_um=wavelengths_um,
+            direction=direction,
             level=level, port_offset=port_offset, name=name, wave_character=wave_character, radius=radius * 1e-6,
             std=std, **fields, **kwargs,
         )
@@ -8058,7 +8112,7 @@ class StackDevice(StaticMultiMaterialObject):
     def create_uniform_plane_source_at(
         self,
         port: str,
-        port_size_mult: Sequence[float],
+        port_padding: Sequence[float],
         wave_character: fdtdx.WaveCharacter,
         temporal_profile: fdtdx.TemporalProfile | None = None,
         amplitude: float = 1.0,
@@ -8074,8 +8128,9 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it.
-            port_size_mult: (a, b): the plane is a * port width wide and
-                b * level height tall.
+            port_padding: (lateral, vertical): the plane extends this far past the
+                port's width and the level's height on each side, in units of the
+                mean wavelength of this object's wave characters.
             wave_character: wavelength / frequency.
             temporal_profile: pulse shape (default: fdtdx's single frequency).
             amplitude: field amplitude.
@@ -8097,7 +8152,9 @@ class StackDevice(StaticMultiMaterialObject):
             fixed_H_polarization_vector=fixed_H_polarization_vector,
         )
         return self._at_port(
-            fdtdx.UniformPlaneSource, port, port_size_mult, "uniform_source", direction=direction,
+            fdtdx.UniformPlaneSource, port, port_padding, "uniform_source",
+            wavelengths_um=[wave_character.get_wavelength() * 1e6],
+            direction=direction,
             level=level, port_offset=port_offset, name=name, wave_character=wave_character, amplitude=amplitude,
             **fields, **kwargs,
         )
@@ -8105,7 +8162,7 @@ class StackDevice(StaticMultiMaterialObject):
     def create_hard_constant_amplitude_plane_source_at(
         self,
         port: str,
-        port_size_mult: Sequence[float],
+        port_padding: Sequence[float],
         wave_character: fdtdx.WaveCharacter,
         temporal_profile: fdtdx.TemporalProfile | None = None,
         amplitude: float = 1.0,
@@ -8121,8 +8178,9 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it.
-            port_size_mult: (a, b): the plane is a * port width wide and
-                b * level height tall.
+            port_padding: (lateral, vertical): the plane extends this far past the
+                port's width and the level's height on each side, in units of the
+                mean wavelength of this object's wave characters.
             wave_character: wavelength / frequency.
             temporal_profile: pulse shape (default: fdtdx's single frequency).
             amplitude: field amplitude.
@@ -8144,7 +8202,9 @@ class StackDevice(StaticMultiMaterialObject):
             fixed_H_polarization_vector=fixed_H_polarization_vector,
         )
         return self._at_port(
-            HardConstantAmplitudePlanceSource, port, port_size_mult, "hard_source", direction=direction,
+            HardConstantAmplitudePlanceSource, port, port_padding, "hard_source",
+            wavelengths_um=[wave_character.get_wavelength() * 1e6],
+            direction=direction,
             level=level, port_offset=port_offset, name=name, wave_character=wave_character, amplitude=amplitude,
             **fields, **kwargs,
         )
@@ -8206,7 +8266,7 @@ class StackDevice(StaticMultiMaterialObject):
     def create_mode_overlap_detector_at(
         self,
         port: str,
-        port_size_mult: Sequence[float],
+        port_padding: Sequence[float],
         wave_characters: Sequence[fdtdx.WaveCharacter],
         mode_index: int = 0,
         filter_pol: Literal["te", "tm"] | None = None,
@@ -8221,8 +8281,9 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it.
-            port_size_mult: (a, b): the plane is a * port width wide and
-                b * level height tall.
+            port_padding: (lateral, vertical): the plane extends this far past the
+                port's width and the level's height on each side, in units of the
+                mean wavelength of this object's wave characters.
             wave_characters: wavelengths / frequencies to detect.
             mode_index: mode order (0 = fundamental).
             filter_pol: only "te" or "tm" modes (default: all).
@@ -8241,7 +8302,9 @@ class StackDevice(StaticMultiMaterialObject):
         """
         fields = _given(filter_pol=filter_pol, scaling_mode=scaling_mode)
         return self._at_port(
-            fdtdx.ModeOverlapDetector, port, port_size_mult, "mode_detector", direction=direction,
+            fdtdx.ModeOverlapDetector, port, port_padding, "mode_detector",
+            wavelengths_um=[w.get_wavelength() * 1e6 for w in wave_characters],
+            direction=direction,
             level=level, port_offset=port_offset, name=name, wave_characters=tuple(wave_characters),
             mode_index=mode_index, **fields, **kwargs,
         )
@@ -8249,21 +8312,23 @@ class StackDevice(StaticMultiMaterialObject):
     def create_poynting_flux_detector_at(
         self,
         port: str,
-        port_size_mult: Sequence[float],
+        port_padding: Sequence[float],
         reduce_volume: bool = True,
         keep_all_components: bool = False,
         direction: PortDirection = "out",
         level: str | None = None,
         port_offset: float = 0.0,
         name: str | None = None,
+        wavelength_um: float | None = None,
         **kwargs: Any,
     ) -> tuple[fdtdx.PoyntingFluxDetector, list[PositionConstraint]]:
         """Poynting flux (power vs time) detector on a port.
 
         Args:
             port: port name; the plane is centered on it and normal to it.
-            port_size_mult: (a, b): the plane is a * port width wide and
-                b * level height tall.
+            port_padding: (lateral, vertical): the plane extends this far past the
+                port's width and the level's height on each side, in units of
+                ``wavelength_um``.
             reduce_volume: sum the flux over the plane.
             keep_all_components: keep all three flux components.
             direction: "out" counts power leaving the component as positive,
@@ -8271,6 +8336,8 @@ class StackDevice(StaticMultiMaterialObject):
             level: level whose height and middle set the plane's z.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
+            wavelength_um: the wavelength (um) whose multiple the padding is; required
+                unless the padding is zero.
             name: object name (default ``<port>_flux_detector``).
             **kwargs: other PoyntingFluxDetector fields.
 
@@ -8279,7 +8346,9 @@ class StackDevice(StaticMultiMaterialObject):
         """
         _, axis, *_ = self._port_frame(port, level, port_offset)
         return self._at_port(
-            fdtdx.PoyntingFluxDetector, port, port_size_mult, "flux_detector", direction=direction,
+            fdtdx.PoyntingFluxDetector, port, port_padding, "flux_detector",
+            wavelengths_um=None if wavelength_um is None else [wavelength_um],
+            direction=direction,
             level=level, port_offset=port_offset, name=name, reduce_volume=reduce_volume,
             keep_all_components=keep_all_components, fixed_propagation_axis=axis, **kwargs,
         )
@@ -8287,7 +8356,7 @@ class StackDevice(StaticMultiMaterialObject):
     def create_phasor_detector_at(
         self,
         port: str,
-        port_size_mult: Sequence[float],
+        port_padding: Sequence[float],
         wave_characters: Sequence[fdtdx.WaveCharacter],
         components: Sequence[Literal["Ex", "Ey", "Ez", "Hx", "Hy", "Hz"]] | None = None,
         reduce_volume: bool = False,
@@ -8301,8 +8370,9 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it.
-            port_size_mult: (a, b): the plane is a * port width wide and
-                b * level height tall.
+            port_padding: (lateral, vertical): the plane extends this far past the
+                port's width and the level's height on each side, in units of the
+                mean wavelength of this object's wave characters.
             wave_characters: wavelengths / frequencies to record.
             components: field components (default: fdtdx's, all six).
             reduce_volume: sum over the plane.
@@ -8319,7 +8389,9 @@ class StackDevice(StaticMultiMaterialObject):
         """
         fields = _given(components=None if components is None else tuple(components), scaling_mode=scaling_mode)
         return self._at_port(
-            fdtdx.PhasorDetector, port, port_size_mult, "phasor_detector", direction=None, level=level,
+            fdtdx.PhasorDetector, port, port_padding, "phasor_detector",
+            wavelengths_um=[w.get_wavelength() * 1e6 for w in wave_characters],
+            direction=None, level=level,
             port_offset=port_offset, name=name, wave_characters=tuple(wave_characters), reduce_volume=reduce_volume,
             **fields, **kwargs,
         )
@@ -8327,25 +8399,29 @@ class StackDevice(StaticMultiMaterialObject):
     def create_field_detector_at(
         self,
         port: str,
-        port_size_mult: Sequence[float],
+        port_padding: Sequence[float],
         components: Sequence[Literal["Ex", "Ey", "Ez", "Hx", "Hy", "Hz"]] | None = None,
         reduce_volume: bool = False,
         level: str | None = None,
         port_offset: float = 0.0,
         name: str | None = None,
+        wavelength_um: float | None = None,
         **kwargs: Any,
     ) -> tuple[fdtdx.FieldDetector, list[PositionConstraint]]:
         """Time-domain field detector on a port plane.
 
         Args:
             port: port name; the plane is centered on it and normal to it.
-            port_size_mult: (a, b): the plane is a * port width wide and
-                b * level height tall.
+            port_padding: (lateral, vertical): the plane extends this far past the
+                port's width and the level's height on each side, in units of
+                ``wavelength_um``.
             components: field components (default: fdtdx's, all six).
             reduce_volume: sum over the plane.
             level: level whose height and middle set the plane's z.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
+            wavelength_um: the wavelength (um) whose multiple the padding is; required
+                unless the padding is zero.
             name: object name (default ``<port>_field_detector``).
             **kwargs: other FieldDetector fields.
 
@@ -8354,32 +8430,38 @@ class StackDevice(StaticMultiMaterialObject):
         """
         fields = _given(components=None if components is None else tuple(components))
         return self._at_port(
-            fdtdx.FieldDetector, port, port_size_mult, "field_detector", direction=None, level=level,
+            fdtdx.FieldDetector, port, port_padding, "field_detector",
+            wavelengths_um=None if wavelength_um is None else [wavelength_um],
+            direction=None, level=level,
             port_offset=port_offset, name=name, reduce_volume=reduce_volume, **fields, **kwargs,
         )
 
     def create_energy_detector_at(
         self,
         port: str,
-        port_size_mult: Sequence[float],
+        port_padding: Sequence[float],
         reduce_volume: bool = False,
         aggregate: str | None = None,
         level: str | None = None,
         port_offset: float = 0.0,
         name: str | None = None,
+        wavelength_um: float | None = None,
         **kwargs: Any,
     ) -> tuple[fdtdx.EnergyDetector, list[PositionConstraint]]:
         """Electromagnetic energy density detector on a port plane.
 
         Args:
             port: port name; the plane is centered on it and normal to it.
-            port_size_mult: (a, b): the plane is a * port width wide and
-                b * level height tall.
+            port_padding: (lateral, vertical): the plane extends this far past the
+                port's width and the level's height on each side, in units of
+                ``wavelength_um``.
             reduce_volume: sum over the plane.
             aggregate: aggregation over time, e.g. "mean" (default: none).
             level: level whose height and middle set the plane's z.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
+            wavelength_um: the wavelength (um) whose multiple the padding is; required
+                unless the padding is zero.
             name: object name (default ``<port>_energy_detector``).
             **kwargs: other EnergyDetector fields.
 
@@ -8387,14 +8469,16 @@ class StackDevice(StaticMultiMaterialObject):
             The detector and the constraints placing it relative to this device.
         """
         return self._at_port(
-            fdtdx.EnergyDetector, port, port_size_mult, "energy_detector", direction=None, level=level,
+            fdtdx.EnergyDetector, port, port_padding, "energy_detector",
+            wavelengths_um=None if wavelength_um is None else [wavelength_um],
+            direction=None, level=level,
             port_offset=port_offset, name=name, reduce_volume=reduce_volume, aggregate=aggregate, **kwargs,
         )
 
     def create_diffractive_detector_at(
         self,
         port: str,
-        port_size_mult: Sequence[float],
+        port_padding: Sequence[float],
         frequencies: Sequence[float],
         orders: Sequence[tuple[int, int]] = ((0, 0),),
         direction: PortDirection = "out",
@@ -8407,8 +8491,9 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it.
-            port_size_mult: (a, b): the plane is a * port width wide and
-                b * level height tall.
+            port_padding: (lateral, vertical): the plane extends this far past the
+                port's width and the level's height on each side, in units of the
+                mean wavelength of ``frequencies``.
             frequencies: frequencies (Hz) to analyze.
             orders: diffraction orders (m, n) to record.
             direction: "out" for orders leaving the component, "in" entering it.
@@ -8422,7 +8507,9 @@ class StackDevice(StaticMultiMaterialObject):
             The detector and the constraints placing it relative to this device.
         """
         return self._at_port(
-            DiffractiveDetector, port, port_size_mult, "diffractive_detector", direction=direction,
+            DiffractiveDetector, port, port_padding, "diffractive_detector",
+            wavelengths_um=[fdtdx.constants.c / f * 1e6 for f in frequencies],
+            direction=direction,
             level=level, port_offset=port_offset, name=name, frequencies=tuple(frequencies), orders=tuple(orders),
             **kwargs,
         )

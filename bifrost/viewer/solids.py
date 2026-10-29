@@ -431,7 +431,7 @@ def plane_ports(device: Any, origin: tuple[float, float, float]) -> tuple[PortGl
     choices in the explorer's port list. They are not device ports — the
     device's own :attr:`~bifrost.stack.StackDevice.ports` is untouched
     — each is drawn at the box center with the box's own in-plane extent as its
-    width and height, so ``port_size_mult=(1, 1)`` fills the whole simulation
+    width and height, so ``port_padding=(0, 0)`` fills the whole simulation
     plane. ``layer`` is -1: a plane has no layer.
     """
     if device.partial_real_shape is None or None in tuple(device.partial_real_shape):

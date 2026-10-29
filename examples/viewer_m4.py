@@ -44,10 +44,10 @@ def _(mo):
 
     **Add a source:** click the **+** beside the Sources header.
 
-    **Volume planes:** the port dropdown also offers `xy`, `xz` and `yz` - the plane through the **center of the simulation volume** parallel to those faces. They are not device ports. A plane's width and height are the volume's own in-plane extents, so `port_size_mult = (1, 1)` (the default for a plane) fills the whole simulation plane.
+    **Volume planes:** the port dropdown also offers `xy`, `xz` and `yz` - the plane through the **center of the simulation volume** parallel to those faces. They are not device ports. A plane's width and height are the volume's own in-plane extents, so `port_padding = (0, 0)` (the default for a plane) fills the whole simulation plane.
 
     **Edit a row:** change the type, port, `port_offset` (the plane moves live),
-    `port_size_mult`, the wavelength, `level`, `name`, or a type-specific extra.
+    `port_padding`, the wavelength, `level`, `name`, or a type-specific extra.
     None of this calls `create_*_at` — the specs are declarative.
 
     **Simulation tab:** the default wavelength and plane size feed newly added
@@ -189,7 +189,7 @@ def foreign_sim(f1_stack):
         spectral_width=fdtdx.WaveCharacter(frequency=0.05 * _wave.get_frequency()),
     )
     foreign_source, _src_constraints = foreign_stack.create_mode_plane_source_at(
-        "o1", (4.5, 8), wave_character=_wave, temporal_profile=_pulse,
+        "o1", (1.838, 1.074), wave_character=_wave, temporal_profile=_pulse,
         port_offset=-0.3, name="source", mode_index=0, filter_pol="te",
     )
     foreign_field = fdtdx.PhasorDetector(

@@ -94,13 +94,14 @@ def simulate(overlap: float, resolution: float = 0.02, time: float = 400e-15) ->
     stack = build_stack(overlap)
     volume, constraints = stack.get_simulation_volume()
     objects = [volume, stack]
-    # port planes 4.5 x 0.65 um wide, 1.6 / 1.8 um tall around each guide, outside the PML
+    # port planes 2.9 um wide and 1.5 (upper) / 2.0 (lower) um tall around each guide, outside the PML:
+    # port_padding is per side, in wavelengths (0.619 um), past the guide's width and its level's height
     for obj, c in (
         stack.create_mode_plane_source_at(
-            "o1", (4.5, 8), wave_character=wave, temporal_profile=pulse, port_offset=-0.3, name="source", **te0
+            "o1", (1.838, 1.074), wave_character=wave, temporal_profile=pulse, port_offset=-0.3, name="source", **te0
         ),
-        stack.create_mode_overlap_detector_at("o1", (4.5, 8), direction="in", name="in", **mode),
-        stack.create_mode_overlap_detector_at("o2", (4.5, 18), name="out", **mode),
+        stack.create_mode_overlap_detector_at("o1", (1.838, 1.074), direction="in", name="in", **mode),
+        stack.create_mode_overlap_detector_at("o2", (1.838, 1.511), name="out", **mode),
     ):
         objects.append(obj)
         constraints += c

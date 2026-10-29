@@ -163,8 +163,8 @@ const FIELD_HINTS: Record<string, string> = {
     + "the port, out = out of it",
   port_offset: "shift along the port's injection direction in µm; negative moves the plane "
     + "out of the component, e.g. into a port extension",
-  port_size_mult: "the plane's width and height as multiples of the port width and the level "
-    + "height",
+  port_padding: "how far the plane extends past the port's width (first) and the level's height "
+    + "(second) on each side, in mean wavelengths of this card; negative shrinks it",
   level: "the level whose height and middle set the plane's z; (auto) uses the z span of the "
     + "levels that draw the port's layer, or the box's mid-height for a box plane; z_center "
     + "pins it to the box's mid-height",
@@ -274,6 +274,8 @@ export class Explorer {
   private readonly groupStride: HTMLInputElement;
   private groupPlaying = false;
   private locked = false;
+  /** the latest simulation settings, for the defaults a spec's unset fields show */
+  private settings: SimSettingsPayload | null = null;
 
   constructor(
     private meta: MetaPayload,
@@ -506,6 +508,7 @@ export class Explorer {
   }
 
   render(state: StatePayload): void {
+    this.settings = state.simulation;
     for (const level of this.meta.levels) {
       const row = this.levelRows.get(level.name);
       const style = state.styles[level.name];
@@ -710,6 +713,8 @@ export class Explorer {
     const update = (change: { type?: string; port?: string; params?: Record<string, unknown> }): void =>
       this.callbacks.onUpdateSpec(kind, spec.id, change);
     const setParam = (key: string, value: unknown): void => update({ params: { [key]: value } });
+    // what a field shows, and returns to when cleared, while the spec leaves it unset
+    const defaultText = (key: string): string => formatDefault(key, this.specDefault(key, spec));
 
     // port (spec R12). "None" (spec R18) places the object absolutely: the
     // port-frame rows below are replaced by axis/center/size.
@@ -755,12 +760,17 @@ export class Explorer {
       }
       // port_offset (spec R12): live, so the plane moves as it is edited
       controls.set("port_offset", this.numberControl(
-        0, 0.01, (value) => setParam("port_offset", value), true,
+        0, 0.01, (value) => setParam("port_offset", value), true, 1,
+        () => { setParam("port_offset", null); return 0; },
       ));
-      // port_size_mult (spec R12)
+      // port_padding (spec R12)
       if (type.plane) {
-        controls.set("port_size_mult", this.pairControl(
-          (value) => setParam("port_size_mult", value),
+        controls.set("port_padding", this.pairControl(
+          (value) => setParam("port_padding", value), true,
+          () => {
+            setParam("port_padding", null);
+            return (this.specDefault("port_padding", spec) as [number, number] | undefined) ?? [0, 0];
+          },
         ));
       }
       // level (spec R12). The empty choice is the port's own level union (a port)
@@ -782,14 +792,18 @@ export class Explorer {
     // wavelength(s) (spec R12)
     if (type.wave !== "none") {
       controls.set("wavelengths", this.textControl(
-        (value) => setParam("wavelengths", parseWavelengths(value)),
+        (value) => setParam("wavelengths", value === null ? null : parseWavelengths(value)),
+        () => defaultText("wavelengths"),
       ));
     }
     // name (spec R12)
-    controls.set("name", this.textControl((value) => setParam("name", value)));
+    controls.set("name", this.textControl((value) => setParam("name", value), () => defaultText("name")));
     // the type's extra parameters, edited generically (spec R12)
     for (const extra of type.extra) {
-      controls.set(extra, this.textControl((value) => setParam(extra, parseValue(value))));
+      controls.set(extra, this.textControl(
+        (value) => setParam(extra, value === null ? null : parseValue(value)),
+        () => defaultText(extra),
+      ));
     }
 
     for (const [key, control] of controls) {
@@ -824,6 +838,34 @@ export class Explorer {
     row.twisty.setAttribute("aria-expanded", String(!row.collapsed));
   }
 
+  /**
+   * The value a spec's field shows, and returns to when cleared, while the spec
+   * leaves it unset (spec R12): the object's own name, the settings' wavelength
+   * and padding, the offset 0, or the type's extra default from the kernel.
+   */
+  private specDefault(key: string, spec: SpecPayload): unknown {
+    const settings = this.settings;
+    switch (key) {
+      case "name":
+        return `${spec.port}_${spec.type}`;
+      case "wavelengths":
+        return settings ? [settings.wavelength_um] : undefined;
+      case "port_offset":
+        return 0;
+      case "port_padding": {
+        // a simulation-volume plane already spans the volume: no padding
+        const port = this.meta.ports.find((p) => p.name === spec.port);
+        return port && port.plane !== null ? [0, 0] : settings?.port_padding;
+      }
+      case "scaling_mode":
+        // a pulsed run needs the pulse scaling (the kernel sets it, spec R14)
+        if (settings && settings.pulse_width_frac > 0) return "pulse";
+        return this.meta.types[spec.type]?.defaults?.[key];
+      default:
+        return this.meta.types[spec.type]?.defaults?.[key];
+    }
+  }
+
   private fillSpecRow(row: SpecRow, spec: SpecPayload): void {
     // the kernel names the object `<port>_<type>` unless params.name overrides
     // it (spec R12); the row shows the same name the placed object will carry
@@ -837,9 +879,8 @@ export class Explorer {
       ...spec.params,
     };
     for (const [key, control] of row.fields) {
-      if (key === "port_size_mult") continue; // written by its pair control
       if (key === "wavelengths") {
-        control.write(formatWavelengths(spec.params.wavelengths));
+        control.write(formatWavelengths(spec.params.wavelengths ?? this.specDefault(key, spec)));
         continue;
       }
       if (key === "level") {
@@ -850,7 +891,8 @@ export class Explorer {
         control.write(spec.params.center);
         continue;
       }
-      control.write(values[key]);
+      // a parameter the spec leaves unset shows its default (spec R12)
+      control.write(values[key] ?? this.specDefault(key, spec));
     }
     // an adopted spec is read-only except its display settings (spec R16): the
     // Result tab owns those, so the setup controls grey out and remove hides
@@ -873,20 +915,37 @@ export class Explorer {
       this.simFields.set(key, control);
       fields.appendChild(fieldRow(labelText, control.element, hint));
     };
+    // a settings field committed empty goes back to the kernel's default (spec R13)
+    const reset = (key: "wavelength_um" | "pulse_width_frac" | "pml_thickness" | "resolution_um"
+      | "time_s" | "log_range") => (): number => {
+      const value = this.meta.settings_defaults[key];
+      this.callbacks.onSettings({ [key]: value });
+      return value;
+    };
     add("wavelength_um", "wavelength", this.numberControl(
-      1.55, 0.01, (value) => this.callbacks.onSettings({ wavelength_um: value }), true,
+      1.55, 0.01, (value) => this.callbacks.onSettings({ wavelength_um: value }), true, 1,
+      reset("wavelength_um"),
     ), "default wavelength for a new source or detector, in µm");
     add("pulse_width_frac", "pulse width", this.numberControl(
-      0, 0.01, (value) => this.callbacks.onSettings({ pulse_width_frac: value }), true,
+      0, 0.01, (value) => this.callbacks.onSettings({ pulse_width_frac: value }), true, 1,
+      reset("pulse_width_frac"),
     ), "Gaussian pulse spectral width, as a fraction of the center frequency; 0 = continuous wave");
-    add("port_size_mult", "plane size", this.pairControl(
-      (value) => this.callbacks.onSettings({ port_size_mult: value }),
-    ), "a new plane is (a) port widths wide and (b) level heights tall");
+    add("port_padding", "plane padding", this.pairControl(
+      (value) => this.callbacks.onSettings({ port_padding: value }), true,
+      () => {
+        const value = this.meta.settings_defaults.port_padding;
+        this.callbacks.onSettings({ port_padding: value });
+        return value;
+      },
+    ), "a new plane extends (a) past the port's width and (b) past the level's height on each "
+      + "side, in mean wavelengths of its source or detector");
     add("pml_thickness", "PML", this.numberControl(
-      10, 1, (value) => this.callbacks.onSettings({ pml_thickness: Math.round(value) }), true,
+      10, 1, (value) => this.callbacks.onSettings({ pml_thickness: Math.round(value) }), true, 1,
+      reset("pml_thickness"),
     ), "perfectly-matched-layer thickness, in grid cells");
     add("resolution_um", "resolution", this.numberControl(
-      0.02, 0.001, (value) => this.callbacks.onSettings({ resolution_um: value }), true,
+      0.02, 0.001, (value) => this.callbacks.onSettings({ resolution_um: value }), true, 1,
+      reset("resolution_um"),
     ), "grid resolution, in µm");
     // how the device paints the grid at material interfaces (spec R13): the
     // names are StackDevice's own `averaging` values, so the export reads alike
@@ -901,6 +960,7 @@ export class Explorer {
     // typed text survives the round-trip (spec R13)
     add("time_fs", "time", this.numberControl(
       400, 10, (value) => this.callbacks.onSettings({ time_s: value }), true, 1e-15,
+      reset("time_s"),
     ), "simulation time, in fs");
     // the box's faces, as an offset from the geometry's bounding box (spec R13):
     // three signed pairs (x, y, z), each `+`/`−` moving that face along its axis
@@ -909,7 +969,8 @@ export class Explorer {
     ), "move each box face off the geometry's bounding box, in µm (positive = towards +axis); the viewports update live");
     // the logabs ramp's floor, one number for the whole viewer (spec R15, Q22)
     add("log_range", "log range", this.numberControl(
-      6, 1, (value) => this.callbacks.onSettings({ log_range: value }), true,
+      6, 1, (value) => this.callbacks.onSettings({ log_range: value }), true, 1,
+      reset("log_range"),
     ), "the logabs color ramp's floor, in decades below the plane's maximum");
     add("keep_partial", "keep partial run", this.boolControl(
       false, (value) => this.callbacks.onSettings({ keep_partial: value }),
@@ -931,10 +992,10 @@ export class Explorer {
       keep_partial: settings.keep_partial,
     };
     for (const [key, control] of this.simFields) {
-      if (key === "port_size_mult" || key === "boundary_offset") continue;
+      if (key === "port_padding" || key === "boundary_offset") continue;
       control.write(values[key]);
     }
-    this.simFields.get("port_size_mult")?.write(settings.port_size_mult);
+    this.simFields.get("port_padding")?.write(settings.port_padding);
     this.simFields.get("boundary_offset")?.write(settings.boundary_offset);
   }
 
@@ -1464,18 +1525,31 @@ export class Explorer {
     onChange: (value: number) => void,
     live = false,
     scale = 1,
+    onEmpty?: () => number,
   ): Control {
     const input = document.createElement("input");
     input.type = "number";
     input.step = String(step);
     input.className = "gfx-numeric";
     input.value = String(initial);
+    // a field committed empty goes back to its default: `onEmpty` resets the
+    // value (and tells the kernel) and returns the default to show, in kernel units
+    const commitEmpty = (): boolean => {
+      if (!onEmpty || input.value.trim() !== "") return false;
+      input.value = String(displayNumber(onEmpty() / scale));
+      return true;
+    };
     const emit = (text: string): void => {
+      if (text.trim() === "") return; // mid-edit: Number("") would read as 0
       const value = Number(text);
       if (Number.isFinite(value)) onChange(value * scale);
     };
-    if (live) coalesce(input, emit);
-    else input.addEventListener("change", () => emit(input.value));
+    if (live) {
+      coalesce(input, emit);
+      input.addEventListener("change", () => { commitEmpty(); });
+    } else {
+      input.addEventListener("change", () => { if (!commitEmpty()) emit(input.value); });
+    }
     return {
       element: input,
       write(value) {
@@ -1522,11 +1596,19 @@ export class Explorer {
     };
   }
 
-  private textControl(onChange: (value: string) => void): Control {
+  private textControl(onChange: (value: string | null) => void, defaultText?: () => string): Control {
     const input = document.createElement("input");
     input.type = "text";
     input.className = "gfx-text";
-    input.addEventListener("change", () => onChange(input.value));
+    input.addEventListener("change", () => {
+      if (input.value.trim() === "") {
+        // cleared: back to the default, which the kernel resets to (null)
+        input.value = defaultText ? defaultText() : "";
+        onChange(null);
+      } else {
+        onChange(input.value);
+      }
+    });
     return {
       element: input,
       write(value) {
@@ -1539,8 +1621,12 @@ export class Explorer {
     };
   }
 
-  /** A two-number control (port_size_mult, spec R12, R13). */
-  private pairControl(onChange: (value: [number, number]) => void): Control {
+  /** A two-number control (port_padding and a plane's size, spec R12, R13); `signed` lets a padding be zero or negative. */
+  private pairControl(
+    onChange: (value: [number, number]) => void,
+    signed = false,
+    onEmpty?: () => [number, number],
+  ): Control {
     const host = document.createElement("span");
     host.className = "gfx-pair";
     const a = document.createElement("input");
@@ -1552,9 +1638,19 @@ export class Explorer {
     b.step = "0.1";
     b.className = "gfx-numeric";
     const emit = (): void => {
+      if (a.value.trim() === "" || b.value.trim() === "") {
+        // a field committed empty: both go back to the default (`onEmpty` resets it)
+        if (onEmpty) {
+          const [first, second] = onEmpty();
+          a.value = String(first);
+          b.value = String(second);
+        }
+        return;
+      }
       const first = Number(a.value);
       const second = Number(b.value);
-      if (Number.isFinite(first) && Number.isFinite(second) && first > 0 && second > 0) {
+      if (Number.isFinite(first) && Number.isFinite(second)
+        && (signed || (first > 0 && second > 0))) {
         onChange([first, second]);
       }
     };
@@ -1777,6 +1873,13 @@ function coalesce(input: HTMLInputElement, handler: (value: string) => void): vo
     pending = input.value;
     if (frame === 0) frame = requestAnimationFrame(flush);
   });
+}
+
+/** A default as the text its field shows; `null`/undefined means an empty field. */
+function formatDefault(key: string, value: unknown): string {
+  if (key === "wavelengths") return formatWavelengths(value);
+  if (value === null || value === undefined) return "";
+  return Array.isArray(value) ? value.join(",") : String(value);
 }
 
 /** A comma-separated wavelength list, or undefined when unparseable (spec R12). */

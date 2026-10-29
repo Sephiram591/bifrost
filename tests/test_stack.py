@@ -2295,19 +2295,19 @@ def test_sources_and_detectors_on_ports(rotation: float) -> None:
     wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
     pol = {"fixed_E_polarization_vector": (0.0, 0.0, 1.0)}  # transverse to both port axes
     made = [
-        d.create_mode_plane_source_at("o1", (2, 3), wave_character=wave),
-        d.create_gaussian_plane_source_at("o1", (2, 3), wave_character=wave, port_offset=0.1, **pol),
-        d.create_uniform_plane_source_at("o1", (2, 3), wave_character=wave, port_offset=0.2, **pol),
+        d.create_mode_plane_source_at("o1", (0.1, 0.1), wave_character=wave),
+        d.create_gaussian_plane_source_at("o1", (0.1, 0.1), wave_character=wave, port_offset=0.1, **pol),
+        d.create_uniform_plane_source_at("o1", (0.1, 0.1), wave_character=wave, port_offset=0.2, **pol),
         d.create_hard_constant_amplitude_plane_source_at(
-            "o1", (2, 3), wave_character=wave, port_offset=0.3, **pol
+            "o1", (0.1, 0.1), wave_character=wave, port_offset=0.3, **pol
         ),
         d.create_point_dipole_source_at("o1", wave_character=wave, polarization="y", port_offset=0.4),
-        d.create_mode_overlap_detector_at("o2", (2, 3), wave_characters=(wave,)),
-        d.create_poynting_flux_detector_at("o2", (2, 3), port_offset=0.1),
-        d.create_phasor_detector_at("o2", (2, 3), wave_characters=(wave,), port_offset=0.2),
-        d.create_field_detector_at("o2", (2, 3), port_offset=0.3),
-        d.create_energy_detector_at("o2", (2, 3), port_offset=0.4),
-        d.create_diffractive_detector_at("o2", (2, 3), frequencies=(wave.get_frequency(),), port_offset=0.5),
+        d.create_mode_overlap_detector_at("o2", (0.1, 0.1), wave_characters=(wave,)),
+        d.create_poynting_flux_detector_at("o2", (0.1, 0.1), wavelength_um=1.55, port_offset=0.1),
+        d.create_phasor_detector_at("o2", (0.1, 0.1), wave_characters=(wave,), port_offset=0.2),
+        d.create_field_detector_at("o2", (0.1, 0.1), wavelength_um=1.55, port_offset=0.3),
+        d.create_energy_detector_at("o2", (0.1, 0.1), wavelength_um=1.55, port_offset=0.4),
+        d.create_diffractive_detector_at("o2", (0.1, 0.1), frequencies=(wave.get_frequency(),), port_offset=0.5),
     ]
     objects, _, _ = _place_own_volume(d, made)
     dev = objects["stack"]
@@ -2335,19 +2335,21 @@ def test_sources_and_detectors_on_ports(rotation: float) -> None:
             assert o.grid_shape == (1, 1, 1)
             continue
         assert o.grid_shape[axis] == 1
-        assert o.grid_shape[1 - axis] == round(2 * 0.5 / RES)
-        assert o.grid_shape[2] == round(3 * 0.22 / RES)
+        # padded by 0.1 mean wavelengths (1.55 um) on each side of the port's width and the level's
+        # height; small enough to stay inside this test's box
+        assert o.grid_shape[1 - axis] == round((0.5 + 2 * 0.1 * 1.55) / RES)
+        assert o.grid_shape[2] == round((0.22 + 2 * 0.1 * 1.55) / RES)
     # o1 points out of the component towards -axis, o2 towards +axis: both launch / measure towards +
     assert objects["o1_mode_source"].direction == "+"
     assert objects["o2_mode_detector"].direction == "+"
     assert objects["o2_flux_detector"].direction == "+"
     assert objects["o2_flux_detector"].fixed_propagation_axis == axis
-    out = d.create_mode_overlap_detector_at("o1", (2, 3), wave_characters=(wave,), name="reflection")[0]
+    out = d.create_mode_overlap_detector_at("o1", (0.1, 0.1), wave_characters=(wave,), name="reflection")[0]
     assert out.direction == "-"  # leaving through o1: towards -axis
     # port_offset > 0 moves along the injection direction (into the component), < 0 into the extension
     for port_offset in (0.2, -0.2):
         src, cons = d.create_uniform_plane_source_at(
-            "o1", (2, 3), wave_character=wave, port_offset=port_offset, name="s", **pol
+            "o1", (0.1, 0.1), wave_character=wave, port_offset=port_offset, name="s", **pol
         )
         placed, _, _ = _place_own_volume(d, [(src, cons)])
         p = ports["o1"]
@@ -2362,13 +2364,13 @@ def test_port_errors() -> None:
     )
     wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
     with pytest.raises(KeyError, match="Unknown port"):
-        d.create_mode_plane_source_at("nope", (2, 3), wave_character=wave)
+        d.create_mode_plane_source_at("nope", (0.5, 0.5), wave_character=wave)
     with pytest.raises(KeyError, match="Level 'nope'"):
-        d.create_mode_plane_source_at("o1", (2, 3), wave_character=wave, level="nope")
+        d.create_mode_plane_source_at("o1", (0.5, 0.5), wave_character=wave, level="nope")
     with pytest.raises(ValueError, match="direction"):
-        d.create_mode_plane_source_at("o1", (2, 3), wave_character=wave, direction="+")
-    src, _ = d.create_mode_plane_source_at("o1", (2, 3), wave_character=wave, level="clad")
-    assert src.partial_real_shape[2] == pytest.approx(3 * 0.5e-6)  # the cladding's height
+        d.create_mode_plane_source_at("o1", (0.5, 0.5), wave_character=wave, direction="+")
+    src, _ = d.create_mode_plane_source_at("o1", (0.5, 0.5), wave_character=wave, level="clad")
+    assert src.partial_real_shape[2] == pytest.approx((0.5 + 2 * 0.5 * 1.55) * 1e-6)  # the cladding's height, padded
 
 
 def test_levels_without_polygons_need_no_material() -> None:
@@ -3688,7 +3690,7 @@ def test_fdtd_solve_forward_and_gradient() -> None:
     )
     wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
     source, c1 = d.create_point_dipole_source_at("o1", wave_character=wave, polarization="y", port_offset=0.2)
-    probe, c2 = d.create_energy_detector_at("o2", (2, 3), reduce_volume=True, port_offset=0.2)
+    probe, c2 = d.create_energy_detector_at("o2", (0.5, 0.5), wavelength_um=1.55, reduce_volume=True, port_offset=0.2)
     volume, constraints = d.get_simulation_volume()
     config = fdtdx.SimulationConfig(
         time=40e-15,
@@ -3728,8 +3730,8 @@ def test_mode_objects_on_a_stack_see_the_stack_permittivity() -> None:
     )
     wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
     made = [
-        d.create_mode_plane_source_at("o1", (2, 3), wave_character=wave, port_offset=-0.2),
-        d.create_mode_overlap_detector_at("o1", (2, 3), wave_characters=(wave,), port_offset=0.2),
+        d.create_mode_plane_source_at("o1", (0.5, 0.5), wave_character=wave, port_offset=-0.2),
+        d.create_mode_overlap_detector_at("o1", (0.5, 0.5), wave_characters=(wave,), port_offset=0.2),
     ]
     source, detector = (obj.name for obj, _ in made)
     objects, arrays, params = _place_own_volume(d, made)
@@ -4089,3 +4091,42 @@ def test_subpixel_full_gradients_match_finite_differences() -> None:
         fd = (float(loss(plus, weights)) - float(loss(minus, weights))) / (2 * h)
         assert ad > 0 and abs(ad - float(jnp.sum(weights**2))) <= 1e-3 * ad, (name, ad)  # reverse = forward
         assert abs(ad - fd) <= 0.01 * abs(fd), (name, ad, fd)
+
+
+def test_plane_extents_pads_each_side_in_mean_wavelengths() -> None:
+    """port_padding is per side, in units of the mean of the wavelengths."""
+    assert bf.stack.plane_extents(0.5, 0.22, (1.0, 2.0), [1.0]) == pytest.approx((2.5, 4.22))
+    # the mean of two wavelengths, 1.0 and 2.0 um, is 1.5 um
+    assert bf.stack.plane_extents(0.5, 0.22, (1.0, 2.0), [1.0, 2.0]) == pytest.approx((3.5, 6.22))
+    # zero padding is the port's own size, and needs no wavelength
+    assert bf.stack.plane_extents(0.5, 0.22, (0.0, 0.0), None) == (0.5, 0.22)
+    # a negative padding shrinks the plane inside the port
+    assert bf.stack.plane_extents(0.5, 0.22, (-0.1, -0.05), [1.0]) == pytest.approx((0.3, 0.12))
+
+
+def test_plane_extents_rejects_a_negative_padding_that_empties_the_plane() -> None:
+    with pytest.raises(ValueError, match="negative padding"):
+        bf.stack.plane_extents(0.5, 0.22, (-0.25, 0.0), [1.0])  # exactly 0 wide
+
+
+def test_plane_extents_rejects_bad_padding_or_a_missing_wavelength() -> None:
+    with pytest.raises(ValueError, match="finite"):
+        bf.stack.plane_extents(0.5, 0.22, (float("nan"), 0.0), [1.55])
+    with pytest.raises(ValueError, match="two"):
+        bf.stack.plane_extents(0.5, 0.22, (1.0,), [1.55])
+    with pytest.raises(ValueError, match="wavelength_um"):
+        bf.stack.plane_extents(0.5, 0.22, (1.0, 1.0), None)
+
+
+def test_a_detector_without_a_wave_needs_a_wavelength_for_its_padding() -> None:
+    """Field, energy and flux detectors take ``wavelength_um`` as the padding's unit."""
+    ls = LayerStack(layers={"core": LayerLevel(layer=(1, 0), zmin=0.0, thickness=0.22, material="si", mesh_order=1)})
+    d = bf.stack.StackDevice.from_layer_stack(
+        _straight(0.0, width=0.5), ls, MATERIALS, background="air", name="stack", included_layers=["core"],
+        boundary_offset=(0.0, 0.0, 0.3, -0.3, 0.3, -0.2),
+    )
+    with pytest.raises(ValueError, match="wavelength_um"):
+        d.create_field_detector_at("o2", (0.5, 0.5))
+    plain, _ = d.create_field_detector_at("o2", (0.0, 0.0))
+    padded, _ = d.create_field_detector_at("o2", (1.0, 1.0), wavelength_um=1.0)
+    assert float(padded.partial_real_shape[1]) - float(plain.partial_real_shape[1]) == pytest.approx(2.0e-6)

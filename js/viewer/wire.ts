@@ -58,10 +58,12 @@ export interface MetaPayload {
   background: string;
   //: the source/detector types the explorer can add (spec R12)
   types: Record<string, TypeMeta>;
+  //: the simulation settings' defaults (spec R13): what a cleared settings field returns to
+  settings_defaults: SimSettingsPayload;
 }
 
 //: One creatable source/detector type (spec R12): its category, whether it is
-//: sized by `port_size_mult`, how many wavelengths it takes, whether it has an
+//: sized by `port_padding`, how many wavelengths it takes, whether it has an
 //: `in`/`out` direction, and the extra editable parameter names it accepts.
 export interface TypeMeta {
   category: "source" | "detector";
@@ -69,6 +71,9 @@ export interface TypeMeta {
   wave: "one" | "many" | "none";
   direction: boolean;
   extra: string[];
+  //: each extra's default, shown in its field while the spec leaves it unset (spec R12);
+  //: `null` means the field stays empty
+  defaults: Record<string, unknown>;
 }
 
 export interface LayerStyle {
@@ -119,7 +124,7 @@ export interface GlyphPayload {
 export interface SimSettingsPayload {
   wavelength_um: number;
   pulse_width_frac: number;
-  port_size_mult: [number, number];
+  port_padding: [number, number];
   pml_thickness: number;
   resolution_um: number;
   time_s: number;

@@ -68,7 +68,7 @@ PLANES = ("xy", "xz", "yz")
 #: ``type`` and ``port`` are separate. The detector display settings (spec R15)
 #: are included, so a detector spec may carry them; a source never uses them.
 _SPEC_PARAM_KEYS = frozenset(
-    {"port_offset", "level", "direction", "name", "wavelengths", "port_size_mult", "visible"}
+    {"port_offset", "level", "direction", "name", "wavelengths", "port_padding", "visible"}
     | set(_ABSOLUTE)
     | set(_FIELD_PARAMS)
     | {key for kind in TYPES.values() for key in kind.extra}
@@ -395,7 +395,11 @@ class ViewerState:
                 raise ValueError(f"Unknown parameters: {sorted(unknown)}")
             _validate_field_params(spec, data["params"])
             validate_sampling(data["params"])
-            spec.params.update(data["params"])
+            for key, value in data["params"].items():
+                if value is None:  # cleared in the browser: back to the default (spec R12)
+                    spec.params.pop(key, None)
+                else:
+                    spec.params[key] = value
         return spec
 
     def remove_spec(self, spec_id: str) -> None:

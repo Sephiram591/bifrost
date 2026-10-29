@@ -93,8 +93,8 @@ volume, constraints = stack.get_simulation_volume()
 objects = [volume, stack]
 wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
 for obj, c in (
-    stack.create_mode_plane_source_at("o1", (3, 4), wave_character=wave, port_offset=-0.5),
-    stack.create_mode_overlap_detector_at("o2", (3, 4), wave_characters=(wave,), name="out"),
+    stack.create_mode_plane_source_at("o1", (1.0, 1.0), wave_character=wave, port_offset=-0.5),
+    stack.create_mode_overlap_detector_at("o2", (1.0, 1.0), wave_characters=(wave,), name="out"),
 ):
     objects.append(obj)
     constraints += c
@@ -107,7 +107,7 @@ constraints. The common arguments are:
 | Argument | Meaning |
 | --- | --- |
 | `port` | port name |
-| `port_size_mult` | `(a, b)`: the plane is `a` × port width wide and `b` × level height tall |
+| `port_padding` | `(lateral, vertical)`: the plane extends this far past the port's width and the level's height on each side, in units of the mean wavelength of the object's wave characters (negative values shrink the plane). Field, energy and Poynting-flux detectors have none, so they take `wavelength_um` for the unit |
 | `direction` | `"in"` (into the component) or `"out"`; sources default to `"in"`, detectors to `"out"` |
 | `port_offset` | shift in µm along the injection direction; negative values move the plane out of the component, e.g. into a port extension |
 | `level` | level whose z span sets the plane's height (default: the levels drawing the port's layer) |

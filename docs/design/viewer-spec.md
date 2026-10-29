@@ -249,12 +249,12 @@ setup; it is not a run launcher (see §2).
   simulation volume** parallel to those faces. They are *not* ports of the
   device (`StackDevice.ports` is untouched): a source or detector may be placed
   on one exactly as on a port. A plane's width and height are the volume's own
-  in-plane extents, so `port_size_mult = (1, 1)` fills the whole simulation
-  plane. A plane defaults to `(1, 1)` for this reason — a port's default
-  multiplier would overflow the volume.
+  in-plane extents, so `port_padding = (0, 0)` fills the whole simulation
+  plane. A plane defaults to `(0, 0)` for this reason — a port's default
+  padding would overflow the volume.
 - **Parameters editable in the explorer.** Each added object is a row whose
   properties are editable: the port, the object type, `port_offset`,
-  `port_size_mult`, the wavelength(s), `direction`, `level` and `name`.
+  `port_padding`, the wavelength(s), `direction`, `level` and `name`.
   Changing `port_offset` moves the object's glyph in the viewports live.
 - **`level` sets the object's height, on a plane as well as a port.** A level
   name puts the plane at the **middle** of that level's z span (a port uses the
@@ -276,7 +276,7 @@ setup; it is not a run launcher (see §2).
   frame (D8), before any placement, so the viewport is a pre-flight view (W1).
   Translucent planes/boxes in 3D, outlines in 2D, with visibility toggles.
 - Defaults for the two required `create_mode_overlap_detector_at` arguments
-  (`port_size_mult`, `wave_characters`) come from the Simulation tab (R13, Q18).
+  (`port_padding`, `wave_characters`) come from the Simulation tab (R13, Q18).
 
 AC:
 - On F1, double-clicking port `o2` in the 3D viewport adds a `ModeOverlapDetector`
@@ -304,8 +304,12 @@ editable fields:
 
 - **`wave_character`** — the default wavelength(s) used when a source or
   detector is added without one (R12, Q18).
-- **`port_size_mult`** — the default plane size multiplier for new
-  sources/detectors (R12, Q18).
+- **`port_padding`** — the default `(lateral, vertical)` padding for new
+  sources/detectors (R12, Q18): how far the plane extends past the port's
+  width and the level's height on each side, in units of the mean wavelength of
+  the object's own wavelengths (the settings' wavelength for one with none).
+  Negative values shrink the plane; the default is `(3, 2)`.
+  It replaced the earlier `port_size_mult`, a multiple of the port's size.
 - **PML / boundary** — the boundary thickness (e.g. the `BoundaryConfig` the
   run would use; `fdtdx.BoundaryConfig.from_uniform_bound(thickness=...)`).
 - **`boundary_offset`** — the box's six face offsets, `(x+, x-, y+, y-, z+, z-)`
@@ -1368,7 +1372,7 @@ one wire — and every routing decision keyed on the active tab.
   - Mitred corners differ from what is simulated by `r·(1/cos(θ/2) − 1)` at a
     turn of θ: `0.41·r` at 90°, negligible on finely polygonized bends (D3a).
 - **Q18.** Defaults for a newly added source/detector (R12): the default
-  `port_size_mult` and default `wave_characters` for a double-click-added
+  `port_padding` and default `wave_characters` for a double-click-added
   `ModeOverlapDetector`. *Resolved 2026-10-12:* they come from the Simulation tab
   (R13). Still open: what their initial values are before the user edits them.
 - **Q19.** Mode 3 launch code (D12): what the emitted snippet includes, and
