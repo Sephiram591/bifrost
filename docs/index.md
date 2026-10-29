@@ -1,4 +1,4 @@
-![bifrost](images/bifrost-logo-final.svg){ width="360" }
+![bifrost](images/bifrost-logo-rounded-rectangle.svg){ width="360" }
 
 # bifrost
 
