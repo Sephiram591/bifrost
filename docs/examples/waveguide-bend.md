@@ -25,7 +25,7 @@ included) and, on a GPU, the peak memory.
 ## Things to try
 
 - **Change the geometry.** `RADIUS`, `WIDTH` and `THICKNESS` at the top of the file are in µm. A smaller radius radiates more.
-  Keep the box a whole number of cells when you change the sizes that set it (`LEAD`, `RADIUS`, `EXTENSION`, `MARGIN`).
+  Keep the box a whole number of cells when you change the sizes that set it (`RADIUS`, `EXTENSION`, `MARGIN`).
 - **Use the result elsewhere.** `simulate()` returns a `BendResult` with the stack, the placed objects, the arrays, the
   transmission and the field, so you can import the function and post-process it. `open_viewer(result)` returns the viewer.
 - **Differentiate it.** The transmission is differentiable with respect to the radius and width; see

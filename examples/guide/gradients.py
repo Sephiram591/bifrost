@@ -14,12 +14,11 @@ from gdsfactory.technology import LayerLevel, LayerStack
 
 gf.gpdk.PDK.activate()
 
-CORE = (1, 0)
 RADIUS = 2.0  # um: the parameter we differentiate with respect to
 RESOLUTION = 0.04  # um, the grid of the bend tutorial
 
 layer_stack = LayerStack(
-    layers={"core": LayerLevel(layer=CORE, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
+    layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
 )
 materials = {"core": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Material(permittivity=1.444**2)}
 

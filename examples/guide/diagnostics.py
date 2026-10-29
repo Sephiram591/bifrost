@@ -15,13 +15,9 @@ from gdsfactory.technology import LayerLevel, LayerStack
 
 gf.gpdk.PDK.activate()
 
-CORE = (1, 0)
-component = gf.Component()
-component.add_polygon([(0, -0.02), (5, -0.02), (5, 0.02), (0, 0.02)], layer=CORE)  # a 40 nm wide strip
-component.add_port("o1", center=(0, 0), width=0.04, orientation=180, layer=CORE)
-component.add_port("o2", center=(5, 0), width=0.04, orientation=0, layer=CORE)
+component = gf.components.straight(length=5, width=0.04)  # a 5 um long, 40 nm wide waveguide
 layer_stack = LayerStack(
-    layers={"core": LayerLevel(layer=CORE, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
+    layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
 )
 materials = {"core": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Material(permittivity=1.444**2)}
 stack = bf.StackDevice.from_layer_stack(

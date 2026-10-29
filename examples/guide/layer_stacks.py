@@ -11,19 +11,13 @@ from gdsfactory.technology import LayerLevel, LayerStack
 
 gf.gpdk.PDK.activate()
 
-CORE = (1, 0)  # (layer, datatype) the waveguide is drawn on
-
-# a 5 um long, 500 nm wide strip with a port on each end
-component = gf.Component()
-component.add_polygon([(0, -0.25), (5, -0.25), (5, 0.25), (0, 0.25)], layer=CORE)
-component.add_port("o1", center=(0, 0), width=0.5, orientation=180, layer=CORE)
-component.add_port("o2", center=(5, 0), width=0.5, orientation=0, layer=CORE)
+component = gf.components.straight(length=5)  # a 5 um long, 500 nm wide waveguide with ports o1 and o2
 # --8<-- [end:imports]
 
 # --8<-- [start:bare]
 # 1. One level and two materials: a silicon core in a uniform silica cladding.
 layer_stack = LayerStack(
-    layers={"core": LayerLevel(layer=CORE, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
+    layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
 )
 materials = {
     "core": fdtdx.Material(permittivity=3.48**2),
@@ -46,7 +40,7 @@ print("box (um):", [round(float(s) * 1e6, 3) for s in stack.partial_real_shape])
 substrate_stack = LayerStack(
     layers={
         "box": LayerLevel(layer="WAFER", zmin=-2.0, thickness=2.0, material="silica", mesh_order=9),
-        "core": LayerLevel(layer=CORE, zmin=0.0, thickness=0.22, material="silicon", mesh_order=1),
+        "core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="silicon", mesh_order=1),
     }
 )
 substrate_materials = {

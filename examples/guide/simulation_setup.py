@@ -14,14 +14,10 @@ from gdsfactory.technology import LayerLevel, LayerStack
 
 gf.gpdk.PDK.activate()
 
-CORE = (1, 0)
-component = gf.Component()
-component.add_polygon([(0, -0.25), (5, -0.25), (5, 0.25), (0, 0.25)], layer=CORE)
-component.add_port("o1", center=(0, 0), width=0.5, orientation=180, layer=CORE)
-component.add_port("o2", center=(5, 0), width=0.5, orientation=0, layer=CORE)
+component = gf.components.straight(length=5)  # a 5 um long, 500 nm wide waveguide with ports o1 and o2
 
 layer_stack = LayerStack(
-    layers={"core": LayerLevel(layer=CORE, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
+    layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
 )
 materials = {
     "core": fdtdx.Material(permittivity=3.48**2),

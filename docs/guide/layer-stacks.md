@@ -12,8 +12,8 @@ This page builds devices; [Simulation setup and ports](simulation-setup.md) puts
 ## A silicon waveguide in silica
 
 The smallest useful stack has one level and two materials: a core and a uniform cladding. This script is complete: it
-builds the component, the stack and the device. (`gf.gpdk.PDK.activate()` loads gdsfactory's generic PDK; the layer
-below is a plain `(layer, datatype)` tuple, so any PDK works.)
+builds the component, the stack and the device. The component is gdsfactory's `straight` cell, and the waveguide
+layer `gf.gpdk.LAYER.WG` comes from the generic PDK that `gf.gpdk.PDK.activate()` loads.
 
 ```python
 --8<-- "examples/guide/layer_stacks.py:imports"
@@ -27,7 +27,7 @@ It prints the simulation box that `from_layer_stack` derived:
 box (um): [7.0, 3.5, 3.22]
 ```
 
-That is 5 µm of guide plus 1 µm leads on both sides in x, the 0.5 µm guide plus 1.5 µm of cladding on both sides in y,
+That is 5 µm of guide plus the two 1 µm port extensions in x, the 0.5 µm guide plus 1.5 µm of cladding on both sides in y,
 and the 0.22 µm core plus 1.5 µm above and below in z.
 
 - **`layer_stack`** lists the levels. A `LayerLevel` says which layer it draws, where it starts (`zmin`) and how thick it

@@ -76,7 +76,7 @@ The arguments every method shares:
       lies inside the box, so the port extension has to be longer than the PML plus the offsets.
     - Keep the plane **inside the box**. A plane larger than the box is clipped to it. With 1.55 µm light, a padding of
       3 wavelengths is far larger than a small box, so give the box room or reduce the padding.
-    - Launch **just outside the port** (`port_offset=-0.5`) so the source sits in the straight lead, and put the input
+    - Launch **just outside the port** (`port_offset=-0.5`) so the source sits in the straight extension, and put the input
       monitor on the port itself, as above.
     - Planes must be tall enough to hold the mode: the mode of a 220 nm silicon guide reaches about 0.5 µm into the
       cladding above and below, so a 1.1 µm tall plane is plenty.

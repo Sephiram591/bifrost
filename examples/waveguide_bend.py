@@ -1,8 +1,8 @@
 """A 90 degree silicon waveguide bend, simulated end to end with bifrost and fdtdx.
 
-The component is built from plain polygons, so nothing depends on a PDK. TE0 at
-1.55 um is launched into the straight lead on port ``o1``, and the fraction that
-leaves port ``o2`` in TE0 is measured. The same script produces the field image
+The device is gdsfactory's ``bend_circular`` pcell. TE0 at 1.55 um is launched into
+the straight extension of port ``o1``, and the fraction that leaves port ``o2``
+in TE0 is measured. The same script produces the field image
 and the result the viewer loads (see docs/getting-started.md).
 
 Run it on a GPU node:  python examples/waveguide_bend.py
@@ -24,19 +24,17 @@ import gdsfactory as gf
 import bifrost as bf
 from gdsfactory.technology import LayerLevel, LayerStack
 
-gf.gpdk.PDK.activate()  # the generic PDK; the layers below are plain (layer, datatype) tuples
+gf.gpdk.PDK.activate()  # the generic PDK: the pcells below and the waveguide layer come from it
 # --8<-- [end:imports]
 
 # --8<-- [start:parameters]
 WAVELENGTH = 1.55  # um, in vacuum
 CORE_INDEX, CLAD_INDEX = 3.48, 1.444  # silicon in silica, constant (no dispersion)
-CORE = (1, 0)  # (layer, datatype) the waveguide is drawn on
 WIDTH, THICKNESS = 0.5, 0.22  # um
 RADIUS = 5.0  # um, of the bend's centerline
-LEAD = 1.0  # um of straight guide before and after the bend
-EXTENSION = 2.0  # um, how far the ports are extended, straight, to the box faces
+EXTENSION = 2.5  # um, how far both ports are extended, straight, to the box faces
 PML = 1.0  # um of perfectly matched layer inside each face of the box
-MARGIN = 1.75  # um of cladding between the guide and the box faces that have no port
+MARGIN = 2.25  # um of cladding between the bend and the two box faces that have no port
 BOX_HEIGHT = 3.4  # um, the box in z; with MARGIN this makes the box exactly 10 x 10 x 3.4 um
 PLANE_PADDING = (0.5, 0.3)  # source and monitor planes: wavelengths past the guide, per side (width, height)
 RESOLUTION = 0.04  # um, the grid cell
@@ -46,33 +44,13 @@ MOVIE_FRAMES = 40  # time steps the field movie records, evenly spaced
 
 
 # --8<-- [start:component]
-def bend(radius: float = RADIUS, width: float = WIDTH, lead: float = LEAD) -> gf.Component:
-    """A 90 degree left turn: a straight lead, a circular arc and a second lead.
-
-    Port ``o1`` is at the origin facing west; ``o2`` faces north.
-    """
-    c = gf.Component()
-    theta = np.linspace(0.0, np.pi / 2, 90)
-    cx, cy = lead, radius  # the arc's center
-    outer, inner = radius + width / 2, radius - width / 2
-    points = (
-        [(0.0, -width / 2)]
-        + [(cx + outer * np.sin(t), cy - outer * np.cos(t)) for t in theta]  # the outside edge
-        + [(cx + radius + width / 2, cy + lead)]
-        + [(cx + radius - width / 2, cy + lead)]
-        + [(cx + inner * np.sin(t), cy - inner * np.cos(t)) for t in theta[::-1]]  # the inside edge
-        + [(0.0, width / 2)]
-    )
-    c.add_polygon(points, layer=CORE)
-    c.add_port("o1", center=(0.0, 0.0), width=width, orientation=180, layer=CORE)
-    c.add_port("o2", center=(lead + radius, radius + lead), width=width, orientation=90, layer=CORE)
-    return c
+component = gf.components.bend_circular(radius=RADIUS, angle=90, width=WIDTH)  # ports: o1 faces west, o2 north
 # --8<-- [end:component]
 
 
 # --8<-- [start:stack]
 LAYER_STACK = LayerStack(
-    layers={"core": LayerLevel(layer=CORE, zmin=0.0, thickness=THICKNESS, material="core", mesh_order=1)}
+    layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=THICKNESS, material="core", mesh_order=1)}
 )
 MATERIALS = {
     "core": fdtdx.Material(permittivity=CORE_INDEX**2),
@@ -81,10 +59,10 @@ MATERIALS = {
 
 
 def build_stack() -> bf.StackDevice:
-    """The bend voxelized with its layer stack, plus straight extensions of both ports."""
+    """The bend voxelized with its layer stack, with both ports extended straight to the box."""
     z_margin = (BOX_HEIGHT - THICKNESS) / 2  # cladding above and below the core
     return bf.StackDevice.from_layer_stack(
-        bend(), LAYER_STACK, MATERIALS,
+        component, LAYER_STACK, MATERIALS,
         background="clad",
         included_layers=["core"],  # the box's z range starts as the core's: 0 to 0.22 um
         extend_ports=(("o1", EXTENSION), ("o2", EXTENSION)),  # both end at a box face
@@ -133,18 +111,20 @@ def simulate(resolution: float = RESOLUTION, duration: float = DURATION) -> Bend
     volume, constraints = stack.get_simulation_volume()
     objects = [volume, stack]
     for obj, placing in (
-        # launch just outside the port, into the straight lead
+        # launch 1 um outside port o1 (a negative port_offset moves a plane out of the device,
+        # into the port extension), clear of the absorbing boundary at the box face
         stack.create_mode_plane_source_at(
-            "o1", PLANE_PADDING, wave_character=wave, temporal_profile=pulse, port_offset=-0.5,
+            "o1", PLANE_PADDING, wave_character=wave, temporal_profile=pulse, port_offset=-1.0,
             name="source", **te0,
         ),
-        # the input monitor sits on the port, the output monitor on the other one
+        # one monitor 0.5 um outside each port, in the straight extensions, before and after the bend
         stack.create_mode_overlap_detector_at(
             "o1", PLANE_PADDING, direction="in", wave_characters=(wave,), scaling_mode="pulse",
-            name="in", **te0,
+            port_offset=-0.5, name="in", **te0,
         ),
         stack.create_mode_overlap_detector_at(
-            "o2", PLANE_PADDING, wave_characters=(wave,), scaling_mode="pulse", name="out", **te0,
+            "o2", PLANE_PADDING, wave_characters=(wave,), scaling_mode="pulse",
+            port_offset=-0.5, name="out", **te0,
         ),
     ):
         objects.append(obj)

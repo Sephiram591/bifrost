@@ -4,9 +4,9 @@ This page takes you from an empty file to a simulated 90° silicon waveguide ben
 and the result open in the viewer. It is one script, [`examples/waveguide_bend.py`](https://github.com/Sephiram591/bifrost/blob/main/examples/waveguide_bend.py),
 explained step by step. [Install bifrost](installation.md) first, and run the script on a GPU if you have one.
 
-The device is a 500 nm wide, 220 nm thick silicon strip in silica. It turns left through a 5 µm radius circular arc, with
-1 µm straight leads on both ends. TE0 light at 1.55 µm enters the lead on port `o1`, and we measure how much of it leaves
-port `o2` in TE0.
+The device is a 500 nm wide, 220 nm thick silicon strip in silica. It is gdsfactory's `bend_circular` cell: a 5 µm radius circular arc that
+turns left, with both ports extended straight to the edge of the simulation box. TE0 light at 1.55 µm is launched into the
+extension of port `o1`, and we measure how much of it leaves port `o2` in TE0.
 
 ## Run it
 
@@ -42,9 +42,10 @@ the input TE0 power that comes out of `o2` in TE0: **0.9991**, so the bend loses
 
 ### 1. The component
 
-A gdsfactory component is polygons plus ports. This one draws the bend as a single polygon (an outer edge, an inner edge
-and the two leads), so nothing depends on a PDK, and puts a port on each end. A port has a center, a width, the
-`orientation` it faces (180° is west, 90° is north) and the layer it belongs to.
+A gdsfactory component is polygons plus ports, and you rarely draw them by hand: gdsfactory's parametric cells (pcells)
+build one from a few parameters. `gf.components.bend_circular` makes a circular arc with a port at each end: `o1` faces
+west (`orientation` 180°) and `o2` faces north (90°). The cell and the waveguide layer `gf.gpdk.LAYER.WG` come from the
+generic PDK, which `gf.gpdk.PDK.activate()` loads. Any other pcell, or a component you built yourself, works the same way.
 
 ```python
 --8<-- "examples/waveguide_bend.py:imports"
@@ -54,20 +55,20 @@ and the two leads), so nothing depends on a PDK, and puts a port on each end. A 
 --8<-- "examples/waveguide_bend.py:component"
 ```
 
-All lengths are in µm. The layer `(1, 0)` is just a `(layer, datatype)` tuple that the layer stack refers to.
+All lengths are in µm.
 
 ### 2. The layer stack and materials
 
-A `LayerStack` says what each layer is made of and how thick it is. This one has a single level: the core, 0.22 µm
-thick, starting at `z = 0`. Two constant-index materials, the silicon core and the silica cladding, are all the
+A `LayerStack` says what each layer is made of and how thick it is. This one has a single level: the core, on the waveguide
+layer, 0.22 µm thick, starting at `z = 0`. Two constant-index materials, the silicon core and the silica cladding, are all the
 solver needs.
 
 ### 3. The device
 
 `StackDevice.from_layer_stack` voxelizes the component through the stack. `background="clad"` fills everything the core
-does not. `extend_ports` continues both ports straight out by 2 µm, so the guide runs through the absorbing boundary
+does not. `extend_ports` continues both ports straight out by 2.5 µm, so the guide runs through the absorbing boundary
 instead of ending inside the simulation. `boundary_offset` sets the simulation box: the faces that hold a port stay put,
-the others move out by 1.75 µm in x and y, and the box is 3.4 µm tall in z. The result is a 10 × 10 × 3.4 µm box.
+the others move out by 2.25 µm in x and y, and the box is 3.4 µm tall in z. The result is a 10 × 10 × 3.4 µm box.
 
 ```python
 --8<-- "examples/waveguide_bend.py:stack"
@@ -92,9 +93,10 @@ later, inside each face of the box.
 ### 5. Source and monitors
 
 Everything that is placed on a port goes through the device: `create_mode_plane_source_at` makes a source that launches
-TE0 (`mode_index=0, filter_pol="te"`) 0.5 µm outside the port, in the straight lead. `create_mode_overlap_detector_at`
-makes monitors that report how much TE0 passes a plane: one on `o1` (counting the mode that travels *into* the bend) and
-one on `o2`. Each plane extends 0.5 wavelengths past the guide's width and 0.3 past its height, on each side
+TE0 (`mode_index=0, filter_pol="te"`) 1 µm outside the port, in the straight extension (a negative `port_offset` moves a
+plane out of the device). `create_mode_overlap_detector_at`
+makes monitors that report how much TE0 passes a plane: one 0.5 µm outside `o1` (counting the mode that travels *into*
+the bend) and one 0.5 µm outside `o2`. Each plane extends 0.5 wavelengths past the guide's width and 0.3 past its height, on each side
 (`PLANE_PADDING`). A `PhasorDetector` records the electric field on the xy plane through the middle of the core, at the
 wavelength, and a `FieldDetector` records the same plane at 40 time steps: a movie of the pulse, which the viewer can
 play.
@@ -114,8 +116,8 @@ play.
 
 ### 7. Transmission
 
-Each mode monitor stores a complex *amplitude*: how much of TE0 overlaps the plane's field. The input monitor sits just
-inside the lead, where the bend has not yet had any effect, so its amplitude is the TE0 amplitude that went in. The
+Each mode monitor stores a complex *amplitude*: how much of TE0 overlaps the plane's field. The input monitor sits in the
+straight extension, where the bend has not yet had any effect, so its amplitude is the TE0 amplitude that went in. The
 output monitor's amplitude is what came out. The ratio of their squared magnitudes is the transmission, which is
 **normalized**: it needs no separate reference simulation, because both monitors use the same mode of the same guide. It
 counts only light that leaves in TE0, so light that scatters into other modes or into the cladding is lost. It also does
