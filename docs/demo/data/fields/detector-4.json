@@ -1,0 +1,1 @@
+{"id":"detector-4","name":"field","components":["|E|","Ex","Ey","Ez"],"grid":[250,250],"shift":[-0.5,-0.5],"frame_kind":"freq","freq":0,"frames_recorded":1,"frame_stride":1,"freqs":[193414489032258.06],"derived":["|E|"],"quant":{"real":[-34.770782470703125,35.00698471069336],"imag":[-34.56758499145508,34.55254364013672]},"frames":1}

@@ -1,0 +1,1 @@
+{"id":"detector-2","name":"in","components":["|E|","Ex","Ey","Ez","Hx","Hy","Hz"],"grid":[29,51],"shift":[-0.5,0.0],"frame_kind":"freq","freq":0,"frames_recorded":1,"frame_stride":1,"freqs":[193414489032258.06],"derived":["|E|"],"quant":{"real":[-44.71153259277344,45.65715026855469],"imag":[-101.2987060546875,20.614398956298828]},"frames":1}
