@@ -18,8 +18,8 @@ First the device and the numerical settings.
 - **Units.** bifrost's lengths (`boundary_offset`, `extend_ports`, `port_offset`) are in **µm**. fdtdx's are in
   **meters**: `SimulationConfig(time=...)` is in seconds, `UniformGrid(spacing=...)` and `WaveCharacter(wavelength=...)`
   are in meters. The `* 1e-6` conversions are the usual place for a factor-of-a-million mistake.
-- **The grid.** `UniformGrid(spacing=...)` is the cell edge. The box has to be a whole number of cells in every
-  direction (see [Layer stacks and materials](layer-stacks.md)).
+- **The grid.** `UniformGrid(spacing=...)` is the cell edge. fdtdx rounds the box to a whole number of cells in every
+  direction, so keep its sides on the grid (see [Layer stacks and materials](layer-stacks.md)).
 - **The pulse.** A Gaussian pulse with a spectral width of 5 % of the center frequency ramps up smoothly and lets one run
   cover a band; the monitors below record the center wavelength.
 
@@ -125,8 +125,8 @@ solver loop is written for 32 bits.
 
 ## Troubleshooting
 
-- **`Configured grid shape ... does not match simulation volume shape`**: the box is not a whole number of cells.
-  Change `boundary_offset` or the grid spacing so each side divides evenly.
+- **`Configured grid shape ... does not match simulation volume shape`**: a side of the box is exactly halfway between
+  two cell counts. Move `boundary_offset` by a fraction of a cell, or change the grid spacing.
 - **A source or monitor is in the wrong place or clipped.** Print `monitor.grid_slice` as above; each is
   `(start, stop)` cell indices. Compare with the box's cell count. Check the sign of `port_offset` (negative moves the
   plane *out* of the component) and `direction`.

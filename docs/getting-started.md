@@ -76,10 +76,13 @@ the others move out by 2.25 µm in x and y, and the box is 3.4 µm tall in z. Th
 --8<-- "examples/waveguide_bend.py:stack"
 ```
 
-!!! note "The box must be a whole number of cells"
-    The grid spacing has to divide each side of the box evenly. 10 µm and 3.4 µm suit 50, 40, 25 and 20 nm cells; a
-    side of 9.85 µm would not divide by 40 nm and fdtdx would stop with `Configured grid shape ... does not match
-    simulation volume shape`.
+!!! note "Keep the box on the grid"
+    `boundary_offset` is used exactly as written, but fdtdx rounds each side of the box to the nearest whole number of
+    grid cells when it places it: a 10.03 µm side on a 40 nm grid becomes 10.04 µm, so the box you simulate can differ
+    from the one you asked for by up to half a cell, and changes again with the grid. The script uses 10 µm and 3.4 µm,
+    which are whole numbers of cells at 50, 40, 25 and 20 nm, so the box is the same in every run of the table below.
+    A side exactly halfway between two cell counts (3.42 µm is 85.5 cells of 40 nm) can make fdtdx stop with
+    `Configured grid shape ... does not match simulation volume shape`.
 
 ### 4. Wavelength, grid, duration and boundaries
 
@@ -171,8 +174,9 @@ A run 1.5 times as long (600 fs) gives the same transmission to four digits at 2
   the wall-clock figure above. Changing the box or the grid compiles again.
 - **`RESOURCE_EXHAUSTED` or an out-of-memory error.** The grid is too fine for the GPU's memory: memory grows with the cube of the
   refinement (see the table). Use a coarser `--resolution`, or a smaller box.
-- **`Configured grid shape ... does not match simulation volume shape`.** The box is not a whole number of cells; see
-  [step 3](#3-the-device).
+- **`Configured grid shape ... does not match simulation volume shape`.** A side of the box is exactly halfway between
+  two cell counts, and fdtdx rounded it differently in two places. Move `boundary_offset` by a fraction of a cell, or
+  change the grid spacing; see [step 3](#3-the-device).
 - **The viewer shows nothing in a plain script.** The viewer is a notebook widget. Run the code in Jupyter or marimo and end
   the cell with the viewer, or look at the [live demo](guide/viewer.md#live-demo).
 - **The transmission is 0 or absurd.** Check the units (fdtdx wants meters: `1e-6`), that the source is not inside the

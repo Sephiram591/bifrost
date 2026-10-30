@@ -66,8 +66,8 @@ def build_stack() -> bf.StackDevice:
         background="clad",
         zrange_layers=["core"],    # the box's z range starts as the core's: 0 to 0.22 um
         extend_ports=(("o1", EXTENSION), ("o2", EXTENSION)),  # both end at a box face
-        # (x+, x-, y+, y-, z+, z-): the faces holding a port stay put, the others move out. The box must
-        # be a whole number of grid cells in each direction: 10, 10 and 3.4 um suit 50, 40, 25 and 20 nm.
+        # (x+, x-, y+, y-, z+, z-): the faces holding a port stay put, the others move out. fdtdx rounds
+        # the box to whole cells; 10, 10 and 3.4 um are whole numbers of cells at 50, 40, 25 and 20 nm.
         boundary_offset=(MARGIN, 0.0, 0.0, -MARGIN, z_margin, -z_margin),
         name="stack",
     )

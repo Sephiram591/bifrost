@@ -41,10 +41,13 @@ and the 0.22 µm core plus 1.5 µm above and below in z.
 - **`boundary_offset`** `= (x+, x-, y+, y-, z+, z-)` moves the box's faces by that many µm; positive values move a face
   toward +x, +y or +z. It changes the box, not the geometry.
 
-!!! note "The box must be a whole number of cells"
-    The grid you choose later has to divide the box evenly in x, y and z (a 25 nm cell fits a 10 × 10 × 3.4 µm box,
-    for example, but a 40 nm cell does not fit a box 9.85 µm wide). `fdtdx.place_objects` stops with `Configured grid shape ... does not match simulation volume
-    shape` otherwise. Choose `boundary_offset` so the sides are round numbers.
+!!! note "Keep the box on the grid"
+    `from_layer_stack` uses `boundary_offset` exactly. When `fdtdx.place_objects` places the box it rounds each side to
+    the nearest whole number of grid cells (on a 40 nm grid a 9.85 µm side becomes 9.84 µm), so the box you simulate can
+    differ from the one you asked for by up to half a cell. Choose `boundary_offset` so the sides are whole numbers of
+    cells at the grid you will use (a 10 × 10 × 3.4 µm box is one at 50, 40, 25 and 20 nm). A side exactly halfway
+    between two cell counts can make `place_objects` stop with `Configured grid shape ... does not match simulation
+    volume shape`.
 
 Display the device with `viewer = bf.view(stack)`; see [Viewer and live demo](viewer.md).
 
