@@ -2,8 +2,8 @@
 
 # bifrost
 
-The rainbow bridge between your [GDSFactory(X)](https://gdsfactory.github.io/gdsfactory/) pipeline and
-[FDTD(X)](https://github.com/ymahlau/fdtdx) simulation.
+The rainbow bridge between your [GDSFactory](https://gdsfactory.github.io/gdsfactory/) pipeline and
+[FDTD](https://github.com/ymahlau/fdtdx) simulation.
 
 bifrost turns a gdsfactory component and its layer stack into a differentiable [fdtdx](https://github.com/ymahlau/fdtdx)
 simulation, and ships a 3D viewer for setting up the run and inspecting its fields. There is no GDS export and no
