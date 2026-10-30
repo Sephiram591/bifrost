@@ -84,6 +84,23 @@ def test_the_peak_frame_is_the_most_energetic() -> None:
     assert export._peak_frame(_entry(real, components=("Ex",))) == 2
 
 
+def test_unchecked_hides_the_named_monitor_in_its_spec_and_its_glyph() -> None:
+    none = {"port": "None", "type": "PhasorDetector"}
+    wire = {
+        "sources": [{"id": "s", "port": "None", "type": "ModePlaneSource", "params": {"name": "source", "visible": True}}],
+        "detectors": [
+            {"id": "a", **none, "params": {"name": "field", "visible": True}},
+            {"id": "b", **none, "params": {"name": "movie"}},
+            {"id": "c", "port": "o1", "type": "PhasorDetector", "params": {}},  # no name param: o1_PhasorDetector
+        ],
+        "glyphs": [{"name": n, "visible": True} for n in ("source", "field", "movie", "o1_PhasorDetector")],
+    }
+    export._uncheck(wire, {"field", "o1_PhasorDetector"})
+    assert [d["params"].get("visible", True) for d in wire["detectors"]] == [False, True, False]
+    assert [g["visible"] for g in wire["glyphs"]] == [True, False, True, False]
+    assert wire["sources"][0]["params"]["visible"] is True
+
+
 # ------------------------------------------------------------------ a real export
 
 
@@ -94,7 +111,7 @@ def test_export_demo_writes_every_file_the_browser_reads(tmp_path: Path) -> None
     manifest = export.export_demo(
         viewer, tmp_path, section_step_um=0.5,
         field_defaults={"o1_PhasorDetector": {"field_component": "|E|", "field_visible": False}},
-        manifest={"source": {"commit": "abc"}},
+        unchecked=("o1_PhasorDetector",), manifest={"source": {"commit": "abc"}},
     )
     assert manifest["format"] == export.FORMAT and manifest["source"] == {"commit": "abc"}
     assert json.loads((tmp_path / "manifest.json").read_text()) == manifest
@@ -103,6 +120,9 @@ def test_export_demo_writes_every_file_the_browser_reads(tmp_path: Path) -> None
         data = json.loads((tmp_path / f"{world}.json").read_text())
         assert data["state"]["readonly"] == {"reason": "Precomputed demo"}
         assert data["state"]["active_tab"] == ("result" if world == "result" else "layout")
+        assert data["state"]["detectors"], f"the {world} world lists the monitor"
+        assert all(not d["params"]["visible"] for d in data["state"]["detectors"])  # opened unchecked ...
+        assert all(not g["visible"] for g in data["state"]["glyphs"] if g["kind"] == "detector")  # ... and hidden
         size = (tmp_path / f"{world}.meshes.bin").stat().st_size
         refs = [data["meshes"]["background"]] + [m for lv in data["meshes"]["levels"] for m in (lv["painted"], lv["full"])]
         for ref in refs:  # every buffer lies inside the file, 4-byte aligned

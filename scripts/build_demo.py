@@ -74,8 +74,11 @@ def main() -> None:
             "peak_gib": None if result.peak_gib is None else round(result.peak_gib, 2),
         },
     }
-    # every monitor opens with its field shown (|E|); the movie opens at its most energetic frame
-    data = bf.viewer.export.export_demo(viewer, args.out, section_step_um=args.section_step, manifest=manifest)
+    # every monitor opens with its field shown (|E|), the movie at its most energetic frame, except the
+    # static phasor "field": it shares the movie's plane, so its box starts unchecked (one click shows it)
+    data = bf.viewer.export.export_demo(
+        viewer, args.out, section_step_um=args.section_step, unchecked=("field",), manifest=manifest
+    )
     print(f"wrote {args.out}: {data['total_bytes'] / 1e6:.1f} MB in total")
     for spec_id, entry in data["fields"].items():
         print(f"  field {entry['name']}: {entry['frames']} frames, {sum(entry['bytes'].values()) / 1e6:.2f} MB")

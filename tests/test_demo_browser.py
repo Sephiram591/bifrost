@@ -141,8 +141,11 @@ def test_it_starts_in_the_result_view_with_the_fields_loaded(demo):
         assert f"/demo/data/fields/{entry['id']}.real.bin" in demo.requests
 
 
-def test_every_result_card_starts_checked_and_filled_in(demo):
-    """The cards are built when the fields arrive, after the state: they must still show it."""
+def test_every_result_card_but_the_phasor_field_starts_checked_and_filled_in(demo):
+    """The cards are built when the fields arrive, after the state: they must still show it.
+
+    The static phasor "field" shares the movie's plane, so the demo opens with its box unchecked.
+    """
     names = {entry["name"] for entry in MANIFEST["fields"].values()}
     demo.page.wait_for_function(f"document.querySelectorAll('.gfx-field-group').length === {len(names)}", timeout=60000)
     cards = demo.page.evaluate(
@@ -152,7 +155,7 @@ def test_every_result_card_starts_checked_and_filled_in(demo):
                component: g.querySelector('select').value }))"""
     )
     assert {c["name"] for c in cards} == names
-    assert all(c["checked"] for c in cards), cards
+    assert {c["name"]: c["checked"] for c in cards} == {name: name != "field" for name in names}, cards
     assert all(c["component"] == "|E|" for c in cards), cards  # filled in, not the blank default
 
 
@@ -162,7 +165,18 @@ def test_every_monitors_field_is_shown_when_it_opens(demo):
     assert state["field_settings"] and all(s["field_visible"] for s in state["field_settings"].values())
     demo.page.wait_for_function("document.querySelector('.gfx-colorbar') && !document.querySelector('.gfx-colorbar').hidden", timeout=60000)
     title = demo.page.locator(".gfx-colorbar").inner_text().split("·")[0].strip()
-    assert title in {"field", "movie"}, f"the colorbar describes {title!r}, a small mode monitor's plane"
+    assert title == "movie", f"the colorbar describes {title!r}: it should be the largest plane that is shown"
+
+
+def test_the_phasor_field_opens_hidden_in_both_worlds():
+    """Its box starts unchecked in the editor and the Result tab: plane, field and colorbar all off."""
+    for world in ("editor", "result"):
+        state = json.loads((DEMO / "data" / f"{world}.json").read_text())["state"]
+        shown = {g["name"]: g["visible"] for g in state["glyphs"]}
+        assert shown["field"] is False, world
+        assert all(visible for name, visible in shown.items() if name != "field"), (world, shown)
+        detectors = {d["params"]["name"]: d["params"]["visible"] for d in state["detectors"]}
+        assert detectors["field"] is False and detectors["movie"] is True, (world, detectors)
 
 
 def test_the_editor_lists_the_same_sources_and_monitors_as_the_result(demo):

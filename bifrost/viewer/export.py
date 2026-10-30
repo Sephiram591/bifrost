@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,22 @@ __all__ = ["FORMAT", "export_demo"]
 FORMAT = 1
 
 READONLY_REASON = "Precomputed demo"
+
+
+def _uncheck(wire_state: dict[str, Any], names: Any) -> None:
+    """Opens the named sources and detectors with their checkbox off, in an exported state.
+
+    The spec and its glyph both say hidden, which is what the checkbox writes: the plane, its field
+    and its colorbar are not drawn until the box is ticked. The viewer's own state is not touched.
+    """
+    for kind in ("sources", "detectors"):
+        for spec in wire_state[kind]:
+            # a spec added in the viewer has no name param: it is called <port>_<type>
+            if (spec["params"].get("name") or f"{spec['port']}_{spec['type']}") in names:
+                spec["params"] = {**spec["params"], "visible": False}
+    for glyph in wire_state.get("glyphs", ()):
+        if glyph["name"] in names:
+            glyph["visible"] = False
 
 
 def _write_json(path: Path, value: Any) -> int:
@@ -198,6 +215,7 @@ def export_demo(
     *,
     section_step_um: float = 0.1,
     field_defaults: dict[str, dict[str, Any]] | None = None,
+    unchecked: Sequence[str] = (),
     manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Writes a viewer that holds a result (``load_result`` or ``run``) as demo files.
@@ -212,6 +230,8 @@ def export_demo(
             name: any of the ``field_*`` display settings (``field_component``,
             ``field_transform``, ``field_visible``, ...). A time-domain detector opens on the
             frame with the most field energy (set ``field_freq`` to override).
+        unchecked: names of sources and detectors that open with their checkbox off (hidden, with
+            their field), in the editor's tabs and the Result tab alike.
         manifest: extra entries for ``manifest.json`` (source revision, package versions,
             simulation parameters).
 
@@ -248,6 +268,7 @@ def export_demo(
         wire_state = state.to_state()
         wire_state["active_tab"] = "result" if name == "result" else "layout"
         wire_state["readonly"] = {"reason": READONLY_REASON}
+        _uncheck(wire_state, set(unchecked))
         if name == "result":
             wire_state["field_settings"] = {
                 spec_id: {**wire_state["field_settings"].get(spec_id, {}), **settings}
