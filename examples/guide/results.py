@@ -7,7 +7,6 @@ Run it:  python examples/guide/results.py
 # --8<-- [start:simulate]
 import fdtdx
 import jax
-import jax.numpy as jnp
 import numpy as np
 import gdsfactory as gf
 import bifrost as bf
@@ -27,9 +26,7 @@ stack = bf.StackDevice.from_layer_stack(
 )
 
 RESOLUTION = 0.05  # um
-config = fdtdx.SimulationConfig(
-    time=300e-15, grid=fdtdx.core.grid.UniformGrid(spacing=RESOLUTION * 1e-6), dtype=jnp.float32
-)
+config = stack.get_simulation_config(time=300e-15, grid=fdtdx.core.grid.UniformGrid(spacing=RESOLUTION * 1e-6))
 wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
 pulse = fdtdx.GaussianPulseProfile(
     center_wave=wave, spectral_width=fdtdx.WaveCharacter(frequency=0.05 * wave.get_frequency())
@@ -71,8 +68,7 @@ constraints += placing
 key = jax.random.PRNGKey(0)
 objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
 arrays, objects, _ = bf.apply_stack(arrays, objects, {**params, **bf.init_stack_params(objects)}, key)
-with jax.enable_x64(False):  # gdsfactory turns on 64-bit floats; the solver loop needs them off
-    _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
+_, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
 # --8<-- [end:simulate]
 
 # --8<-- [start:read]

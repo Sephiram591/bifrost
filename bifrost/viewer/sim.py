@@ -796,33 +796,6 @@ def _extra_args(kind: ObjectType, params: dict[str, Any]) -> list[str]:
     return args
 
 
-def _pml_coeffs_in_config_dtype(objects: Any, config: Any) -> Any:
-    """Re-casts the PMLs' CPML coefficients to ``config.dtype`` (fdtdx 0.6.3).
-
-    Importing gdsfactory enables jax x64 globally (``gdsfactory._jax``), and
-    fdtdx's ``place_on_grid`` then derives ``pml_a/b``/``inv_kappa`` as float64
-    regardless of ``config.dtype`` — so the CPML update ``b * psi + a * d``
-    promotes the float32 psi fields and ``eqxi.while_loop`` rejects the body's
-    changed output structure. Casting the coefficients back keeps the loop's
-    tree structure stable.
-    """
-    import jax.numpy as jnp
-
-    from fdtdx.fdtd.container import ObjectContainer
-
-    if objects is None or getattr(objects, "object_list", None) is None:
-        return objects
-    out = []
-    for obj in objects.object_list:
-        if type(obj).__name__ == "PerfectlyMatchedLayer":
-            for name in ("pml_a_E", "pml_b_E", "inv_kappa_E", "pml_a_H", "pml_b_H", "inv_kappa_H"):
-                value = getattr(obj, name, None)
-                if value is not None:
-                    obj = obj.aset(name, value.astype(config.dtype))
-        out.append(obj)
-    return ObjectContainer(object_list=out, volume_idx=objects.volume_idx)
-
-
 def build_objects(stack: Any, state: Any) -> tuple[list[Any], Any, list[Any]]:
     """The prepared objects, config and constraints (spec R14 mode 2, D11).
 
@@ -853,7 +826,7 @@ def build_objects(stack: Any, state: Any) -> tuple[list[Any], Any, list[Any]]:
         objects.append(obj)
         constraints += cons
 
-    config = fdtdx.SimulationConfig(
+    config = stack.get_simulation_config(  # in the device's precision
         time=settings.time_s,
         grid=fdtdx.core.grid.UniformGrid(spacing=settings.resolution_um * 1e-6),
     )
@@ -978,25 +951,6 @@ def _pulse(wave):
             frequency={pwf} * wave.get_frequency()
         ),
     )
-
-
-def _pml_coeffs_in_config_dtype(objects, config):
-    # fdtdx 0.6.3: gdsfactory enables jax x64, so the PML coefficients come
-    # out float64 regardless of config.dtype; the CPML update then promotes
-    # the float32 psi fields and eqxi.while_loop rejects the changed tree.
-    import jax.numpy as jnp
-    from fdtdx.fdtd.container import ObjectContainer
-
-    out = []
-    for obj in objects.object_list:
-        if type(obj).__name__ == "PerfectlyMatchedLayer":
-            for name in ("pml_a_E", "pml_b_E", "inv_kappa_E",
-                         "pml_a_H", "pml_b_H", "inv_kappa_H"):
-                value = getattr(obj, name, None)
-                if value is not None:
-                    obj = obj.aset(name, value.astype(config.dtype))
-        out.append(obj)
-    return ObjectContainer(object_list=out, volume_idx=objects.volume_idx)
 """
 
 
@@ -1008,8 +962,8 @@ def launch_code(stack: Any, state: Any) -> str:
     emitted code mirrors :func:`build_objects` line for line: the simulation
     volume, every source/detector through ``stack.create_<object>_at``, the
     ``SimulationConfig`` and the PML boundaries, then the
-    place/apply/run sequence :func:`run` uses — including the fdtdx 0.6.3
-    PML dtype re-cast, without which ``run_fdtd`` rejects the loop body.
+    place/apply/run sequence :func:`run` uses (``bf.apply_stack`` keeps the
+    PML coefficients in the device's dtype, so ``run_fdtd`` needs no extra step).
 
     Appending the result to a script that defines ``stack`` (the
     :class:`~bifrost.stack.StackDevice`) builds the same object list
@@ -1092,7 +1046,7 @@ def launch_code(stack: Any, state: Any) -> str:
         lines.append(f"constraints += cons_{spec.name}")
 
     # the config and the PML boundaries, as build_objects builds them
-    lines.append("config = fdtdx.SimulationConfig(")
+    lines.append("config = stack.get_simulation_config(")
     lines.append(f"    time={_num(settings.time_s)},")
     lines.append("    grid=fdtdx.core.grid.UniformGrid(spacing="
                  f"{_num(settings.resolution_um)} * 1e-6),")
@@ -1107,7 +1061,6 @@ def launch_code(stack: Any, state: Any) -> str:
     lines.append("# --- run: delete below to only build the setup -------------------------------")
     lines.append("key = jax.random.PRNGKey(0)")
     lines.append("objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)")
-    lines.append("objects = _pml_coeffs_in_config_dtype(objects, config)")
     lines.append("arrays, objects, _ = bf.apply_stack(arrays, objects, {**params, **bf.init_stack_params(objects)}, key)")
     lines.append("_, arrays = fdtdx.run_fdtd(")
     lines.append("    arrays=arrays,")
@@ -1187,7 +1140,6 @@ def run(
     _check_cancel()
     key = jax.random.PRNGKey(0) if key is None else key
     objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
-    objects = _pml_coeffs_in_config_dtype(objects, config)
     arrays, objects, _ = apply_stack(arrays, objects, {**params, **init_stack_params(objects)}, key)
     _check_cancel()
 

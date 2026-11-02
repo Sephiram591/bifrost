@@ -8,7 +8,6 @@ import warnings
 
 import fdtdx
 import jax
-import jax.numpy as jnp
 import gdsfactory as gf
 import bifrost as bf
 from gdsfactory.technology import LayerLevel, LayerStack
@@ -27,8 +26,8 @@ stack = bf.StackDevice.from_layer_stack(
     name="stack",
 )
 
-config = fdtdx.SimulationConfig(
-    time=50e-15, grid=fdtdx.core.grid.UniformGrid(spacing=50e-9), dtype=jnp.float32  # 50 nm cells
+config = stack.get_simulation_config(
+    time=50e-15, grid=fdtdx.core.grid.UniformGrid(spacing=50e-9)  # 50 nm cells
 )
 volume, constraints = stack.get_simulation_volume()
 with warnings.catch_warnings(record=True) as caught:

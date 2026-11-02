@@ -75,6 +75,7 @@ substrate shows up in the geometry without enlarging the simulation.
 | `extend_ports` | `(port, length)` pairs, or `(port, length, [layers])` to extend only some layers |
 | `fill_layers` | layers that cover the whole plane (default `WAFER`) |
 | `level_margin` | include levels within this distance of the box, so their `zmin` can move into it |
+| `dtype` | `jnp.float32` (default) or `jnp.float64`: the precision of the whole simulation, see [Precision](simulation-setup.md#precision) |
 
 `extend_ports` extends, for each listed port, every stack layer that reaches the port face with the width of that layer
 at the port, so a rib waveguide keeps its slab and an etch over the port continues. The extensions are polygons like

@@ -30,8 +30,8 @@ stack = bf.StackDevice.from_layer_stack(
     extend_ports=(("o1", 2.0), ("o2", 2.0)), boundary_offset=(1.75, 0, 0, -1.75, 1.59, -1.59), name="stack",
 )
 
-config = fdtdx.SimulationConfig(
-    time=400e-15, grid=fdtdx.core.grid.UniformGrid(spacing=RESOLUTION * 1e-6), dtype=jnp.float32,
+config = stack.get_simulation_config(
+    time=400e-15, grid=fdtdx.core.grid.UniformGrid(spacing=RESOLUTION * 1e-6),
     # how the backward pass trades memory for time: it re-simulates from 60 stored states
     # instead of keeping every step, so the memory stays small
     gradient_config=fdtdx.GradientConfig(method="checkpointed", num_checkpoints=60),
@@ -76,8 +76,7 @@ def ratio(radius):
     bend = gf.components.bend_circular(radius=radius, angle=90, allow_min_radius_violation=True)  # new radius
     p = {**params, "stack": {**params["stack"], **placed.pack(bend)}}  # its vertices into the stack's parameters
     arrays2, objects2, _ = bf.apply_stack(arrays, objects, p, key)
-    with jax.enable_x64(False):
-        _, arrays2 = fdtdx.run_fdtd(arrays=arrays2, objects=objects2, config=config, key=key, show_progress=False)
+    _, arrays2 = fdtdx.run_fdtd(arrays=arrays2, objects=objects2, config=config, key=key, show_progress=False)
     a_in = objects2["in"].compute_overlap(arrays2.detector_states["in"])
     a_out = objects2["out"].compute_overlap(arrays2.detector_states["out"])
     return (a_out / a_in)[0]

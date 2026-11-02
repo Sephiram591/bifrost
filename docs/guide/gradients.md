@@ -119,7 +119,7 @@ other coincide, and a vertex this close to a port face is on it. The default is
 2 database units of the layout (`gf.kcl.dbu`, so 2 nm), because snapping to the
 1 nm grid can move a corner of a rotated component up to about 1.4 nm off the
 slanted edge it lies on; float32 round-off of the coordinates (2 epsilons times
-the largest one, about 1.2 nm at 5000 µm from the origin) is added. A corner
+the largest one, about 1.2 nm at 5000 µm from the origin) is added, whatever the device's `dtype`. A corner
 within it bends the other polygon's edge through itself, by at most that
 distance, instead of leaving a slit between the polygons. The check, a new
 device (`from_layer_stack`) and `retopologize` all use the same tolerance, so
