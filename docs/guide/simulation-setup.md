@@ -22,6 +22,9 @@ First the device and the numerical settings.
   direction, so keep its sides on the grid (see [Layer stacks and materials](layer-stacks.md)).
 - **The pulse.** A Gaussian pulse with a spectral width of 5 % of the center frequency ramps up smoothly and lets one run
   cover a band; the monitors below record the center wavelength.
+- **The precision.** `stack.get_simulation_config(...)` is `fdtdx.SimulationConfig` with the device's `dtype` filled in
+  (float32 unless you build the device with `dtype=jnp.float64`), and every other argument passed through. You never
+  set a dtype on the config yourself; see [Precision](#precision).
 
 Now the box, the source and the monitors, each placed on a port:
 
@@ -108,8 +111,7 @@ After `fdtdx.place_objects`, the stack is written into the permittivity arrays b
 ```python
 objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
 arrays, objects, _ = bf.apply_stack(arrays, objects, {**params, **bf.init_stack_params(objects)}, key)
-with jax.enable_x64(False):
-    _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
+_, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
 ```
 
 (That is part of the complete [waveguide bend](../examples/waveguide-bend.md) example, which runs it.)
@@ -120,8 +122,31 @@ sources are still updated, and devices win where they overlap a stack. `bf.init_
 stack's own parameters (vertices, heights, thicknesses), which is what you differentiate; see
 [Gradients](gradients.md).
 
-The 64-bit switch around `run_fdtd` is needed because importing gdsfactory turns on JAX's 64-bit mode while fdtdx's
-solver loop is written for 32 bits.
+## Precision
+
+A `StackDevice` takes a `dtype`, `jnp.float32` (the default) or `jnp.float64`, and the whole simulation runs in it. It
+is the only place to set it:
+
+```python
+stack = bf.StackDevice.from_layer_stack(
+    component, layer_stack, materials, background="clad", zrange_layers=["core"], dtype=jnp.float64
+)
+config = stack.get_simulation_config(time=100e-15, grid=fdtdx.core.grid.UniformGrid(spacing=50e-9))
+```
+
+- `get_simulation_config` builds the `fdtdx.SimulationConfig` with the device's dtype and passes every other argument
+  (`time`, `grid`, `backend`, `gradient_config`, ...) on. Passing `dtype=` to it is an error. A config you build yourself
+  must use the device's dtype as well, or placing the device raises a `ValueError`.
+- The `create_*_at` monitors follow the device: phasor, mode-overlap and diffractive monitors are complex64 or complex128,
+  field, energy and Poynting-flux monitors float32 or float64, unless you pass `dtype=` yourself. fdtdx's sources already
+  follow the config.
+- Nothing needs switching around the run. Importing gdsfactory turns JAX's 64-bit mode on, and `bf.apply_stack` keeps
+  fdtdx's absorbing-boundary (PML) coefficients in the device's dtype, so `fdtdx.run_fdtd` works in either precision.
+  Scripts written before this wrapped the run in `jax.enable_x64(False)`; that still works for float32, but a float64
+  device refuses to be placed while the 64-bit mode is off.
+- float64 doubles the memory of every array and is slow on GPUs built for single precision. fdtdx 0.6.3 still
+  computes a few auxiliary quantities in float32 (the time window of phasor monitors and the face weights of mode-overlap
+  monitors), so a float64 run has float64 fields and permittivity, not every intermediate in double precision.
 
 ## Troubleshooting
 
