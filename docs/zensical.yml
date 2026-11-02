@@ -24,6 +24,7 @@ nav:
   - Examples:
       - Waveguide bend: examples/waveguide-bend.md
       - Elevator coupler: examples/elevator-coupler.md
+      - Directional coupler: examples/directional-coupler.md
   - API reference:
       - Overview: api/index.md
       - bf.stack: api/stack.md

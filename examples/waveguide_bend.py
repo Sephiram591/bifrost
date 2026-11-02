@@ -17,7 +17,6 @@ from typing import Any
 
 import fdtdx
 import jax
-import jax.numpy as jnp
 import numpy as np
 
 import gdsfactory as gf
@@ -95,10 +94,9 @@ def simulate(resolution: float = RESOLUTION, duration: float = DURATION) -> Bend
     stack = build_stack()
 
     # --8<-- [start:settings]
-    config = fdtdx.SimulationConfig(
+    config = stack.get_simulation_config(  # fdtdx.SimulationConfig, in the device's precision (float32 by default)
         time=duration,
         grid=fdtdx.core.grid.UniformGrid(spacing=resolution * 1e-6),
-        dtype=jnp.float32,
     )
     wave = fdtdx.WaveCharacter(wavelength=WAVELENGTH * 1e-6)
     pulse = fdtdx.GaussianPulseProfile(  # a pulse 5 % wide in frequency, so it ramps up smoothly
@@ -152,9 +150,7 @@ def simulate(resolution: float = RESOLUTION, duration: float = DURATION) -> Bend
     objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
     # write the layer stack into the permittivity arrays (instead of fdtdx.apply_params)
     arrays, objects, _ = bf.apply_stack(arrays, objects, {**params, **bf.init_stack_params(objects)}, key)
-    # gdsfactory turns on 64-bit floats; fdtdx's float32 solver loop needs them off
-    with jax.enable_x64(False):
-        _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
+    _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
     # --8<-- [end:run]
 
     # --8<-- [start:results]

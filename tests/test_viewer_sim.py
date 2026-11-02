@@ -975,6 +975,33 @@ def test_launch_code_reproduces_a_boundary_offset() -> None:
     assert "rebox_stack(stack, (1, -1, 0, 0, 0, 0,))" in code
 
 
+def test_the_viewer_simulates_in_the_devices_dtype() -> None:
+    """The viewer's config (mode 2), the emitted script (mode 3) and a re-boxed copy all keep the device's dtype.
+
+    ``bf.apply_stack`` keeps the PML coefficients in that dtype, so the emitted script has no helper for it and
+    builds its config with ``stack.get_simulation_config``.
+    """
+    import jax.numpy as jnp
+    import numpy as np
+
+    stack = f1_stack().aset("dtype", jnp.float64)
+    viewer = bf.viewer.widget.view(stack)
+    _coarse(viewer)
+    _, config, _ = bf.viewer.sim.build_objects(viewer.stack, viewer._viewer_state)
+    assert np.dtype(config.dtype) == np.dtype(np.float64)
+
+    code = viewer.launch_code
+    assert "stack.get_simulation_config(" in code
+    assert "fdtdx.SimulationConfig(" not in code
+    assert "_pml_coeffs_in_config_dtype" not in code
+    namespace: dict[str, Any] = {"stack": viewer.stack}
+    exec(compile(code.split("# --- run:")[0], "<launch_code>", "exec"), namespace)
+    assert np.dtype(namespace["config"].dtype) == np.dtype(np.float64)
+
+    assert bf.viewer.state.rebox_stack(stack, (1.0, -1.0, 0, 0, 0, 0)).dtype is jnp.float64
+    assert np.dtype(bf.viewer.sim.build_objects(f1_stack(), viewer._viewer_state)[1].dtype) == np.dtype(np.float32)
+
+
 def test_launch_code_reproduces_an_averaging_edit() -> None:
     """R13: an averaging other than the device's own is emitted as an ``aset``.
 

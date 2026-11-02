@@ -83,9 +83,11 @@ stable: never renumber, only add. Item status is one of *Proposed*, *Accepted*,
   `place_objects` returns a 5-tuple `(objects, arrays, params, config, info)`,
   `run_fdtd` returns `(timestep, arrays)`, and PML coefficients are derived
   during `place_on_grid`. Importing gdsfactory enables jax x64 globally, so
-  fdtdx derives the PMLs' CPML coefficients as float64; `sim.run` re-casts
-  them to `config.dtype` (otherwise the CPML update promotes the float32 psi
-  fields and `eqxi.while_loop` rejects the changed structure).
+  fdtdx derives the PMLs' CPML coefficients as float64; `bf.apply_stack`
+  re-casts them to the device's `dtype` (otherwise the CPML update promotes the
+  float32 psi fields and `eqxi.while_loop` rejects the changed structure).
+  The viewer builds its config with `stack.get_simulation_config`, so a run is
+  in the precision of the device it shows.
 
 ## 5. UI layout (sketch)
 

@@ -125,6 +125,7 @@ import numpy as np
 from fdtdx.config import SimulationConfig
 from fdtdx.core.jax.pytrees import TreeClass, autoinit, field, frozen_field
 from fdtdx.dispersion import DispersionModel, Pole, compute_pole_coefficients
+from fdtdx.fdtd.container import ObjectContainer
 from fdtdx.materials import (
     compute_allowed_dispersive_coefficients,
     compute_allowed_electric_conductivities,
@@ -5097,6 +5098,42 @@ class TopRoughness(TreeClass):
         return (self.rms / res_um) * f
 
 
+# ---------------------------------------------------------------- precision
+
+_SIMULATION_DTYPES = {np.dtype(np.float32): jnp.float32, np.dtype(np.float64): jnp.float64}
+
+
+def _simulation_dtype(dtype: Any) -> Any:
+    """``jnp.float32`` or ``jnp.float64`` for any spelling of those two dtypes.
+
+    Args:
+        dtype: a jnp / np scalar type, ``np.dtype`` or dtype name (``"float64"``).
+
+    Returns:
+        The canonical ``jnp.float32`` or ``jnp.float64``.
+
+    Raises:
+        ValueError: for anything else (the solver runs in float32 or float64).
+    """
+    try:
+        resolved = None if dtype is None else _SIMULATION_DTYPES.get(np.dtype(dtype))
+    except TypeError:
+        resolved = None
+    if resolved is None:
+        raise ValueError(f"dtype must be jnp.float32 or jnp.float64, got {dtype!r}")
+    return resolved
+
+
+def _same_dtype(a: Any, b: Any) -> bool:
+    """Whether two dtype spellings (jnp / np type, ``np.dtype``) are the same dtype."""
+    return np.dtype(a) == np.dtype(b)
+
+
+def _complex_dtype(dtype: Any) -> Any:
+    """The complex dtype that goes with a simulation dtype (phasors and mode overlaps): complex64 or complex128."""
+    return jnp.complex128 if _same_dtype(dtype, np.float64) else jnp.complex64
+
+
 # ---------------------------------------------------------------- device
 
 
@@ -5174,6 +5211,13 @@ class StackDevice(StaticMultiMaterialObject):
             ``source_vertices``, see ``derived_layers``); "composite" draws the
             min / max of its layers' offset distances.
         derived_layers: the exact shapes of the derived levels.
+        dtype: floating-point precision of the simulation, ``jnp.float32``
+            (default) or ``jnp.float64``. :meth:`get_simulation_config` builds
+            the ``fdtdx.SimulationConfig`` in it, the device refuses a config of
+            another dtype, and the parameters, the detectors of the ``create_*_at``
+            methods and the arrays :func:`apply_stack` hands back follow it.
+            Nothing else needs setting: bifrost keeps JAX's 64-bit mode right
+            for either value.
     """
 
     #: compiled levels (see :meth:`from_layer_stack`)
@@ -5282,6 +5326,12 @@ class StackDevice(StaticMultiMaterialObject):
     junction_voxels: int | None = frozen_field(default=None)
     #: averaging="subpixel_full": what a coverage failure does, "raise" or "warn" (see StackOptions)
     interface_failure: Literal["raise", "warn"] = frozen_field(default="raise")
+    #: precision of the simulation, jnp.float32 or jnp.float64 (see the class docstring); any
+    #: spelling of the two is accepted and stored as jnp.float32 / jnp.float64
+    dtype: jnp.dtype = frozen_field(default=jnp.float32)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "dtype", _simulation_dtype(self.dtype))
 
     # ------------------------------------------------------------ construction
 
@@ -5618,11 +5668,11 @@ class StackDevice(StaticMultiMaterialObject):
         del key
         p: dict[str, Array] = {}
         for (k, _), v in zip(self.source_layers, self.source_vertices, strict=True):
-            p[k] = jnp.asarray(v, dtype=jnp.float32)
+            p[k] = jnp.asarray(v, dtype=self.dtype)
         for lv in self.levels:
-            p[f"zmin/{lv.name}"] = jnp.asarray(lv.zmin, dtype=jnp.float32)
-            p[f"thickness/{lv.name}"] = jnp.asarray(lv.thickness, dtype=jnp.float32)
-            p[f"sidewall_angle/{lv.name}"] = jnp.asarray(lv.sidewall_angle, dtype=jnp.float32)
+            p[f"zmin/{lv.name}"] = jnp.asarray(lv.zmin, dtype=self.dtype)
+            p[f"thickness/{lv.name}"] = jnp.asarray(lv.thickness, dtype=self.dtype)
+            p[f"sidewall_angle/{lv.name}"] = jnp.asarray(lv.sidewall_angle, dtype=self.dtype)
         return p
 
     @timed("pack")
@@ -5681,6 +5731,9 @@ class StackDevice(StaticMultiMaterialObject):
                 orientation = jnp.asarray(port.orientation, dtype=v.dtype)
                 rects.append(_extension_rect((a, b), v, center, width, orientation, length, jnp).astype(v.dtype))
             out[k] = jnp.concatenate([v, *rects]) if rects else v
+        if _same_dtype(self.dtype, np.float64):
+            # a float64 device never draws from vertices below float64 (a float32 device is left as it was)
+            out = {k: v.astype(self.dtype) for k, v in out.items()}
         return out
 
     # ------------------------------------------------------------ topology
@@ -7272,7 +7325,13 @@ class StackDevice(StaticMultiMaterialObject):
 
         Returns:
             The placed device.
+
+        Raises:
+            ValueError: if ``config.dtype`` is not the device's ``dtype``
+                (:meth:`get_simulation_config` builds one that is).
+            RuntimeError: if a float64 device is placed with JAX's 64-bit mode off.
         """
+        self._check_precision(config)
         self = self._keep_reachable_levels(grid_slice_tuple, config)
         # aligned pole slots also for devices built without from_layer_stack;
         # fdtdx allocates the slots from the placed objects' materials
@@ -7797,6 +7856,56 @@ class StackDevice(StaticMultiMaterialObject):
         )
         return volume, [self.place_at_center(volume)]
 
+    def get_simulation_config(self, **kwargs: Any) -> SimulationConfig:
+        """The ``fdtdx.SimulationConfig`` for this device, in the device's precision.
+
+        Sets ``dtype`` from :attr:`dtype` and passes everything else on to
+        ``fdtdx.SimulationConfig``, so the precision is chosen once, on the
+        device::
+
+            stack = bf.StackDevice.from_layer_stack(..., dtype=jnp.float64)
+            config = stack.get_simulation_config(time=100e-15, grid=UniformGrid(spacing=50e-9))
+
+        Args:
+            **kwargs: the ``fdtdx.SimulationConfig`` arguments (``time``,
+                ``grid``, ``backend``, ``gradient_config``, ...), but not ``dtype``.
+
+        Returns:
+            The simulation config, with the device's ``dtype``.
+
+        Raises:
+            TypeError: if ``dtype`` is passed (the device sets it).
+        """
+        if "dtype" in kwargs:
+            raise TypeError(
+                "get_simulation_config takes its dtype from the StackDevice: "
+                "build the device with StackDevice(dtype=...) instead of passing dtype here"
+            )
+        return SimulationConfig(dtype=self.dtype, **kwargs)
+
+    def _check_precision(self, config: SimulationConfig) -> None:
+        """Checks that the simulation config and JAX's 64-bit mode fit the device's dtype.
+
+        Args:
+            config: the simulation config the device is placed with.
+
+        Raises:
+            ValueError: if ``config.dtype`` is not the device's dtype.
+            RuntimeError: if a float64 device is placed with JAX's 64-bit mode off.
+        """
+        if not _same_dtype(config.dtype, self.dtype):
+            raise ValueError(
+                f"StackDevice {self.name!r} has dtype {np.dtype(self.dtype)} but the simulation config has "
+                f"dtype {np.dtype(config.dtype)}; build the config with "
+                "device.get_simulation_config(...), which takes the device's dtype"
+            )
+        if _same_dtype(self.dtype, np.float64) and not jax.config.jax_enable_x64:
+            raise RuntimeError(
+                f"StackDevice {self.name!r} has dtype float64, but JAX's 64-bit mode is off, which would "
+                "truncate everything to float32. Importing bifrost turns it on; remove the "
+                "jax.enable_x64(False) around this call or the jax.config.update that turned it off"
+            )
+
     def _port(self, port: str) -> _Port:
         """Looks up a port by name.
 
@@ -7997,6 +8106,13 @@ class StackDevice(StaticMultiMaterialObject):
         real[v_axis] = height_um * 1e-6
         if direction is not None:
             fields["direction"] = _axis_direction(direction, sign)
+        if "dtype" not in fields:
+            # fdtdx's detectors keep their own dtype (float32 / complex64) instead of config.dtype, and
+            # would store a float64 run's fields in single precision; sources follow config.dtype
+            if issubclass(cls, (fdtdx.PhasorDetector, DiffractiveDetector)):
+                fields["dtype"] = _complex_dtype(self.dtype)
+            elif issubclass(cls, fdtdx.Detector):
+                fields["dtype"] = self.dtype
         obj = cls(
             name=name or f"{port}_{suffix}",
             partial_real_shape=tuple(real),
@@ -8295,7 +8411,8 @@ class StackDevice(StaticMultiMaterialObject):
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             name: object name (default ``<port>_mode_detector``).
-            **kwargs: other ModeOverlapDetector fields.
+            **kwargs: other ModeOverlapDetector fields (``dtype`` defaults to the
+                device's precision: complex64 or complex128).
 
         Returns:
             The detector and the constraints placing it relative to this device.
@@ -8339,7 +8456,8 @@ class StackDevice(StaticMultiMaterialObject):
             wavelength_um: the wavelength (um) whose multiple the padding is; required
                 unless the padding is zero.
             name: object name (default ``<port>_flux_detector``).
-            **kwargs: other PoyntingFluxDetector fields.
+            **kwargs: other PoyntingFluxDetector fields (``dtype`` defaults to the
+                device's precision: float32 or float64).
 
         Returns:
             The detector and the constraints placing it relative to this device.
@@ -8382,7 +8500,8 @@ class StackDevice(StaticMultiMaterialObject):
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             name: object name (default ``<port>_phasor_detector``).
-            **kwargs: other PhasorDetector fields.
+            **kwargs: other PhasorDetector fields (``dtype`` defaults to the
+                device's precision: complex64 or complex128).
 
         Returns:
             The detector and the constraints placing it relative to this device.
@@ -8423,7 +8542,8 @@ class StackDevice(StaticMultiMaterialObject):
             wavelength_um: the wavelength (um) whose multiple the padding is; required
                 unless the padding is zero.
             name: object name (default ``<port>_field_detector``).
-            **kwargs: other FieldDetector fields.
+            **kwargs: other FieldDetector fields (``dtype`` defaults to the
+                device's precision: float32 or float64).
 
         Returns:
             The detector and the constraints placing it relative to this device.
@@ -8463,7 +8583,8 @@ class StackDevice(StaticMultiMaterialObject):
             wavelength_um: the wavelength (um) whose multiple the padding is; required
                 unless the padding is zero.
             name: object name (default ``<port>_energy_detector``).
-            **kwargs: other EnergyDetector fields.
+            **kwargs: other EnergyDetector fields (``dtype`` defaults to the
+                device's precision: float32 or float64).
 
         Returns:
             The detector and the constraints placing it relative to this device.
@@ -8501,7 +8622,8 @@ class StackDevice(StaticMultiMaterialObject):
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             name: object name (default ``<port>_diffractive_detector``).
-            **kwargs: other DiffractiveDetector fields.
+            **kwargs: other DiffractiveDetector fields (``dtype`` defaults to the
+                device's precision: complex64 or complex128).
 
         Returns:
             The detector and the constraints placing it relative to this device.
@@ -8716,6 +8838,41 @@ def layer_stack_wafer_layer() -> Any:
         return None
 
 
+_PML_COEFFICIENTS = ("pml_a_E", "pml_b_E", "inv_kappa_E", "pml_a_H", "pml_b_H", "inv_kappa_H")
+
+
+def _cast_pml_coefficients(objects: Any, dtype: Any) -> Any:
+    """Re-casts the PMLs' CPML coefficients to ``dtype`` (fdtdx 0.6.3).
+
+    Importing gdsfactory (so bifrost) turns JAX's 64-bit mode on, and fdtdx's
+    ``place_on_grid`` then derives ``pml_a/b`` and ``inv_kappa`` as float64
+    whatever ``config.dtype`` is. In a float32 simulation the CPML update
+    ``b * psi + a * d`` would promote the float32 psi fields, and
+    ``eqxi.while_loop`` rejects the loop body whose output structure changed.
+    This is why runs used to be wrapped in ``jax.enable_x64(False)``; with the
+    coefficients in the simulation's dtype, the 64-bit mode can stay on for
+    either dtype.
+
+    Args:
+        objects: fdtdx ObjectContainer.
+        dtype: the simulation's dtype (the device's).
+
+    Returns:
+        ``objects``, or a container with the re-cast PMLs if any coefficient had another dtype.
+    """
+    out = []
+    changed = False
+    for obj in objects.object_list:
+        if isinstance(obj, fdtdx.PerfectlyMatchedLayer):
+            for name in _PML_COEFFICIENTS:
+                value = getattr(obj, name, None)
+                if value is not None and not _same_dtype(value.dtype, dtype):
+                    obj = obj.aset(name, value.astype(dtype))
+                    changed = True
+        out.append(obj)
+    return ObjectContainer(object_list=out, volume_idx=objects.volume_idx) if changed else objects
+
+
 def stack_devices(objects: Any) -> list[StackDevice]:
     """All StackDevices of an fdtdx ObjectContainer."""
     return [o for o in objects.objects if isinstance(o, StackDevice)]
@@ -8765,6 +8922,12 @@ def apply_stack(
     builds the sources' dispersive filter with numpy, so this call (like
     ``fdtdx.apply_params``) cannot run inside ``jax.jit``; ``jax.grad`` works.
 
+    The returned objects also have their PML coefficients in the stacks'
+    ``dtype``: fdtdx 0.6.3 derives them as float64 under JAX's 64-bit mode (which
+    importing bifrost turns on) and float32 simulations would then fail in
+    ``fdtdx.run_fdtd``. No ``jax.enable_x64(False)`` is needed around the run,
+    for either dtype.
+
     Args:
         arrays: fdtdx ArrayContainer.
         objects: fdtdx ObjectContainer.
@@ -8789,6 +8952,8 @@ def apply_stack(
     lap("apply_params", arrays)
     objects, reapplied, reused = _reapply_stack_objects(arrays, objects, stacks, key)
     lap("reapply_objects", objects)
+    if stacks:
+        objects = _cast_pml_coefficients(objects, stacks[0].dtype)
     return arrays, objects, {**info, "stack_reapplied": reapplied, "stack_reused": reused, "stack_status": statuses}
 
 

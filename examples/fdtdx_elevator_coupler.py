@@ -14,7 +14,6 @@ from pathlib import Path
 
 import fdtdx
 import jax
-import jax.numpy as jnp
 import numpy as np
 
 import gdsfactory as gf
@@ -81,9 +80,6 @@ def build_stack(overlap: float) -> bf.stack.StackDevice:
 
 def simulate(overlap: float, resolution: float = 0.02, time: float = 400e-15) -> dict:
     (x0, _), _, (z0, _) = domain(overlap)
-    config = fdtdx.SimulationConfig(
-        time=time, grid=fdtdx.core.grid.UniformGrid(spacing=resolution * 1e-6), dtype=jnp.float32
-    )
     wave = fdtdx.WaveCharacter(wavelength=WAVELENGTH * 1e-6)
     pulse = fdtdx.GaussianPulseProfile(
         center_wave=wave, spectral_width=fdtdx.WaveCharacter(frequency=0.05 * wave.get_frequency())
@@ -92,6 +88,7 @@ def simulate(overlap: float, resolution: float = 0.02, time: float = 400e-15) ->
     mode = dict(wave_characters=(wave,), scaling_mode="pulse", **te0)
 
     stack = build_stack(overlap)
+    config = stack.get_simulation_config(time=time, grid=fdtdx.core.grid.UniformGrid(spacing=resolution * 1e-6))
     volume, constraints = stack.get_simulation_volume()
     objects = [volume, stack]
     # port planes 2.9 um wide and 1.5 (upper) / 2.0 (lower) um tall around each guide, outside the PML:
@@ -119,9 +116,7 @@ def simulate(overlap: float, resolution: float = 0.02, time: float = 400e-15) ->
     key = jax.random.PRNGKey(0)
     objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
     arrays, objects, _ = bf.stack.apply_stack(arrays, objects, {**params, **bf.stack.init_stack_params(objects)}, key)
-    # gdsfactory turns on x64; fdtdx 0.6.3's PML would then promote its float32 state inside the solve loop
-    with jax.enable_x64(False):
-        _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
+    _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
 
     states = arrays.detector_states
     a_in = objects["in"].compute_overlap(states["in"])

@@ -7,7 +7,6 @@ Run it:  python examples/guide/simulation_setup.py
 # --8<-- [start:device]
 import fdtdx
 import jax
-import jax.numpy as jnp
 import gdsfactory as gf
 import bifrost as bf
 from gdsfactory.technology import LayerLevel, LayerStack
@@ -35,10 +34,9 @@ stack = bf.StackDevice.from_layer_stack(
 
 # --8<-- [start:settings]
 RESOLUTION = 0.05  # um, coarse enough for a quick check
-config = fdtdx.SimulationConfig(
+config = stack.get_simulation_config(                                # fdtdx.SimulationConfig, in the device's precision
     time=100e-15,                                                    # seconds of simulated time
     grid=fdtdx.core.grid.UniformGrid(spacing=RESOLUTION * 1e-6),     # the cell edge, in meters
-    dtype=jnp.float32,
 )
 wave = fdtdx.WaveCharacter(wavelength=1.55e-6)                       # fdtdx works in meters; bifrost's lengths are um
 pulse = fdtdx.GaussianPulseProfile(
