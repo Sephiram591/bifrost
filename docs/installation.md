@@ -12,7 +12,15 @@
 ```bash
 python -m venv bifrost-env
 source bifrost-env/bin/activate
-pip install "bifrost @ git+https://github.com/Sephiram591/bifrost.git"
+pip install bifrost-photonics
+```
+
+The distribution is named `bifrost-photonics`: the name `bifrost` on PyPI belongs to an unrelated project (OpenStack),
+so do not `pip install bifrost`. You still `import bifrost as bf`. To install the latest development version from GitHub
+instead:
+
+```bash
+pip install "bifrost-photonics @ git+https://github.com/Sephiram591/bifrost.git"
 ```
 
 This installs everything bifrost needs, including [fdtdx](https://github.com/ymahlau/fdtdx), the FDTD solver it drives.
@@ -43,16 +51,17 @@ Run this in the environment you installed into. It prints the versions bifrost d
 A working GPU installation prints something like this (the versions will differ):
 
 ```text
-python     3.12.14
-bifrost    0.1.0
-gdsfactory 9.51.0
-fdtdx      0.6.3
-jax        0.11.2
-jaxlib     0.11.2
-devices    [CudaDevice(id=0)]
+python             3.12.14
+bifrost-photonics  0.1.0
+gdsfactoryx        9.51.0
+fdtdx              0.6.3
+jax                0.11.2
+jaxlib             0.11.2
+devices            [CudaDevice(id=0)]
 ```
 
-`gdsfactory` reports the gdsfactoryx version here. If `devices` shows `[CpuDevice(id=0)]` on a machine with a GPU, see
+The names are the PyPI distribution names: `bifrost-photonics` is bifrost, and `gdsfactoryx` provides the `gdsfactory`
+package. If `devices` shows `[CpuDevice(id=0)]` on a machine with a GPU, see
 [GPU setup](#gpu-setup).
 
 ## GPU setup

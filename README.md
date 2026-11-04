@@ -21,8 +21,12 @@ environment with upstream gdsfactory.
 
 ```bash
 python -m venv bifrost-env && source bifrost-env/bin/activate
-pip install "bifrost @ git+https://github.com/Sephiram591/bifrost.git"
+pip install bifrost-photonics
 ```
+
+The distribution is named `bifrost-photonics`: the name `bifrost` on PyPI belongs to an unrelated project (OpenStack),
+so do not `pip install bifrost`. You still `import bifrost as bf`. To install the latest development version from GitHub
+instead: `pip install "bifrost-photonics @ git+https://github.com/Sephiram591/bifrost.git"`.
 
 For GPU simulations also install a CUDA build of JAX (see the [installation page](https://sephiram591.github.io/bifrost/installation/)).
 

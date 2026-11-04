@@ -9,8 +9,8 @@ import platform
 
 import jax
 
-print(f"{'python':10}", platform.python_version())
-for name in ("bifrost", "gdsfactory", "fdtdx", "jax", "jaxlib"):
-    print(f"{name:10}", metadata.version(name))
-print(f"{'devices':10}", jax.devices())  # [CudaDevice(id=0)] on a GPU node, [CpuDevice(id=0)] otherwise
+print(f"{'python':18}", platform.python_version())
+for name in ("bifrost-photonics", "gdsfactoryx", "fdtdx", "jax", "jaxlib"):  # distribution names, as pip lists them
+    print(f"{name:18}", metadata.version(name))
+print(f"{'devices':18}", jax.devices())  # [CudaDevice(id=0)] on a GPU node, [CpuDevice(id=0)] otherwise
 # --8<-- [end:check]

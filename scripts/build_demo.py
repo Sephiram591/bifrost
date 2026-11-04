@@ -51,7 +51,7 @@ def main() -> None:
     manifest = {
         "generated": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "source": {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain", "--", "bifrost", "examples", "js"))},
-        "packages": {name: metadata.version(name) for name in ("bifrost", "gdsfactory", "fdtdx", "jax", "jaxlib")},
+        "packages": {name: metadata.version(name) for name in ("bifrost-photonics", "gdsfactoryx", "fdtdx", "jax", "jaxlib")},
         "device": str(jax.devices()[0]),
         "parameters": {
             "example": "examples/waveguide_bend.py",

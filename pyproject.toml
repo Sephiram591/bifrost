@@ -3,7 +3,7 @@ build-backend = "flit_core.buildapi"
 requires = ["flit_core>=3.2,<5"]
 
 [project]
-name = "bifrost"
+name = "bifrost-photonics"
 version = "0.1.0"
 description = "The rainbow bridge between your GDSFactory(X) pipeline and FDTD(X) simulation"
 readme = "README.md"
@@ -26,6 +26,11 @@ dependencies = [
   "traitlets",
   "imageio-ffmpeg",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Sephiram591/bifrost"
+Documentation = "https://sephiram591.github.io/bifrost/"
+Issues = "https://github.com/Sephiram591/bifrost/issues"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-xdist", "pytest-randomly", "ruff", "mypy", "marimo", "playwright"]
