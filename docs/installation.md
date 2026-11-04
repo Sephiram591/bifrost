@@ -4,28 +4,22 @@
 
 - Python 3.12, 3.13 or 3.14.
 - A fresh virtual environment (see the note on gdsfactory below).
-- For simulations of any size, a CUDA GPU. Everything on this page also works on a CPU, which is enough for the
-  [live demo](guide/viewer.md#live-demo), for building devices and for the viewer.
+- For simulations of any size, a JAX backend with an accelerator (a GPU or TPU). bifrost runs on whichever backend your
+  JAX installation provides (see [JAX setup](#jax-setup)). Everything on this page also works on a CPU, which is enough
+  for the [live demo](guide/viewer.md#live-demo), for building devices and for the viewer.
 
 ## Basic installation
 
 ```bash
-python -m venv bifrost-env
-source bifrost-env/bin/activate
 pip install bifrost-photonics
 ```
 
-The distribution is named `bifrost-photonics`: the name `bifrost` on PyPI belongs to an unrelated project (OpenStack),
-so do not `pip install bifrost`. You still `import bifrost as bf`. To install the latest development version from GitHub
+To install the latest development version from GitHub
 instead:
 
 ```bash
 pip install "bifrost-photonics @ git+https://github.com/Sephiram591/bifrost.git"
 ```
-
-This installs everything bifrost needs, including [fdtdx](https://github.com/ymahlau/fdtdx), the FDTD solver it drives.
-fdtdx is a required dependency, not an extra: there is no `[fdtdx]` option to add, and a plain `pip install` is
-complete. The viewer's `anywidget` and `manifold3d` are required too.
 
 !!! warning "gdsfactoryx cannot share an environment with upstream gdsfactory"
     bifrost builds on [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx), the JAX port of gdsfactory, which pip
@@ -34,11 +28,7 @@ complete. The viewer's `anywidget` and `manifold3d` are required too.
     bifrost. Keep bifrost in its own environment, and remove an existing upstream gdsfactory first
     (`pip uninstall -y gdsfactory`). If `import gdsfactory` raises an error saying both distributions are installed, run
     `pip uninstall -y gdsfactory gdsfactoryx && pip install gdsfactoryx`. In your code nothing changes:
-    `import gdsfactory as gf` works as before, and you import bifrost as `bf`:
-
-    ```python
-    import bifrost as bf
-    ```
+    `import gdsfactory as gf` works as before.
 
 ## Check the installation
 
@@ -48,7 +38,8 @@ Run this in the environment you installed into. It prints the versions bifrost d
 --8<-- "examples/check_install.py:check"
 ```
 
-A working GPU installation prints something like this (the versions will differ):
+A working installation prints something like this (the versions will differ, and `devices` lists the devices of your
+JAX backend, here one CUDA GPU):
 
 ```text
 python             3.12.14
@@ -60,22 +51,12 @@ jaxlib             0.11.2
 devices            [CudaDevice(id=0)]
 ```
 
-The names are the PyPI distribution names: `bifrost-photonics` is bifrost, and `gdsfactoryx` provides the `gdsfactory`
-package. If `devices` shows `[CpuDevice(id=0)]` on a machine with a GPU, see
-[GPU setup](#gpu-setup).
+## JAX setup
 
-## GPU setup
-
-The default `jax` wheel runs on the CPU. To use an NVIDIA GPU, install the CUDA build that matches your driver by
-following the [JAX installation guide](https://docs.jax.dev/en/latest/installation.html), for example:
-
-```bash
-pip install -U "jax[cuda12]"
-```
-
-and run the [installation check](#check-the-installation) again: `devices` should now list a `CudaDevice`. bifrost
-itself needs no GPU-specific configuration. On a shared cluster, request the GPU through your scheduler (for example
-`srun --gres=gpu:1 python examples/waveguide_bend.py`) instead of running on a login node.
+bifrost works with any backend JAX supports. Installing bifrost installs JAX's default build, which runs on the CPU. To
+run on a GPU, a TPU or another accelerator, set up JAX for your hardware as described in the
+[JAX installation guide](https://docs.jax.dev/en/latest/installation.html), then run the
+[installation check](#check-the-installation) again: `devices` should list your accelerator.
 
 ## Contributor installation
 

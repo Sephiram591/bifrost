@@ -1,11 +1,9 @@
 # Getting started: your first simulation
 
-This page takes you from an empty file to a simulated 90° silicon waveguide bend: a transmission value, a field image,
-and the result open in the viewer. It is one script, [`examples/waveguide_bend.py`](https://github.com/Sephiram591/bifrost/blob/main/examples/waveguide_bend.py),
-explained step by step. [Install bifrost](installation.md) first, and run the script on a GPU if you have one.
+This demonstrates simulating a 90° silicon waveguide bend: a transmission value, a field image,
+and the result open in the viewer. It is found in, [`examples/waveguide_bend.py`](https://github.com/Sephiram591/bifrost/blob/main/examples/waveguide_bend.py). [Install bifrost](installation.md) first, and run the script on a GPU if you have one.
 
-The device is a 500 nm wide, 220 nm thick silicon strip in silica. It is gdsfactory's `bend_circular` cell: a 5 µm radius circular arc that
-turns left, with both ports extended straight to the edge of the simulation box. TE0 light at 1.55 µm is launched into the
+The device is a 500 nm wide, 220 nm thick silicon strip in silica. It is gdsfactory's `bend_circular` cell: a 5 µm radius circular arc, with both ports extended straight to the edge of the simulation box. TE0 light at 1.55 µm is launched into the
 extension of port `o1`, and we measure how much of it leaves port `o2` in TE0.
 
 ## Run it
@@ -168,7 +166,7 @@ A run 1.5 times as long (600 fs) gives the same transmission to four digits at 2
 
 ## Troubleshooting
 
-- **The run takes forever, or `jax.devices()` shows only a CPU.** JAX found no GPU. See [GPU setup](installation.md#gpu-setup).
+- **The run takes forever, or `jax.devices()` shows only a CPU.** JAX found no accelerator. See [JAX setup](installation.md#jax-setup).
   A CPU works but is much slower than a GPU; coarsen the grid (`--resolution 0.1`) to try the script.
 - **The first run is slow but later ones are fast.** The first call compiles the solver for this grid size; that time is in
   the wall-clock figure above. Changing the box or the grid compiles again.
