@@ -1,4 +1,4 @@
-# Example: directional coupler
+# Directional coupler
 
 [`examples/fdtdx_directional_coupler.py`](https://github.com/Sephiram591/bifrost/blob/main/examples/fdtdx_directional_coupler.py)
 simulates a broadband silicon-nitride directional coupler: two 400 nm wide, 200 nm tall SiN (n = 1.95) waveguides in oxide
@@ -50,8 +50,8 @@ TE0 power at the two outputs, 20 nm grid (the rest of the input power is lost or
 | 703 | 0.076 | 0.105 | 0.904 | 0.876 |
 | 728 | 0.003 | 0.012 | 0.970 | 0.961 |
 
-The 50:50 point, where the cross port carries half of the input, is at 641.3 nm in fdtdx and 647.0 nm in MEEP.
-The cross-port power rises from 7 % to 97 % over the band, as the coupling length shortens with wavelength. The two
+The cross-port power rises from 7 % to 97 % over the band, as the coupling length shortens with wavelength; the 50:50
+point is at 641.3 nm in fdtdx and 647.0 nm in MEEP. The two
 solvers agree to within 0.04 in power everywhere (rms 0.025); fdtdx couples slightly more, as if its curve were shifted by
 about 5 nm. The difference shrinks with the grid: at 40 nm it is up to 0.08. Between 40 and 20 nm fdtdx's cross power at
 619 nm moves from 0.414 to 0.365 while MEEP's moves from 0.351 to 0.337, so the remaining difference is probably
@@ -60,7 +60,7 @@ resolution-limited (the 300 nm gap is 15 cells at 20 nm); a finer grid was not r
 Running fdtdx with `averaging="subpixel_full"` (the full permittivity tensor with its off-diagonal entries, the most
 accurate option) changes none of this: its spectra are within 2e-4 in power of the default `subpixel` run at every
 wavelength, the 50:50 point moves by 0.1 nm, and the difference from MEEP is the same. So the remaining 5.7 nm offset is
-not from how fdtdx averages the permittivity at the guide walls. I did not look for its cause.
+not from how fdtdx averages the permittivity at the guide walls; its cause has not been investigated.
 
 On the same 89.4M cells fdtdx took 383 s on one NVIDIA L40S with `subpixel`, compilation included, and 1203 s on an H200 with
 `subpixel_full`, which peaked at 50 GiB of GPU memory. MEEP took 2720 s on 48 CPU cores.

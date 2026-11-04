@@ -3,10 +3,9 @@
 ## Requirements
 
 - Python 3.12, 3.13 or 3.14.
-- A fresh virtual environment (see the note on gdsfactory below).
-- For simulations of any size, a JAX backend with an accelerator (a GPU or TPU). bifrost runs on whichever backend your
-  JAX installation provides (see [JAX setup](#jax-setup)). Everything on this page also works on a CPU, which is enough
-  for the [live demo](guide/viewer.md#live-demo), for building devices and for the viewer.
+- A fresh virtual environment (see the warning on gdsfactory below).
+- For simulations of any size, an accelerator that JAX supports, such as a GPU or TPU (see [JAX setup](#jax-setup)). A
+  CPU is enough for the [live demo](guide/viewer.md#live-demo), for building devices and for the viewer.
 
 ## Basic installation
 
@@ -14,32 +13,29 @@
 pip install bifrost-photonics
 ```
 
-To install the latest development version from GitHub
-instead:
+The latest development version, from GitHub:
 
 ```bash
 pip install "bifrost-photonics @ git+https://github.com/Sephiram591/bifrost.git"
 ```
 
 !!! warning "gdsfactoryx cannot share an environment with upstream gdsfactory"
-    bifrost builds on [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx), the JAX port of gdsfactory, which pip
-    installs from PyPI as the `gdsfactoryx` distribution. It provides the same `gdsfactory` import package as upstream
-    gdsfactory, so the two overwrite each other's files: installing upstream gdsfactory in the same environment breaks
-    bifrost. Keep bifrost in its own environment, and remove an existing upstream gdsfactory first
-    (`pip uninstall -y gdsfactory`). If `import gdsfactory` raises an error saying both distributions are installed, run
-    `pip uninstall -y gdsfactory gdsfactoryx && pip install gdsfactoryx`. In your code nothing changes:
-    `import gdsfactory as gf` works as before.
+    bifrost builds on [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx), the JAX port of gdsfactory, installed
+    from PyPI as the `gdsfactoryx` distribution. It provides the same `gdsfactory` import package as upstream gdsfactory,
+    so the two overwrite each other's files and upstream gdsfactory in the same environment breaks bifrost. Remove an
+    existing upstream gdsfactory first (`pip uninstall -y gdsfactory`). If `import gdsfactory` raises an error saying
+    both distributions are installed, run `pip uninstall -y gdsfactory gdsfactoryx && pip install gdsfactoryx`. Your
+    code does not change: `import gdsfactory as gf` works as before.
 
 ## Check the installation
 
-Run this in the environment you installed into. It prints the versions bifrost depends on and the devices JAX can use.
+In the new environment, run:
 
 ```python
 --8<-- "examples/check_install.py:check"
 ```
 
-A working installation prints something like this (the versions will differ, and `devices` lists the devices of your
-JAX backend, here one CUDA GPU):
+Expected output (the versions will differ, and `devices` lists your JAX backend's devices, here one CUDA GPU):
 
 ```text
 python             3.12.14
@@ -53,8 +49,8 @@ devices            [CudaDevice(id=0)]
 
 ## JAX setup
 
-bifrost works with any backend JAX supports. Installing bifrost installs JAX's default build, which runs on the CPU. To
-run on a GPU, a TPU or another accelerator, set up JAX for your hardware as described in the
+bifrost works with any JAX backend and needs no backend-specific configuration. pip installs JAX's default build, which
+runs on the CPU. For a GPU, TPU or other accelerator, set up JAX for your hardware with the
 [JAX installation guide](https://docs.jax.dev/en/latest/installation.html), then run the
 [installation check](#check-the-installation) again: `devices` should list your accelerator.
 
@@ -76,4 +72,4 @@ pip install -e ".[dev,docs]"
 | `make docs` | builds this documentation with strict checks |
 | `make docs-serve` | serves it at `localhost:8080` |
 
-See [Contributing and tests](development.md) for the conventions.
+Conventions: [Contributing and tests](development.md).

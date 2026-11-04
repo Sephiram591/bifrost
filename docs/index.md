@@ -6,17 +6,17 @@ The rainbow bridge between your [GDSFactory](https://gdsfactory.github.io/gdsfac
 [FDTD](https://github.com/ymahlau/fdtdx) simulation.
 
 bifrost turns a gdsfactory component and its layer stack into a differentiable [fdtdx](https://github.com/ymahlau/fdtdx)
-simulation, and ships a 3D viewer for setting up the run and inspecting its fields. There is no GDS export and no
-re-describing of the geometry with fdtdx primitives. This is a complete example: it builds a straight silicon waveguide
-and opens it in the viewer (in a Jupyter or marimo cell, end the cell with `viewer` to display it).
+simulation, with no GDS export and no re-describing of the geometry in fdtdx primitives, and ships a 3D viewer for
+setting up the run and inspecting its fields. A straight silicon waveguide, opened in the viewer (in Jupyter or marimo,
+end the cell with `viewer`):
 
 ```python
 --8<-- "examples/straight_waveguide.py:straight"
 ```
 
 `bf.StackDevice` is the device the solver sees: the component's polygons, extruded through the layer stack into
-permittivity, with ports ready to take sources and monitors. [Installation](installation.md) explains how to get the
-packages.
+permittivity, with ports ready to take sources and monitors. Install with `pip install bifrost-photonics`
+([details](installation.md): accelerators, and why upstream gdsfactory must not share the environment).
 
 ## Where to go next
 
@@ -36,6 +36,6 @@ packages.
 
 </div>
 
-bifrost builds on [gdsfactory](https://gdsfactory.github.io/gdsfactory/) (components, cells, PDKs and routing: use its
-documentation for anything about building a layout), on [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx) (the JAX
-port of gdsfactory that makes layouts differentiable) and on [fdtdx](https://github.com/ymahlau/fdtdx) (the solver).
+bifrost builds on [gdsfactory](https://gdsfactory.github.io/gdsfactory/) for layouts (components, cells, PDKs and
+routing: see its documentation for those), on [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx), the JAX port
+of gdsfactory that makes layouts differentiable, and on [fdtdx](https://github.com/ymahlau/fdtdx), the solver.

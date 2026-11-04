@@ -1,13 +1,12 @@
 # Viewer and live demo
 
-`bf.view(stack)` returns an [anywidget](https://anywidget.dev) viewer for a `bf.StackDevice`. It works in Jupyter and
-marimo, and shows the device in 3D and in 2D cross-sections, lets you set up sources and monitors, can run the simulation,
-and shows the fields a finished simulation recorded.
+`bf.view(stack)` returns an [anywidget](https://anywidget.dev) viewer for a `bf.StackDevice`, for Jupyter and marimo. It
+shows the device in 3D and in 2D cross-sections, sets up sources and monitors, runs the simulation, and shows the fields
+a finished simulation recorded.
 
 ## Open the viewer
 
-This script is complete. It builds a straight silicon waveguide and creates the viewer; in a Jupyter or marimo cell, end the
-cell with `viewer` to display it.
+A straight silicon waveguide in the viewer (in Jupyter or marimo, end the cell with `viewer`):
 
 ```python
 --8<-- "examples/straight_waveguide.py:straight"
@@ -31,14 +30,13 @@ device. The camera button saves the current view as a PNG.
 
 Add a source and a monitor in the **Sources / Detectors** tab, choose the grid and time in **Simulation**, and press
 **Run**. The run happens in the Python session on a background thread, with the setup locked while it goes, and its field
-appears in the **Result** tab. The same objects are available in code (`viewer.objects`, `viewer.config` and
-`viewer.constraints`) if you want to place and run them yourself, and the **copy launch code** button copies the script that
-reproduces the setup.
+appears in the **Result** tab. To place and run the objects yourself, they are in `viewer.objects`, `viewer.config` and
+`viewer.constraints`; the **copy launch code** button copies a script that reproduces the setup.
 
 ## Load a finished simulation
 
-If you ran the simulation in a script, hand its result to the viewer. This is the end of the
-[bend tutorial](../getting-started.md) and of [Results and field monitors](results.md), where the complete scripts are:
+A result simulated in a script goes to the viewer as the last step of that script (as in the
+[bend tutorial](../getting-started.md) and [Results and field monitors](results.md)):
 
 ```python
 viewer = bf.view(stack)
@@ -46,17 +44,16 @@ viewer.load_result(objects, arrays, config, stack=stack)
 ```
 
 `objects`, `arrays` and `config` are what `fdtdx.place_objects` and `fdtdx.run_fdtd` return, and `stack` is the
-`StackDevice` the result was recorded on. (This snippet is not runnable by itself: it is the last step of those scripts.)
+`StackDevice` the result was recorded on.
 
-The **Result** tab and the **Sources / Detectors** tab then list the same sources and monitors, each with its name, type
-and plane. They are read-only there, because the viewer only has the objects fdtdx placed, not the calls that made them.
-To simulate again from the viewer, add your own sources and monitors: running replaces the listed ones.
+The **Result** and **Sources / Detectors** tabs then list the run's sources and monitors with their names, types and
+planes. They are read-only, because the viewer has the objects fdtdx placed, not the calls that made them. To simulate
+again from the viewer, add your own sources and monitors: running replaces the listed ones.
 
 ## Live demo
 
-This is the viewer on the result of the [bend tutorial](../getting-started.md): a 90° silicon waveguide bend simulated
-with the settings of that page. It runs in your browser with no installation and no Python. Drag to orbit, scroll to zoom,
-and use the **Result** tab to choose what to display.
+The viewer on the result of the [bend tutorial](../getting-started.md), in your browser with no installation and no
+Python. Drag to orbit, scroll to zoom, and use the **Result** tab to choose what to display.
 
 <div style="position: relative; width: 100%; height: min(72vh, 640px); min-height: 380px; border-radius: 8px; overflow: hidden; background: #101014 url(../../images/viewer-demo.png) center / cover no-repeat;">
   <iframe src="../demo/index.html" title="bifrost viewer: a precomputed 90 degree waveguide bend" loading="lazy" allowfullscreen style="width: 100%; height: 100%; border: 0;"></iframe>
@@ -64,12 +61,12 @@ and use the **Result** tab to choose what to display.
 
 [Open the demo full screen](../demo/index.html){ target="_blank" }
 
-If the demo does not load, the picture above is the same result; reload the page to try again. The demo needs a
-browser with WebGL.
+The demo needs a browser with WebGL. If it does not load, the picture above shows the same result; reload the page to
+try again.
 
 ### What the demo can and cannot do
 
-The demo is **precomputed**: it plays back a result that was simulated beforehand, so only what needs no Python works.
+The demo plays back a **precomputed** result, so only what needs no Python works:
 
 - Orbit, zoom, fit the view, switch between 3D and 2D, and toggle layers and ports.
 - Show and style the fields: pick the component and the transform (real, imaginary, magnitude, phase, log), the colors and

@@ -2,12 +2,12 @@
 
 A bifrost simulation is an ordinary [fdtdx](https://github.com/ymahlau/fdtdx) simulation in which the device, the
 sources and the monitors come from the `StackDevice`: it knows where its ports are, so you ask for a source or monitor
-*on a port* instead of computing coordinates. This page sets one up and places it, without running the solve. The
-script is complete and finishes in seconds on a CPU.
+*on a port* instead of computing coordinates. The example below sets one up and places it without running the solve;
+it finishes in seconds on a CPU.
 
 ## Build, place and inspect
 
-First the device and the numerical settings.
+The device and the numerical settings:
 
 ```python
 --8<-- "examples/guide/simulation_setup.py:device"
@@ -17,28 +17,27 @@ First the device and the numerical settings.
 
 - **Units.** bifrost's lengths (`boundary_offset`, `extend_ports`, `port_offset`) are in **µm**. fdtdx's are in
   **meters**: `SimulationConfig(time=...)` is in seconds, `UniformGrid(spacing=...)` and `WaveCharacter(wavelength=...)`
-  are in meters. The `* 1e-6` conversions are the usual place for a factor-of-a-million mistake.
+  are in meters. The `* 1e-6` conversions are the usual source of a factor-of-a-million mistake.
 - **The grid.** `UniformGrid(spacing=...)` is the cell edge. fdtdx rounds the box to a whole number of cells in every
   direction, so keep its sides on the grid (see [Layer stacks and materials](layer-stacks.md)).
 - **The pulse.** A Gaussian pulse with a spectral width of 5 % of the center frequency ramps up smoothly and lets one run
   cover a band; the monitors below record the center wavelength.
-- **The precision.** `stack.get_simulation_config(...)` is `fdtdx.SimulationConfig` with the device's `dtype` filled in
-  (float32 unless you build the device with `dtype=jnp.float64`), and every other argument passed through. You never
-  set a dtype on the config yourself; see [Precision](#precision).
+- **The precision.** `stack.get_simulation_config(...)` is `fdtdx.SimulationConfig` with the device's `dtype` filled in;
+  see [Precision](#precision).
 
-Now the box, the source and the monitors, each placed on a port:
+The box, the source and the monitors, each placed on a port:
 
 ```python
 --8<-- "examples/guide/simulation_setup.py:ports"
 ```
 
-and finally the absorbing boundary and the placement:
+The absorbing boundary and the placement:
 
 ```python
 --8<-- "examples/guide/simulation_setup.py:place"
 ```
 
-Run on a CPU, it prints the placed grid and each object's position:
+Output:
 
 ```text
 grid cells: (180, 74, 68)
@@ -47,8 +46,8 @@ in       (1, 41, 23) cells at [(40, 41), (16, 57), (22, 45)]
 out      (1, 41, 23) cells at [(140, 141), (16, 57), (22, 45)]
 ```
 
-The box is 180 × 74 × 68 cells of 50 nm. Each slice is `(start, stop)` cell indices along x, y and z, so each plane is
-one cell thick along its normal and 41 × 23 cells (2.05 × 1.15 µm) across: the 0.5 µm guide plus 0.5 wavelengths per
+The box is 180 × 74 × 68 cells of 50 nm. Each slice is `(start, stop)` cell indices along x, y and z: each plane is
+one cell thick along its normal and 41 × 23 cells (2.05 × 1.15 µm) across, the 0.5 µm guide plus 0.5 wavelengths per
 side, and the 0.22 µm core plus 0.3 wavelengths per side. The source is 10 cells (0.5 µm) before the input monitor,
 which sits on the port at x = 0.
 
@@ -84,7 +83,7 @@ The arguments every method shares:
     - Planes must be tall enough to hold the mode: the mode of a 220 nm silicon guide reaches about 0.5 µm into the
       cladding above and below, so a 1.1 µm tall plane is plenty.
 
-The objects available:
+The methods and the fdtdx objects they make:
 
 | Method | fdtdx object |
 | --- | --- |
@@ -100,21 +99,18 @@ The objects available:
 | `create_energy_detector_at` | `EnergyDetector` |
 | `create_diffractive_detector_at` | `DiffractiveDetector` |
 
-Any other fdtdx fields can be passed as keyword arguments. Add boundaries, regular fdtdx devices and other objects as
-usual.
+Other fdtdx fields go in as keyword arguments. Boundaries, regular fdtdx devices and other objects are added as usual.
 
 ## Place, apply and run
 
-After `fdtdx.place_objects`, the stack is written into the permittivity arrays by `bf.apply_stack` instead of
-`fdtdx.apply_params`:
+After `fdtdx.place_objects`, `bf.apply_stack` writes the stack into the permittivity arrays, in place of
+`fdtdx.apply_params` (the [waveguide bend](../examples/waveguide-bend.md) runs this end to end):
 
 ```python
 objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
 arrays, objects, _ = bf.apply_stack(arrays, objects, {**params, **bf.init_stack_params(objects)}, key)
 _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
 ```
-
-(That is part of the complete [waveguide bend](../examples/waveguide-bend.md) example, which runs it.)
 
 fdtdx's own `Device` objects only mix two materials, so `fdtdx.apply_params` doesn't know about a `StackDevice`.
 `apply_stack` writes every stack into the arrays first and then calls `fdtdx.apply_params`, so regular devices and
@@ -124,7 +120,7 @@ stack's own parameters (vertices, heights, thicknesses), which is what you diffe
 
 ## Precision
 
-A `StackDevice` takes a `dtype`, `jnp.float32` (the default) or `jnp.float64`, and the whole simulation runs in it. It
+The whole simulation runs in the `StackDevice`'s `dtype`, `jnp.float32` (the default) or `jnp.float64`, and the device
 is the only place to set it:
 
 ```python
@@ -152,7 +148,7 @@ config = stack.get_simulation_config(time=100e-15, grid=fdtdx.core.grid.UniformG
 
 - **`Configured grid shape ... does not match simulation volume shape`**: a side of the box is exactly halfway between
   two cell counts. Move `boundary_offset` by a fraction of a cell, or change the grid spacing.
-- **A source or monitor is in the wrong place or clipped.** Print `monitor.grid_slice` as above; each is
-  `(start, stop)` cell indices. Compare with the box's cell count. Check the sign of `port_offset` (negative moves the
+- **A source or monitor is in the wrong place or clipped.** Print `monitor.grid_slice` as above and compare with the
+  box's cell count. Check the sign of `port_offset` (negative moves the
   plane *out* of the component) and `direction`.
 - **The result looks a million times off.** A length went into fdtdx in µm. fdtdx wants meters.
