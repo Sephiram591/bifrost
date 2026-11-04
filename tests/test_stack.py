@@ -1507,7 +1507,9 @@ def _one_plane(phi, offset, tilt, n_sub=1, width=1.0, split=None):
     square ``width`` cells wide, as material_weights does (with sub-samples, their moments are added
     up: _composite_samples). With ``split``, a fill level of the background's eps covers the voxel
     above that height: it changes nothing but the sub-intervals. The fractions must equal those
-    without the tensor bit for bit.
+    without the tensor up to float64 rounding: the programs differ (extra outputs, a scan over the
+    samples), and XLA fuses and contracts multiply-adds differently in each, by an ulp or a few
+    (1e-16 of a fraction), depending on the jax version and CPU. Not bit for bit.
     """
     phi, offset, tilt = (jnp.asarray(x, dtype=jnp.float32) for x in (phi, offset, tilt))
     normal = jnp.stack([jnp.cos(phi), jnp.sin(phi)], axis=-1)
@@ -1537,7 +1539,7 @@ def _one_plane(phi, offset, tilt, n_sub=1, width=1.0, split=None):
             jnp.stack(offsets), jnp.stack([normals] * n_sub**2), is_fill, lows, highs, lateral, 1, level_eps,
             kernels, cell,
         )
-    np.testing.assert_array_equal(f, fractions)
+    np.testing.assert_allclose(f, fractions, rtol=0, atol=1e-12)
     return np.asarray(f[:, 0, 0]) / n_sub**2, np.asarray(t[:, 0, 0, 0])
 
 
