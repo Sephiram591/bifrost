@@ -225,5 +225,9 @@ docs/_build/
 examples/output/
 .scratch/
 
+# git worktrees from Claude Code sessions: committing one records a submodule pointer without a
+# .gitmodules entry, which makes actions/checkout fail on every workflow run
+.claude/worktrees/
+
 # esbuild also writes the demo bundle's stylesheet next to it; the page loads viewer.css instead
 docs/demo/viewer-demo.css
