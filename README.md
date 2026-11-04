@@ -5,30 +5,26 @@
 [![docs](https://github.com/Sephiram591/bifrost/actions/workflows/pages.yml/badge.svg)](https://sephiram591.github.io/bifrost/)
 [![tests](https://github.com/Sephiram591/bifrost/actions/workflows/test.yml/badge.svg)](https://github.com/Sephiram591/bifrost/actions/workflows/test.yml)
 
-The rainbow bridge between your GDSFactory(X) pipeline and FDTD(X) simulation.
+The rainbow bridge between your GDSFactory pipeline and FDTD simulation.
 
 bifrost turns a [gdsfactory](https://gdsfactory.github.io/gdsfactory/) component and its layer stack into a
 differentiable [fdtdx](https://github.com/ymahlau/fdtdx) simulation, and ships a 3D viewer for setting up the run and
 inspecting its fields. It builds on [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx), the JAX port of gdsfactory.
 
-**Documentation:** https://sephiram591.github.io/bifrost/ (with a [live viewer demo](https://sephiram591.github.io/bifrost/guide/viewer/#live-demo))
+**Documentation:** https://sephiram591.github.io/bifrost/
 
 ## Install
 
-Python 3.12 to 3.14. fdtdx is a required dependency, so one command installs everything. Use a fresh environment:
+Use a fresh environment:
 gdsfactoryx (installed from PyPI as a dependency) provides the `gdsfactory` import package, so it cannot share an
 environment with upstream gdsfactory.
 
 ```bash
-python -m venv bifrost-env && source bifrost-env/bin/activate
 pip install bifrost-photonics
 ```
 
-The distribution is named `bifrost-photonics`: the name `bifrost` on PyPI belongs to an unrelated project (OpenStack),
-so do not `pip install bifrost`. You still `import bifrost as bf`. To install the latest development version from GitHub
+To install the latest development version from GitHub
 instead: `pip install "bifrost-photonics @ git+https://github.com/Sephiram591/bifrost.git"`.
-
-For GPU simulations also install a CUDA build of JAX (see the [installation page](https://sephiram591.github.io/bifrost/installation/)).
 
 ## Quick start
 
