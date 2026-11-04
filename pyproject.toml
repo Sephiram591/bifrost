@@ -14,6 +14,9 @@ dependencies = [
   # gdsfactoryx (from PyPI) provides the `gdsfactory` import package, so it cannot share an environment with upstream gdsfactory
   "gdsfactoryx>=9.51.0",
   "fdtdx>=0.6.3",
+  # fdtdx imports tidy3d. Without a floor pip can resolve tidy3d 2.10 (it prefers the newest xarray, which tidy3d 2.11+
+  # caps), and 2.10 cannot read a user config written by tidy3d 2.12, so `import bifrost` crashes.
+  "tidy3d>=2.12",
   "jax>=0.6",
   "numpy",
   "scipy<2",
