@@ -16,7 +16,8 @@ inspecting its fields. It builds on [gdsfactoryx](https://github.com/Sephiram591
 ## Install
 
 Python 3.12 to 3.14. fdtdx is a required dependency, so one command installs everything. Use a fresh environment:
-gdsfactoryx's distribution is named `gdsfactory`, so it replaces an upstream gdsfactory installed in the same one.
+gdsfactoryx (installed from PyPI as a dependency) provides the `gdsfactory` import package, so it cannot share an
+environment with upstream gdsfactory.
 
 ```bash
 python -m venv bifrost-env && source bifrost-env/bin/activate

@@ -11,8 +11,8 @@ license = {file = "LICENSE"}
 authors = [{name = "Helaman Flores"}]
 requires-python = ">=3.12,<3.15"
 dependencies = [
-  # the distribution of gdsfactoryx is still named "gdsfactory"
-  "gdsfactory @ git+https://github.com/Sephiram591/gdsfactoryx.git",
+  # gdsfactoryx (from PyPI) provides the `gdsfactory` import package, so it cannot share an environment with upstream gdsfactory
+  "gdsfactoryx>=9.51.0",
   "fdtdx>=0.6.3",
   "jax>=0.6",
   "numpy",

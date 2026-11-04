@@ -19,12 +19,14 @@ This installs everything bifrost needs, including [fdtdx](https://github.com/yma
 fdtdx is a required dependency, not an extra: there is no `[fdtdx]` option to add, and a plain `pip install` is
 complete. The viewer's `anywidget` and `manifold3d` are required too.
 
-!!! warning "gdsfactoryx replaces upstream gdsfactory"
-    bifrost builds on [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx), the JAX port of gdsfactory. Its
-    distribution is still named `gdsfactory`, so installing bifrost replaces an upstream gdsfactory in the same
-    environment, and installing upstream gdsfactory afterwards replaces gdsfactoryx and breaks bifrost. Keep bifrost in
-    its own environment. In your code nothing changes: `import gdsfactory as gf` works as before, and you import
-    bifrost as `bf`:
+!!! warning "gdsfactoryx cannot share an environment with upstream gdsfactory"
+    bifrost builds on [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx), the JAX port of gdsfactory, which pip
+    installs from PyPI as the `gdsfactoryx` distribution. It provides the same `gdsfactory` import package as upstream
+    gdsfactory, so the two overwrite each other's files: installing upstream gdsfactory in the same environment breaks
+    bifrost. Keep bifrost in its own environment, and remove an existing upstream gdsfactory first
+    (`pip uninstall -y gdsfactory`). If `import gdsfactory` raises an error saying both distributions are installed, run
+    `pip uninstall -y gdsfactory gdsfactoryx && pip install gdsfactoryx`. In your code nothing changes:
+    `import gdsfactory as gf` works as before, and you import bifrost as `bf`:
 
     ```python
     import bifrost as bf
