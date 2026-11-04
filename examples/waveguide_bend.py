@@ -47,7 +47,7 @@ component = gf.components.bend_circular(radius=RADIUS, angle=90, width=WIDTH)  #
 # --8<-- [end:component]
 
 
-# --8<-- [start:stack]
+# --8<-- [start:layerstack]
 LAYER_STACK = LayerStack(
     layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=THICKNESS, material="core", mesh_order=1)}
 )
@@ -55,8 +55,10 @@ MATERIALS = {
     "core": fdtdx.Material(permittivity=CORE_INDEX**2),
     "clad": fdtdx.Material(permittivity=CLAD_INDEX**2),  # also the background
 }
+# --8<-- [end:layerstack]
 
 
+# --8<-- [start:stack]
 def build_stack() -> bf.StackDevice:
     """The bend voxelized with its layer stack, with both ports extended straight to the box."""
     z_margin = (BOX_HEIGHT - THICKNESS) / 2  # cladding above and below the core

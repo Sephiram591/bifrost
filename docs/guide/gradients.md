@@ -37,7 +37,8 @@ Worth copying into your own objectives:
 
 - **Choose an objective with a signal.** The transmission of a good bend is nearly flat in the radius (it barely moves
   around 2 µm), and the grid's cell-scale noise is as large as its slope, so its derivative tells you little. The phase
-  changes by several radians per µm.
+  changes by several radians per µm. A bend tight enough to lose light is the opposite case: its transmission has a
+  signal, and [Inverse design](inverse-design.md) optimizes it.
 - **Keep monitors in the straight extension for every parameter value.** The output monitor sits 0.5 µm out in the port
   extension. On the port itself, a larger radius would put the end of the arc past the monitor.
 - **A mode's overall sign is arbitrary in each mode solve.** The ratio of two mode amplitudes is defined only up to a

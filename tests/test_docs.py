@@ -153,13 +153,31 @@ LIGHT = [
 ]
 
 
+OUTPUT_PAGES = {  # the guide pages that show an example's printed output, in a ```text block
+    "examples/guide/layer_stacks.py": "guide/layer-stacks.md",
+    "examples/guide/simulation_setup.py": "guide/simulation-setup.md",
+    "examples/guide/options.py": "guide/options.md",
+    "examples/guide/diagnostics.py": "guide/diagnostics.md",
+}
+TEXT_BLOCK = re.compile(r"^```text\n(.*?)^```", re.S | re.M)
+
+
 @pytest.mark.parametrize(("path", "expected"), LIGHT, ids=[p for p, _ in LIGHT])
 def test_instructional_examples_run_in_a_fresh_process(path: str, expected: list[str]) -> None:
-    """Each example is complete: run from nowhere else, in a new interpreter, with no notebook state."""
+    """Each example is complete: run from nowhere else, in a new interpreter, with no notebook state.
+
+    Its page shows what it prints, line for line, so a changed number cannot go stale in the docs.
+    """
     done = _run(path)
     assert done.returncode == 0, done.stderr[-2000:]
     for text in expected:
         assert text in done.stdout, f"{path} did not print {text!r}:\n{done.stdout}"
+    if path in OUTPUT_PAGES:
+        printed = done.stdout + done.stderr
+        shown = TEXT_BLOCK.findall((DOCS / OUTPUT_PAGES[path]).read_text())
+        assert shown, f"docs/{OUTPUT_PAGES[path]} shows no output block"
+        for line in (line.strip() for block in shown for line in block.splitlines()):
+            assert not line or line in printed, f"docs/{OUTPUT_PAGES[path]} shows {line!r}, which {path} does not print"
 
 
 @pytest.mark.skipif(not HARDWARE, reason="runs full simulations; set BIFROST_HARDWARE=1 on a GPU node")
@@ -185,6 +203,15 @@ def test_hardware_the_gradient_example_agrees_with_finite_differences() -> None:
     assert done.returncode == 0, done.stderr[-2000:]
     autodiff, finite = (float(v) for v in re.search(r"autodiff ([+-][\d.]+).*finite difference ([+-][\d.]+)", done.stdout).groups())
     assert autodiff == pytest.approx(finite, rel=0.2, abs=2e-3), done.stdout
+
+
+@pytest.mark.skipif(not HARDWARE, reason="runs full simulations; set BIFROST_HARDWARE=1 on a GPU node")
+def test_hardware_the_width_optimization_improves_the_bend() -> None:
+    done = _run("examples/guide/inverse_design.py", "--iterations", "3", "--check", "0", "--figure", "", timeout=1800)
+    assert done.returncode == 0, done.stderr[-2000:]
+    found = re.search(r"transmission at \d+ nm: uniform ([\d.]+), optimized ([\d.]+)", done.stdout)
+    uniform, optimized = (float(v) for v in found.groups())
+    assert optimized > uniform, done.stdout
 
 
 # ------------------------------------------------------------------ the build

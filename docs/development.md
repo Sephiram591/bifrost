@@ -8,11 +8,13 @@ simulation tests on a GPU node. To time the geometry steps and the FDTD solve, r
 
 - Import bifrost as `bf` everywhere outside the package (`import bifrost as bf`); inside the package, use relative
   imports.
-- The [viewer spec](design/viewer-spec.md) is the source of truth for the viewer's design.
+- The [viewer spec](https://github.com/Sephiram591/bifrost/blob/main/design/viewer-spec.md) (`design/viewer-spec.md`,
+  not part of this site) is the source of truth for the viewer's design.
 
 ## Releases
 
-Version in `pyproject.toml` and `bifrost/__init__.py`. Docs deploy from `main` through the `pages` workflow.
+Version in `pyproject.toml` and `bifrost/__init__.py`; record the release in the [changelog](changelog.md). Docs deploy
+from `main` through the `pages` workflow.
 
 ## Maintenance
 

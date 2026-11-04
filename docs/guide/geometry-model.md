@@ -197,7 +197,7 @@ corner columns; with `xy_subsamples` > 1 they are painted with each sample's hal
 voxel's materials, which blend the corner model in), and the closure's derivative is the solve's implicit one. The blend
 reaches the closure within about 0.03 cells of a corner entering a voxel, so derivatives with respect to the geometry
 are continuous but change quickly there: check them with finite-difference steps well below that (about 1e-3 cells;
-moving a corner's vertex on 20 nm cells, central differences are 2 % off at 1e-4 um and 0.1 % at 3e-5 um). A surface on
+moving a corner's vertex on 20 nm cells, central differences are 2 % off at 1e-4 µm and 0.1 % at 3e-5 µm). A surface on
 a face of the closure's sub-cells (a quarter of a voxel) is a kink, like one on a voxel face (see
 [Gradients](gradients.md#what-the-derivatives-are)).
 
@@ -209,15 +209,15 @@ embedded one), and its sub-cells add 2.2 %. Planar interfaces (walls, films, mul
 sharp corners the field is singular and no voxel tensor makes them so.
 
 - **A rotated anisotropic slab** (`benchmarks/subpixel/em_slab.py`): a 137 nm slab of a uniaxial crystal (9, 12, 14)
-  rotated by 25 degrees about z, with an xz entry of 0.8, in air at 1.55 um, at normal incidence, against the Berreman
+  rotated by 25 degrees about z, with an xz entry of 0.8, in air at 1.55 µm, at normal incidence, against the Berreman
   transfer matrix. The error of its Jones transmission (polarization conversion |t_yx| = 0.035 included) is 1.3e-2,
   5.0e-3, 9.9e-4 and 1.9e-4 at 40, 20, 10 and 5 nm (second order; the worst of three positions of the slab against the
   grid), where the same slab snapped to the cells (what voxel-center sampling paints) is off by 0.12, 3.6e-2, 1.7e-2 and
   9.2e-3 (first order). |r|^2 + |t|^2 = 1 within 2e-5, the Jones matrix is symmetric within 6e-8, and the wave sent the
   other way gets its transpose within 4e-6 (reciprocity). For a diagonal tensor the result is that of `"subpixel"` (same
   errors), and `"inverse"` converges at first order.
-- **Corners** (`benchmarks/subpixel/em_grating.py`): a grating of 0.3 x 0.2 um rods rotated by 30 degrees, period
-  0.6 um, in-plane E, zeroth-order transmission against meep's subpixel smoothing extrapolated from 50 to 800 pixels/um
+- **Corners** (`benchmarks/subpixel/em_grating.py`): a grating of 0.3 x 0.2 µm rods rotated by 30 degrees, period
+  0.6 µm, in-plane E, zeroth-order transmission against meep's subpixel smoothing extrapolated from 50 to 800 pixels/µm
   (itself uncertain to about 2e-3). The error is 3.2e-3, 1.6e-3, 7.7e-4 and 6.5e-4 at 40, 20, 10 and 5 nm for eps = 12
   rods, against 2.7e-2 to 5.0e-3 for `"subpixel"` and 9.4e-2 to 1.7e-2 for `"inverse"`. For rods of the rotated
   uniaxial crystal above (polarization conversion 0.04), the error is 4.2e-3, 1.8e-3, 3.8e-4 and 4.2e-4, and the two

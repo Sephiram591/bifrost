@@ -1,4 +1,4 @@
-"""The bifrost viewer (spec ``docs/design/viewer-spec.md``).
+"""The bifrost viewer (spec ``design/viewer-spec.md``).
 
 The v1 deliverable is an ``anywidget`` (spec D2), returned by ``view(stack)``
 (spec D7). The analytic geometry builder builds the 2D level regions

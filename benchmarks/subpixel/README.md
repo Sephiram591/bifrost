@@ -1,9 +1,12 @@
 # Validation of `averaging="subpixel_full"` (full tensors and junction closure)
 
-Drivers and their results (`results/`) for the StackDevice tensor and corner work. Every driver prints its
-versions (jax, fdtdx, the gdsfactory it imported) and uses fixed seeds; GPU runs were on an NVIDIA L40S
-(jax 0.11.2, fdtdx 0.6.3, float32 simulations), CPU references with numpy/scipy/shapely and meep.
+Drivers and their results (`results/`) for the StackDevice tensor and corner work. Reproduce a run with
+`python benchmarks/subpixel/<driver>.py out.json` on a GPU. Every driver prints its versions (jax, fdtdx, the
+gdsfactory it imported) and uses fixed seeds; GPU runs were on an NVIDIA L40S (jax 0.11.2, fdtdx 0.6.3, float32
+simulations), CPU references with numpy/scipy/shapely and meep. The documentation's
+[Validation and benchmarks](https://sephiram591.github.io/bifrost/validation/) page shows the same results.
 
+<!-- --8<-- [start:results] -->
 | Driver | What it checks | Result |
 |---|---|---|
 | `reference_fem.py` | independent P1 finite-element homogenization of polygon partitions (periodic, Dirichlet, mean-field boundary conditions; interface-fitted, refined) | the reference for the closure studies |
@@ -52,8 +55,8 @@ First calls compile: about 60 s for the write and 270 s for its gradient with `s
 
 ## Corner scattering: grating of rotated rods (`results/grating_*.json`)
 
-Zeroth-order transmission of a grating of 0.3 x 0.2 um rods rotated by 30 degrees (period 0.6 um, in-plane E,
-1.55 um), against meep's subpixel smoothing at 50 to 800 pixels/um extrapolated with its observed order
+Zeroth-order transmission of a grating of 0.3 x 0.2 µm rods rotated by 30 degrees (period 0.6 µm, in-plane E,
+1.55 µm), against meep's subpixel smoothing at 50 to 800 pixels/µm extrapolated with its observed order
 (about 1.1; the reference is uncertain to about 2e-3). Worst of three rod positions against the grid:
 
 | rods, averaging | 40 nm | 20 nm | 10 nm | 5 nm |
@@ -74,3 +77,4 @@ A closed periodic box (130 x 113 x 45 at 20 nm: a waveguide with 10 degree sidew
 rotated pillar and a pad; every material a different full tensor; 2555 junction voxels over the Yee
 positions), excited by a dipole pulse: over 52450 steps the total energy after the pulse stays between 1.000
 and 1.010 of its first value (last: 1.003).
+<!-- --8<-- [end:results] -->

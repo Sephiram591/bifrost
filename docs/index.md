@@ -32,7 +32,7 @@ permittivity, with ports ready to take sources and monitors. Install with `pip i
 
 - **[Read the user guide](guide/layer-stacks.md)**
 
-    Layer stacks, simulation setup, results, the viewer, gradients and diagnostics.
+    Layer stacks, simulation setup, results, the viewer, gradients, inverse design and diagnostics.
 
 </div>
 

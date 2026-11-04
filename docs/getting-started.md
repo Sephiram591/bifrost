@@ -59,6 +59,10 @@ way. Lengths are in µm.
 The `LayerStack` has one level: the core, on the waveguide layer, 0.22 µm thick from `z = 0`. The materials are
 constant-index silicon for the core and silica for the cladding.
 
+```python
+--8<-- "examples/waveguide_bend.py:layerstack"
+```
+
 ### 3. The device
 
 `StackDevice.from_layer_stack` voxelizes the component through the stack. `background="clad"` fills everything the core
@@ -177,4 +181,5 @@ the pulse to cross the device and ring down.
 
 - [Simulation setup and ports](guide/simulation-setup.md): sources, monitors and the run, in detail.
 - [Results and field monitors](guide/results.md): reading what the monitors record.
-- [Gradients and inverse design](guide/gradients.md): differentiate the transmission with respect to the radius or width.
+- [Gradients](guide/gradients.md): differentiate a result with respect to the geometry, through the simulation.
+- [Inverse design](guide/inverse-design.md): optimize the width profile of a tight bend for transmission.

@@ -2,6 +2,7 @@ site_name: bifrost
 site_description: The rainbow bridge between your GDSFactory(X) pipeline and FDTD(X) simulation
 repo_url: https://github.com/Sephiram591/bifrost
 repo_name: Sephiram591/bifrost
+edit_uri: edit/main/docs/
 site_url: https://sephiram591.github.io/bifrost/
 docs_dir: .
 site_dir: _build/html
@@ -18,7 +19,8 @@ nav:
       - Results and field monitors: guide/results.md
       - Viewer and live demo: guide/viewer.md
       - Geometry options: guide/options.md
-      - Gradients and inverse design: guide/gradients.md
+      - Gradients: guide/gradients.md
+      - Inverse design: guide/inverse-design.md
       - Diagnostics and timing: guide/diagnostics.md
       - Geometry model: guide/geometry-model.md
   - Examples:
@@ -34,7 +36,7 @@ nav:
   - Development:
       - Contributing and tests: development.md
       - Validation and benchmarks: validation.md
-      - Viewer design spec: design/viewer-spec.md
+      - Changelog: changelog.md
 
 theme:
   name: material
@@ -44,6 +46,12 @@ theme:
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
   palette:
     - scheme: slate
       toggle:
@@ -58,6 +66,12 @@ markdown_extensions:
   - admonition
   - attr_list
   - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
   - pymdownx.superfences
   - pymdownx.tasklist
   - pymdownx.tabbed:
