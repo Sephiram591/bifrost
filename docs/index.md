@@ -7,21 +7,21 @@ The rainbow bridge between your [GDSFactory](https://gdsfactory.github.io/gdsfac
 
 bifrost turns a [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx) (the JAX port
 of gdsfactory that makes layouts differentiable) component and its layer stack into a differentiable [fdtdx](https://github.com/ymahlau/fdtdx)
-simulation, with no GDS export and no re-describing of the geometry in fdtdx primitives, and ships a 3D viewer for
-setting up the run and inspecting its fields. A straight silicon waveguide, opened in the viewer (in Jupyter or marimo,
-end the cell with `viewer`):
+simulation. It also ships a 3D viewer for setting up the run and inspecting its fields. Below is an example of a straight silicon waveguide, opened in the viewer:
 
 ```python
 --8<-- "examples/straight_waveguide.py:straight"
 ```
 
-`bf.StackDevice` is the device the solver sees: the component's polygons, extruded through the layer stack into
-permittivity, with ports ready to take sources and monitors. Install with `pip install bifrost-photonics`
-([details](installation.md): accelerators, and why upstream gdsfactory must not share the environment).
+`bf.StackDevice` is the device the solver sees: the component's polygons, extruded using the layer stack data, with ports ready to take sources and monitors. 
 
 ## Where to go next
 
 <div class="grid cards" markdown>
+
+- **[Installation](installation.md)**
+
+    How to set up the bifrost with the JAX port of GDSFactory.
 
 - **[Run your first simulation](getting-started.md)**
 

@@ -31,4 +31,5 @@ stack = bf.StackDevice.from_layer_stack(
     name="stack",
 )
 viewer = bf.view(stack)  # the interactive 3D viewer
+viewer
 # --8<-- [end:straight]
