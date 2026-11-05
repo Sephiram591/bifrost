@@ -1,5 +1,5 @@
 ---
-title: Live Demo
+title: Widget Demo
 ---
 
 <div class="bf-live-demo" style="background: #101014 url(../images/viewer-demo.png) center / cover no-repeat;">

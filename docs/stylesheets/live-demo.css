@@ -1,4 +1,4 @@
-/* The Live Demo page: the viewer fills the whole width of the window under the tabs, and the page has no
+/* The Widget Demo page: the viewer fills the whole width of the window under the tabs, and the page has no
    section links (no navigation sidebar, no "on this page" list). Everything is keyed on `.bf-live-demo`,
    which only that page has, so no other page changes. The theme sets the content margins with long selectors
    (`[dir="ltr"] .md-sidebar--primary:not([hidden]) ~ .md-content > .md-content__inner`), so these are

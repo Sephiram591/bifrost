@@ -1,5 +1,5 @@
 """Browser checks of the built documentation site: layout on a phone, readable code blocks, both
-themes, the Live Demo page, the poster, and the forwarding of moved URLs.
+themes, the Widget Demo page, the poster, and the forwarding of moved URLs.
 
 They build the site once (``zensical build``) into docs/_build/html and serve it locally with
 headless Chromium via Playwright. They are skipped when zensical, Playwright or its browser is
@@ -185,16 +185,16 @@ def test_the_full_screen_link_and_the_poster_are_served(browser, base_url):
 
 
 def test_the_live_demo_is_its_own_tab_and_fills_the_page(browser, base_url):
-    """The Live Demo tab sits right of Getting started; its page has no section links and the demo spans the window."""
+    """The Widget Demo tab sits right of Getting started; its page has no section links and the demo spans the window."""
     page = browser.new_page(viewport={"width": 1600, "height": 900})
     try:
         page.goto(f"{base_url}/live-demo/")
         tabs = page.locator(".md-tabs__link").all_inner_texts()
         tabs = [t.strip() for t in tabs]
-        assert tabs[tabs.index("Getting started") + 1] == "Live Demo", tabs
-        assert page.locator(".md-tabs__item--active").inner_text().strip() == "Live Demo"
+        assert tabs[tabs.index("Getting started") + 1] == "Widget Demo", tabs
+        assert page.locator(".md-tabs__item--active").inner_text().strip() == "Widget Demo"
         for sidebar in (".md-sidebar--primary", ".md-sidebar--secondary"):
-            assert not page.locator(sidebar).is_visible(), f"{sidebar} is shown on the Live Demo page"
+            assert not page.locator(sidebar).is_visible(), f"{sidebar} is shown on the Widget Demo page"
         box = page.locator(".bf-live-demo").bounding_box()
         assert box["x"] <= 1 and abs(box["width"] - 1600) <= 20, box  # edge to edge (less a scrollbar)
         assert box["height"] >= 420, box
