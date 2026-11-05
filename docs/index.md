@@ -5,7 +5,8 @@
 The rainbow bridge between your [GDSFactory](https://gdsfactory.github.io/gdsfactory/) pipeline and
 [FDTD](https://github.com/ymahlau/fdtdx) simulation.
 
-bifrost turns a gdsfactory component and its layer stack into a differentiable [fdtdx](https://github.com/ymahlau/fdtdx)
+bifrost turns a [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx) (the JAX port
+of gdsfactory that makes layouts differentiable) component and its layer stack into a differentiable [fdtdx](https://github.com/ymahlau/fdtdx)
 simulation, with no GDS export and no re-describing of the geometry in fdtdx primitives, and ships a 3D viewer for
 setting up the run and inspecting its fields. A straight silicon waveguide, opened in the viewer (in Jupyter or marimo,
 end the cell with `viewer`):
@@ -35,7 +36,3 @@ permittivity, with ports ready to take sources and monitors. Install with `pip i
     Layer stacks, simulation setup, results, the viewer, gradients, inverse design and diagnostics.
 
 </div>
-
-bifrost builds on [gdsfactory](https://gdsfactory.github.io/gdsfactory/) for layouts (components, cells, PDKs and
-routing: see its documentation for those), on [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx), the JAX port
-of gdsfactory that makes layouts differentiable, and on [fdtdx](https://github.com/ymahlau/fdtdx), the solver.
