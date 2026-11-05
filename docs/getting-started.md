@@ -138,7 +138,7 @@ it into the viewer (in Jupyter or marimo, end the cell with the viewer):
 ```
 
 The viewer opens on the Layout tab; the **Result** tab shows the field monitors on their planes, the 2D cross-sections
-and the movie. This exact result, precomputed, is in the [live demo](guide/viewer.md#live-demo).
+and the movie. This exact result, precomputed, is in the [live demo](live-demo.md).
 
 ## The complete script
 
@@ -173,7 +173,7 @@ the pulse to cross the device and ring down.
   two cell counts, and fdtdx rounded it differently in two places. Move `boundary_offset` by a fraction of a cell, or
   change the grid spacing; see [step 3](#3-the-device).
 - **The viewer shows nothing in a plain script.** The viewer is a notebook widget: run the code in Jupyter or marimo and
-  end the cell with the viewer, or look at the [live demo](guide/viewer.md#live-demo).
+  end the cell with the viewer, or look at the [live demo](live-demo.md).
 - **The transmission is 0 or absurd.** Check the units (fdtdx wants meters: `1e-6`), that the source is not inside the
   PML, and that each plane lies inside the box. See [Simulation setup and ports](guide/simulation-setup.md).
 

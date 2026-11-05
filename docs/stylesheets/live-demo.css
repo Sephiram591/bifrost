@@ -1,0 +1,68 @@
+/* The Live Demo page: the viewer fills the whole width of the window under the tabs, and the page has no
+   section links (no navigation sidebar, no "on this page" list). Everything is keyed on `.bf-live-demo`,
+   which only that page has, so no other page changes. The theme sets the content margins with long selectors
+   (`[dir="ltr"] .md-sidebar--primary:not([hidden]) ~ .md-content > .md-content__inner`), so these are
+   written with enough weight to win. */
+
+/* the content column loses the theme's 61rem cap and its margins */
+body .md-main__inner.md-grid:has(.bf-live-demo) {
+  max-width: none;
+  margin: 0;
+}
+[dir] .md-container .md-main__inner .md-content > .md-content__inner:has(.bf-live-demo) {
+  margin: 0;
+  padding: 0;
+}
+[dir] .md-container .md-main__inner .md-content > .md-content__inner:has(.bf-live-demo)::before {
+  display: none;
+}
+
+/* the theme adds the page title and an edit button above the content; here the demo starts right under the
+   tabs, so the title stays for screen readers only and the button goes */
+body .md-content__inner:has(.bf-live-demo) > h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+body .md-content__inner:has(.bf-live-demo) > .md-content__button {
+  display: none;
+}
+
+/* no "on this page" list; and no navigation sidebar where the tabs replace it (below that width the
+   sidebar is the menu drawer, which stays so a phone can still leave the page) */
+.md-main__inner:has(.bf-live-demo) .md-sidebar--secondary {
+  display: none;
+}
+@media screen and (min-width: 76.25em) {
+  .md-main__inner:has(.bf-live-demo) .md-sidebar--primary {
+    display: none;
+  }
+}
+
+/* the demo itself: edge to edge, as tall as the window below the header and tabs */
+.bf-live-demo {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 5rem);
+  min-height: 420px;
+  overflow: hidden;
+}
+.bf-live-demo iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* the notes under the demo keep a readable line length */
+.bf-live-demo-notes {
+  max-width: 61rem;
+  margin: 1.2rem auto 1.8rem;
+  padding: 0 1rem;
+}

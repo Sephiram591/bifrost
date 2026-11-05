@@ -26,7 +26,7 @@ permittivity, with ports ready to take sources and monitors. Install with `pip i
 
     A 90° waveguide bend from an empty file to a transmission value and a field image.
 
-- **[Explore the live demo](guide/viewer.md#live-demo)**
+- **[Explore the live demo](live-demo.md)**
 
     The result of that simulation in the viewer, in your browser, with no installation.
 

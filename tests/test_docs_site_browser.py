@@ -1,5 +1,5 @@
 """Browser checks of the built documentation site: layout on a phone, readable code blocks, both
-themes, the demo embedded in the Viewer guide, the poster, and the forwarding of moved URLs.
+themes, the Live Demo page, the poster, and the forwarding of moved URLs.
 
 They build the site once (``zensical build``) into docs/_build/html and serve it locally with
 headless Chromium via Playwright. They are skipped when zensical, Playwright or its browser is
@@ -24,7 +24,7 @@ playwright_sync = pytest.importorskip("playwright.sync_api")
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "docs" / "_build" / "html"
 CHROMIUM_ARGS = ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
-PAGES = ["", "installation/", "getting-started/", "guide/layer-stacks/", "guide/viewer/", "examples/waveguide-bend/"]
+PAGES = ["", "installation/", "getting-started/", "live-demo/", "guide/layer-stacks/", "guide/viewer/", "examples/waveguide-bend/"]
 
 if not (ROOT / "docs" / "demo" / "data" / "manifest.json").exists():
     pytest.skip("the demo data is not generated (python scripts/build_demo.py)", allow_module_level=True)
@@ -155,7 +155,7 @@ def test_the_embedded_demo_loads_with_run_disabled(browser, base_url):
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     try:
-        page.goto(f"{base_url}/guide/viewer/")
+        page.goto(f"{base_url}/live-demo/")
         frame = page.frame_locator("iframe[title*='bifrost viewer']")
         frame.locator(".gfx-shell .gfx-menubar").wait_for(timeout=90000)
         assert any(f.url == f"{base_url}/demo/index.html" for f in page.frames), [f.url for f in page.frames]
@@ -168,7 +168,7 @@ def test_the_embedded_demo_loads_with_run_disabled(browser, base_url):
 def test_the_full_screen_link_and_the_poster_are_served(browser, base_url):
     page = browser.new_page()
     try:
-        page.goto(f"{base_url}/guide/viewer/")
+        page.goto(f"{base_url}/live-demo/")
         link = page.get_by_role("link", name="Open the demo full screen")
         target = link.evaluate("(a) => a.href")  # as the browser resolves it
         assert target == f"{base_url}/demo/index.html"
@@ -180,6 +180,35 @@ def test_the_full_screen_link_and_the_poster_are_served(browser, base_url):
             "getComputedStyle(document.querySelector('iframe').parentElement).backgroundImage"
         )
         assert "viewer-demo.png" in background
+    finally:
+        page.close()
+
+
+def test_the_live_demo_is_its_own_tab_and_fills_the_page(browser, base_url):
+    """The Live Demo tab sits right of Getting started; its page has no section links and the demo spans the window."""
+    page = browser.new_page(viewport={"width": 1600, "height": 900})
+    try:
+        page.goto(f"{base_url}/live-demo/")
+        tabs = page.locator(".md-tabs__link").all_inner_texts()
+        tabs = [t.strip() for t in tabs]
+        assert tabs[tabs.index("Getting started") + 1] == "Live Demo", tabs
+        assert page.locator(".md-tabs__item--active").inner_text().strip() == "Live Demo"
+        for sidebar in (".md-sidebar--primary", ".md-sidebar--secondary"):
+            assert not page.locator(sidebar).is_visible(), f"{sidebar} is shown on the Live Demo page"
+        box = page.locator(".bf-live-demo").bounding_box()
+        assert box["x"] <= 1 and abs(box["width"] - 1600) <= 20, box  # edge to edge (less a scrollbar)
+        assert box["height"] >= 420, box
+    finally:
+        page.close()
+
+
+def test_the_viewer_guide_keeps_the_viewer_and_loses_the_demo(browser, base_url):
+    page = browser.new_page(viewport={"width": 1600, "height": 900})
+    try:
+        page.goto(f"{base_url}/guide/viewer/")
+        assert page.locator("h1").first.inner_text().strip().startswith("Viewer")
+        assert page.locator("iframe").count() == 0
+        assert page.locator(".md-sidebar--primary").is_visible()
     finally:
         page.close()
 
@@ -208,7 +237,7 @@ def test_no_page_makes_a_failing_request(browser, base_url, path):
     try:
         page.goto(f"{base_url}/{path}")
         page.wait_for_load_state("networkidle")
-        if path == "guide/viewer/":
+        if path == "live-demo/":
             page.frame_locator("iframe[title*='bifrost viewer']").locator(".gfx-shell .gfx-menubar").wait_for(timeout=90000)
             page.wait_for_load_state("networkidle")
         assert failed == [], f"/{path} loads things that are not served: {failed}"

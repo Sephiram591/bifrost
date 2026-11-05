@@ -48,7 +48,7 @@ clearing the field leaves it empty.
 
 ## The live demo
 
-The [live demo](guide/viewer.md#live-demo) is the viewer's own front end playing back a precomputed result, with no Python.
+The [live demo](live-demo.md) is the viewer's own front end playing back a precomputed result, with no Python.
 Its pieces:
 
 | Piece | Where |

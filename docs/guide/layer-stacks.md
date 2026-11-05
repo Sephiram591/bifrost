@@ -44,7 +44,7 @@ z, the 0.22 µm core plus 1.5 µm above and below.
     halfway between two cell counts can make `place_objects` stop with
     `Configured grid shape ... does not match simulation volume shape`.
 
-Display the device with `viewer = bf.view(stack)`; see [Viewer and live demo](viewer.md).
+Display the device with `viewer = bf.view(stack)`; see [Viewer](viewer.md).
 
 ## Adding a substrate
 

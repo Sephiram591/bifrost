@@ -5,7 +5,7 @@
 - Python 3.12, 3.13 or 3.14.
 - A fresh virtual environment (see the warning on gdsfactory below).
 - For simulations of any size, an accelerator that JAX supports, such as a GPU or TPU (see [JAX setup](#jax-setup)). A
-  CPU is enough for the [live demo](guide/viewer.md#live-demo), for building devices and for the viewer.
+  CPU is enough for the [live demo](live-demo.md), for building devices and for the viewer.
 
 ## Basic installation
 

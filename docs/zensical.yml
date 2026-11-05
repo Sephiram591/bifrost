@@ -13,11 +13,12 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Getting started: getting-started.md
+  - Live Demo: live-demo.md
   - User guide:
       - Layer stacks and materials: guide/layer-stacks.md
       - Simulation setup and ports: guide/simulation-setup.md
       - Results and field monitors: guide/results.md
-      - Viewer and live demo: guide/viewer.md
+      - Viewer: guide/viewer.md
       - Geometry options: guide/options.md
       - Gradients: guide/gradients.md
       - Inverse design: guide/inverse-design.md
@@ -84,6 +85,9 @@ markdown_extensions:
       check_paths: true
   - pymdownx.arithmatex:
       generic: true
+
+extra_css:
+  - stylesheets/live-demo.css
 
 extra_javascript:
   - javascripts/mathjax.js
