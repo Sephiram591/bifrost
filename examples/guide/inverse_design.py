@@ -1,11 +1,12 @@
 """Inverse design: the widths of a bend too tight for a uniform-width guide.
 
-A 90 degree silicon bend of 0.8 um radius transmits only 81 % of TE0 at the uniform 0.5 um width. The
-width on each side of its centerline, at six stations along the bend, is optimized for TE0 transmission at
-1.55 um by gradient ascent through the simulation; both ends stay 0.5 um wide and centered, so the ports
-and their straight leads never change. The optimized design is then checked on a finer grid.
+An air-clad silicon nitride guide on silica, 1.6 um wide and 0.75 um thick, bent 90 degrees at 7 um radius,
+transmits only 56 % of its TE0 mode as TE0 at the uniform width: most of the rest leaves as TE1. The width on
+each side of its centerline, at 70 stations along the bend, is optimized for TE0 transmission at 1.55 um by
+gradient ascent through the simulation; both ends stay 1.6 um wide and centered, so the ports and their
+straight leads never change. The optimized design is then checked on a finer grid.
 Run it on a GPU:  python examples/guide/inverse_design.py
-Options:  --iterations 15 --resolution 0.04 --check 0.025 --figure inverse_design.png
+Options:  --iterations 50 --resolution 0.06 --check 0.04 --figure inverse_design.png
 """
 
 import argparse
@@ -25,12 +26,12 @@ gf.gpdk.PDK.activate()
 
 # --8<-- [start:geometry]
 WAVELENGTH = 1.55  # um
-CORE_INDEX, CLAD_INDEX = 3.48, 1.444  # silicon in silica
-WIDTH, THICKNESS = 0.5, 0.22  # um: the guide at both ports
-RADIUS = 0.8  # um, of the bend's centerline: too tight for a 0.5 um strip
-N_STATIONS = 6  # evenly spaced along the bend between its two ends
-H_MIN, H_MAX = 0.1, 0.5  # um: bounds of every half-width (H_MAX < RADIUS keeps the inner edge off the center)
-ANGLES = jnp.linspace(0.0, jnp.pi / 2, 61)  # the bend's vertices on each edge: a fixed number, a fixed topology
+CORE_INDEX, BOX_INDEX, CLAD_INDEX = 1.996, 1.444, 1.0  # silicon nitride on silica, under air
+WIDTH, THICKNESS = 1.6, 0.75  # um: the guide at both ports
+RADIUS = 7.0  # um, of the bend's centerline
+N_STATIONS = 70  # evenly spaced along the bend between its two ends
+H_MIN, H_MAX = 0.25, 1.25  # um: bounds of every half-width (H_MAX < RADIUS keeps the inner edge off the center)
+ANGLES = jnp.linspace(0.0, jnp.pi / 2, N_STATIONS + 2)  # one vertex per station and end on each edge: a fixed topology
 
 
 def tight_bend(half_widths):
@@ -38,7 +39,7 @@ def tight_bend(half_widths):
 
     Row 0 is the side toward the bend's center, row 1 the side away from it. At both ends the guide is
     WIDTH wide and centered; in between, each edge is linear from station to station. Every profile has
-    the same 122 vertices, so the device built for one takes the vertices of any other (``StackDevice.pack``).
+    the same 144 vertices, so the device built for one takes the vertices of any other (``StackDevice.pack``).
     """
     t = ANGLES / ANGLES[-1]  # along the bend, 0 to 1
     stations = jnp.linspace(0.0, 1.0, N_STATIONS + 2)
@@ -54,29 +55,37 @@ def tight_bend(half_widths):
     return bend
 
 
-UNIFORM = jnp.full((2, N_STATIONS), WIDTH / 2)  # the 0.5 um guide, centered everywhere
+UNIFORM = jnp.full((2, N_STATIONS), WIDTH / 2)  # the 1.6 um guide, centered everywhere
 # --8<-- [end:geometry]
 
 
 # --8<-- [start:simulation]
 EXTENSION = 2.5  # um: both ports run straight out to the box faces
-MARGIN = 2.05  # um past the bend's two free sides; the box is 5.6 x 5.6 x 3.4 um, whole cells at 40 and 25 nm
-BOX_HEIGHT, PML = 3.4, 1.0  # um
-RESOLUTION, CHECK_RESOLUTION = 0.04, 0.025  # um: the grid it is optimized on, and the finer one it is checked on
-DURATION = 400e-15  # s
+MARGIN = 2.06  # um past the bend's two free sides; the box is 12.36 x 12.36 x 4.8 um, whole cells at 60 and 40 nm
+BOX_HEIGHT, PML = 4.8, 1.0  # um
+RESOLUTION, CHECK_RESOLUTION = 0.06, 0.04  # um: the grid it is optimized on, and the finer one it is checked on
+DURATION = 500e-15  # s
+PADDING = (0.5, 0.5)  # wavelengths past the port's width and the core's height: the mode reaches into the silica
 KEY = jax.random.PRNGKey(0)
 
 layer_stack = LayerStack(
-    layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=THICKNESS, material="core", mesh_order=1)}
+    layers={
+        "box": LayerLevel(layer="WAFER", zmin=-3.0, thickness=3.0, material="silica", mesh_order=9),
+        "core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=THICKNESS, material="core", mesh_order=1),
+    }
 )
-materials = {"core": fdtdx.Material(permittivity=CORE_INDEX**2), "clad": fdtdx.Material(permittivity=CLAD_INDEX**2)}
+materials = {
+    "core": fdtdx.Material(permittivity=CORE_INDEX**2),
+    "silica": fdtdx.Material(permittivity=BOX_INDEX**2),
+    "air": fdtdx.Material(permittivity=CLAD_INDEX**2),
+}
 
 
 def place(resolution):
     """The uniform bend, placed on a grid of this cell (um) with its source and monitors."""
-    z_margin = (BOX_HEIGHT - THICKNESS) / 2
+    z_margin = (BOX_HEIGHT - THICKNESS) / 2  # the silica runs through the bottom face, the air through the top
     stack = bf.StackDevice.from_layer_stack(
-        tight_bend(UNIFORM), layer_stack, materials, background="clad", zrange_layers=["core"],
+        tight_bend(UNIFORM), layer_stack, materials, background="air", zrange_layers=["core"],
         extend_ports=(("o1", EXTENSION), ("o2", EXTENSION)),
         boundary_offset=(MARGIN, 0, 0, -MARGIN, z_margin, -z_margin), name="stack",
     )
@@ -94,14 +103,14 @@ def place(resolution):
     for obj, placing in (
         # source and monitors in the straight leads, clear of the bend whose edges move
         stack.create_mode_plane_source_at(
-            "o1", (0.5, 0.3), wave_character=wave, temporal_profile=pulse, port_offset=-1.0, name="source", **te0,
+            "o1", PADDING, wave_character=wave, temporal_profile=pulse, port_offset=-1.0, name="source", **te0,
         ),
         stack.create_mode_overlap_detector_at(
-            "o1", (0.5, 0.3), direction="in", wave_characters=(wave,), scaling_mode="pulse", port_offset=-0.5,
+            "o1", PADDING, direction="in", wave_characters=(wave,), scaling_mode="pulse", port_offset=-0.5,
             name="in", **te0,
         ),
         stack.create_mode_overlap_detector_at(
-            "o2", (0.5, 0.3), wave_characters=(wave,), scaling_mode="pulse", port_offset=-0.5, name="out", **te0,
+            "o2", PADDING, wave_characters=(wave,), scaling_mode="pulse", port_offset=-0.5, name="out", **te0,
         ),
     ):
         objects.append(obj)
@@ -148,7 +157,14 @@ def parameters_of(half_widths):
 
 
 # --8<-- [start:optimize]
-def optimize(placed, iterations, learning_rate=0.2):
+def describe(half_widths):
+    """The range of a profile's width, and of its middle's shift toward the bend's center (um)."""
+    inner, outer = np.asarray(half_widths)
+    width, shift = inner + outer, (inner - outer) / 2
+    return f"width {width.min():.2f} to {width.max():.2f}, shift {shift.min():+.2f} to {shift.max():+.2f} um"
+
+
+def optimize(placed, iterations, learning_rate=0.03):
     """Adam on the transmission; returns the best half-widths seen and the transmission of every step."""
     value_and_grad = jax.value_and_grad(lambda z: simulate(half_widths_of(z), placed)[0])  # eager: no jax.jit
     optimizer = optax.adam(learning_rate)
@@ -159,8 +175,7 @@ def optimize(placed, iterations, learning_rate=0.2):
         transmission, gradient = value_and_grad(z)
         transmission = float(transmission)
         history.append(transmission)
-        inner, outer = np.round(np.asarray(half_widths_of(z)), 3)
-        print(f"step {step:2d}  T = {transmission:.4f}  inner {inner}  outer {outer}")
+        print(f"step {step:2d}  T = {transmission:.4f}  {describe(half_widths_of(z))}")
         if transmission > best[0]:
             best = (transmission, half_widths_of(z))
         updates, state = optimizer.update(-gradient, state)  # optax minimizes: ascend on T
@@ -206,7 +221,7 @@ def plot(images, history, path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--iterations", type=int, default=15, help="optimization steps")
+    parser.add_argument("--iterations", type=int, default=50, help="optimization steps")
     parser.add_argument("--resolution", type=float, default=RESOLUTION, help="grid cell (um) to optimize on")
     parser.add_argument("--check", type=float, default=CHECK_RESOLUTION, help="finer grid cell (um); 0 skips it")
     parser.add_argument("--figure", default="inverse_design.png", help="where to save the figure; '' skips it")
@@ -216,8 +231,7 @@ if __name__ == "__main__":
     # --8<-- [start:run]
     placed = place(args.resolution)
     half_widths, history = optimize(placed, args.iterations)
-    inner, outer = np.round(np.asarray(half_widths), 3)
-    print(f"optimized half-widths (um): inner {inner}, outer {outer}")
+    print(f"optimized: {describe(half_widths)}")
     images = {name: field_image(h, placed, args.resolution) for name, h in (("uniform", UNIFORM), ("optimized", half_widths))}
     t_uniform, t_optimized = images["uniform"][0], images["optimized"][0]
     print(f"transmission at {args.resolution * 1e3:.0f} nm: uniform {t_uniform:.4f}, optimized {t_optimized:.4f}")

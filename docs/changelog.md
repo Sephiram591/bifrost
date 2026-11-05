@@ -3,7 +3,8 @@
 ## Unreleased
 
 - [Inverse design](guide/inverse-design.md) guide and example (`examples/guide/inverse_design.py`): the width on each
-  side of a bend too tight for a uniform guide, optimized for transmission through the simulation (81 % to 90 %).
+  side of an air-clad silicon nitride bend, at 70 stations, optimized for TE0 transmission through the simulation
+  (56 % to 99.5 %; the uniform bend converts most of the rest to TE1).
 - Installation docs are backend-neutral: bifrost runs on any JAX backend; set JAX up with the
   [JAX installation guide](https://docs.jax.dev/en/latest/installation.html).
 - The viewer design spec moved out of the documentation site to `design/viewer-spec.md` in the repository.
