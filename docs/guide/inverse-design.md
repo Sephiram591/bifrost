@@ -5,7 +5,7 @@ An air-clad silicon nitride guide on silica, 1.6 µm wide and 0.75 µm thick, be
 [`examples/guide/inverse_design.py`](https://github.com/Sephiram591/bifrost/blob/main/examples/guide/inverse_design.py)
 optimizes the width on each side of its centerline, at 70 stations, for TE0 transmission, by gradient ascent through
 the simulation, and raises it to 99.5 %: the bend's loss falls from 2.5 dB to 0.02 dB, and a finer grid confirms it.
-Run it on a GPU; on an NVIDIA L40S its 50 steps took 4501 s.
+Run it on a GPU; on an NVIDIA L40S its 50 steps took 4848 s.
 
 ![The uniform and the optimized bend: |E|² on the middle of the core, and the transmission per step](../images/inverse_design.png)
 
@@ -48,8 +48,12 @@ fallen to about 3 %, still clear of the absorbing layers.
 
 The objective is the normalized TE0 transmission `|a_out / a_in|²`. Each half-width is a bounded function of an
 unbounded parameter, so the optimizer cannot leave 0.25 to 1.25 µm (a guide 0.5 to 2.5 µm wide), and
-[optax](https://optax.readthedocs.io)'s Adam (installed with fdtdx) steps on those parameters. `jax.value_and_grad`
-runs eagerly: the cell function needs concrete values, so the objective is not wrapped in `jax.jit`.
+[optax](https://optax.readthedocs.io)'s Adam (installed with fdtdx) steps on those parameters. `jax.value_and_grad` of
+the objective is wrapped in `jax.jit`, so the cell function, `apply_stack`, the simulation and its backward pass compile
+into one program, once, at the first step: every step has the same shapes, and the cell function's structure (144
+vertices, no branch on a half-width) does not depend on the parameters, so gdsfactoryx can trace it (see
+[the gdsfactoryx README](https://github.com/Sephiram591/gdsfactoryx#differentiability)). The arrays and parameters are
+arguments of the compiled function rather than constants captured by the trace.
 
 ```python
 --8<-- "examples/guide/inverse_design.py:objective"
@@ -77,7 +81,7 @@ step 49  T = 0.9950  width 1.52 to 1.75, shift -0.07 to +0.12 um
 optimized: width 1.52 to 1.75, shift -0.07 to +0.12 um
 transmission at 60 nm: uniform 0.5634, optimized 0.9950
 transmission at 40 nm: uniform 0.5586, optimized 0.9934
-wall time: 4501 s on NVIDIA L40S
+wall time: 4848 s on NVIDIA L40S
 ```
 
 - **The design:** the guide stays 1.52 to 1.75 µm wide, and its middle moves by up to 0.12 µm toward the center and

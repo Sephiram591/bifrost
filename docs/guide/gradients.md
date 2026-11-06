@@ -30,8 +30,13 @@ How the script works:
   configuration the run stores every time step and runs out of memory quickly. Simulations with lossy materials need the
   checkpointed method, because fdtdx's reversible gradients amplify round-off in lossy voxels; `StackDevice` warns about
   that combination.
-- Do not wrap the objective in `jax.jit`: the cell functions need concrete values (see
-  [the gdsfactoryx README](https://github.com/Sephiram591/gdsfactoryx#differentiability)).
+- This objective runs eagerly: `bend_circular` picks its number of points from the radius, which needs a concrete
+  value. A cell function whose structure does not depend on the parameters (the same polygons and number of vertices,
+  no `if` on a parameter) can be traced, and then the whole objective can be wrapped in `jax.jit`, as
+  [Inverse design](inverse-design.md) does; discrete choices and KLayout operations work only eagerly (see
+  [the gdsfactoryx README](https://github.com/Sephiram591/gdsfactoryx#differentiability)). So does `apply_stack` in
+  dispersive simulations with mode or plane-wave sources (see
+  [dispersive materials](geometry-model.md#dispersive-materials)).
 
 Worth copying into your own objectives:
 

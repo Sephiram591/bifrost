@@ -166,13 +166,20 @@ def describe(half_widths):
 
 def optimize(placed, iterations, learning_rate=0.03):
     """Adam on the transmission; returns the best half-widths seen and the transmission of every step."""
-    value_and_grad = jax.value_and_grad(lambda z: simulate(half_widths_of(z), placed)[0])  # eager: no jax.jit
+    objects, arrays, params, config = placed
+
+    def objective(z, arrays, params):
+        return simulate(half_widths_of(z), (objects, arrays, params, config))[0]
+
+    # compiled once, at the first step: every step has the same shapes
+    value_and_grad = jax.jit(jax.value_and_grad(objective))
     optimizer = optax.adam(learning_rate)
-    z = parameters_of(UNIFORM)  # start from the uniform bend
+    # start from the uniform bend; float64 like the optimizer's updates (a weakly typed start would compile twice)
+    z = jnp.asarray(parameters_of(UNIFORM), dtype=jnp.float64)
     state = optimizer.init(z)
     history, best = [], (-1.0, None)
     for step in range(iterations):
-        transmission, gradient = value_and_grad(z)
+        transmission, gradient = value_and_grad(z, arrays, params)
         transmission = float(transmission)
         history.append(transmission)
         print(f"step {step:2d}  T = {transmission:.4f}  {describe(half_widths_of(z))}")
