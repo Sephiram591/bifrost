@@ -58,6 +58,7 @@ stack = bf.StackDevice.from_layer_stack(
     name="stack",
 )
 viewer = bf.view(stack)  # the interactive 3D viewer
+viewer
 ```
 
 Next: [run your first simulation](https://sephiram591.github.io/bifrost/getting-started/), a 90 degree bend from an empty
