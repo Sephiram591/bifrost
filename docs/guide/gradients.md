@@ -32,7 +32,8 @@ How the script works:
   that combination.
 - This objective runs eagerly: `bend_circular` picks its number of points from the radius, which needs a concrete
   value. A cell function whose structure does not depend on the parameters (the same polygons and number of vertices,
-  no `if` on a parameter) can be traced, and then the whole objective can be wrapped in `jax.jit`, as
+  no `if` on a parameter) can be traced, and then the whole objective can be wrapped in
+  [`bf.jit`][bifrost.jitting.jit] (`jax.jit` with an XLA option for gradients through fdtdx's time loop), as
   [Inverse design](inverse-design.md) does; discrete choices and KLayout operations work only eagerly (see
   [the gdsfactoryx README](https://github.com/Sephiram591/gdsfactoryx#differentiability)). So does `apply_stack` in
   dispersive simulations with mode or plane-wave sources (see

@@ -13,7 +13,8 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from . import geometry, stack, subpixel, timing
+from . import geometry, jitting, stack, subpixel, timing
+from .jitting import COMPILER_OPTIONS, compiler_options, jit
 from .stack import (
     StackDevice,
     StackDiagnosticWarning,
@@ -27,14 +28,18 @@ from .timing import record_timings
 __version__ = "0.1.0"
 
 __all__ = [
+    "COMPILER_OPTIONS",
     "StackDevice",
     "StackDiagnosticWarning",
     "StackOptions",
     "TopRoughness",
     "__version__",
     "apply_stack",
+    "compiler_options",
     "geometry",
     "init_stack_params",
+    "jit",
+    "jitting",
     "record_timings",
     "stack",
     "subpixel",

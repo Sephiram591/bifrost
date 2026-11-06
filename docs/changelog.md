@@ -5,6 +5,9 @@
 - [Inverse design](guide/inverse-design.md) guide and example (`examples/guide/inverse_design.py`): the width on each
   side of an air-clad silicon nitride bend, at 70 stations, optimized for TE0 transmission through the simulation
   (56 % to 99.5 %; the uniform bend converts most of the rest to TE1).
+- `bf.jit`: `jax.jit` with an XLA option (`simplify-conditional` disabled) for gradients through fdtdx's checkpointed
+  time loop, which plain `jax.jit` compiles into a backward loop that computes a time step's VJP on every iteration.
+  The inverse-design example compiles its whole optimization step with it (needs gdsfactoryx with `jax.jit` support).
 - Installation docs are backend-neutral: bifrost runs on any JAX backend; set JAX up with the
   [JAX installation guide](https://docs.jax.dev/en/latest/installation.html).
 - The viewer design spec moved out of the documentation site to `design/viewer-spec.md` in the repository.

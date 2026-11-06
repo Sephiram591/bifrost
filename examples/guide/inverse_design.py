@@ -171,8 +171,10 @@ def optimize(placed, iterations, learning_rate=0.03):
     def objective(z, arrays, params):
         return simulate(half_widths_of(z), (objects, arrays, params, config))[0]
 
-    # compiled once, at the first step: every step has the same shapes
-    value_and_grad = jax.jit(jax.value_and_grad(objective))
+    # compiled once, at the first step: every step has the same shapes. bf.jit is jax.jit with an XLA option that
+    # keeps the backward pass from computing a time step's VJP on every iteration, recomputations included
+    # (see bifrost.jitting)
+    value_and_grad = bf.jit(jax.value_and_grad(objective))
     optimizer = optax.adam(learning_rate)
     # start from the uniform bend; float64 like the optimizer's updates (a weakly typed start would compile twice)
     z = jnp.asarray(parameters_of(UNIFORM), dtype=jnp.float64)
