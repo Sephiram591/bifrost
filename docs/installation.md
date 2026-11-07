@@ -39,7 +39,7 @@ Expected output (the versions will differ, and `devices` lists your JAX backend'
 
 ```text
 python             3.12.14
-bifrost-photonics  0.1.0
+bifrost-photonics  0.2.0
 gdsfactoryx        9.51.0.post2
 fdtdx              0.6.3
 jax                0.11.2

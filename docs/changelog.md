@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - [Inverse design](guide/inverse-design.md) guide and example (`examples/guide/inverse_design.py`): the width on each
   side of an air-clad silicon nitride bend, at 70 stations, optimized for TE0 transmission through the simulation
