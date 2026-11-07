@@ -11,8 +11,10 @@ license = {file = "LICENSE"}
 authors = [{name = "Helaman Flores"}]
 requires-python = ">=3.12,<3.15"
 dependencies = [
-  # gdsfactoryx (from PyPI) provides the `gdsfactory` import package, so it cannot share an environment with upstream gdsfactory
-  "gdsfactoryx>=9.51.0",
+  # gdsfactoryx (from PyPI) provides the `gdsfactory` import package, so it cannot share an environment with upstream gdsfactory.
+  # 9.51.0.post2: its geometry traces under jax.jit (bf.jit around an objective that builds a component),
+  # and it writes polygons, reference names and cross-section names as upstream gdsfactory does
+  "gdsfactoryx>=9.51.0.post2",
   "fdtdx>=0.6.3",
   # fdtdx imports tidy3d. Without a floor pip can resolve tidy3d 2.10 (it prefers the newest xarray, which tidy3d 2.11+
   # caps), and 2.10 cannot read a user config written by tidy3d 2.12, so `import bifrost` crashes.
