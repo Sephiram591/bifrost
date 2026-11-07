@@ -622,6 +622,132 @@ def _span(level: Any) -> tuple[float, float]:
     return min(z0, z1), max(z0, z1)
 
 
+# ---------------------------------------------------------------- grid frame
+
+# relative cell-width variation up to which an axis of a non-uniform grid counts as uniform (fdtdx's
+# own test, fdtdx.core.grid.RectilinearGrid), plus a round-off floor that grows with the coordinates
+_FRAME_RTOL = 1e-4
+
+
+class _SampleAxis(NamedTuple):
+    """One axis of a sample grid: the voxel centers', or one E component's Yee positions.
+
+    Sample voxel k spans ``[lo[k], hi[k]]`` in the frame (:class:`_Frame`) moved by ``shift``.
+    On a frame-uniform axis that is the lattice the device always used: ``shift`` is the Yee
+    shift (0 or -0.5 cells), ``lo = 0, 1, ..., n - 1`` and ``hi = lo + 1``. On a graded axis
+    ``shift`` is 0 and the sample voxels are the cells (unshifted) or the dual cells between
+    neighbouring cell centers (shifted by half a cell): a Yee point lies in its dual cell, but
+    not at its center where the two cells differ.
+    """
+
+    shift: float
+    lo: np.ndarray  # (n,) frame units
+    hi: np.ndarray  # (n,) frame units
+    uniform: bool
+
+
+class _Frame(NamedTuple):
+    """The static grid frame of a placed device, from the resolved simulation grid.
+
+    Frame coordinates are lengths over ``h_um`` from the lower corner of the device's box. On a
+    uniform grid ``h_um`` is the grid spacing and every axis has the edges 0, 1, ..., n: the cell
+    frame of a uniform grid. On a non-uniform grid ``h_um`` is the lateral spacing when x and y
+    are uniform with one spacing, else the smallest lateral cell, and an axis whose cells all
+    have that width keeps the integer edges.
+    """
+
+    h_um: float
+    #: per axis, the (n + 1,) cell edges in frame units, from 0
+    edges: tuple[np.ndarray, np.ndarray, np.ndarray]
+    #: per axis, the width (frame units) of the grid cell just below the box: the box's first
+    #: cell where the box starts at the domain's lower face (mirrored, as fdtdx's dual widths)
+    below: tuple[float, float, float]
+    #: per axis, whether the edges are exactly 0, 1, ..., n
+    uniform: tuple[bool, bool, bool]
+
+    def sample_axis(self, axis: int, shift: float) -> _SampleAxis:
+        """The sample voxels along ``axis`` of the grid whose points are moved by ``shift`` cells.
+
+        Args:
+            axis: 0, 1 or 2.
+            shift: 0 (cell centers) or -0.5 (Yee positions on the lower cell faces).
+
+        Returns:
+            The sample axis.
+
+        Raises:
+            ValueError: if a graded axis gets a shift other than 0 or -0.5.
+        """
+        edges = self.edges[axis]
+        n = len(edges) - 1
+        if self.uniform[axis]:
+            lo = np.arange(n, dtype=float)
+            return _SampleAxis(float(shift), lo, lo + 1.0, True)
+        if shift == 0:
+            return _SampleAxis(0.0, edges[:-1], edges[1:], False)
+        if shift != -0.5:
+            raise ValueError(f"a graded axis samples at cell centers (0) or Yee positions (-0.5), not {shift}")
+        centers = 0.5 * (edges[:-1] + edges[1:])
+        lo = np.concatenate([[-0.5 * self.below[axis]], centers[:-1]])
+        return _SampleAxis(0.0, lo, centers, False)
+
+
+def _grid_frame(config: SimulationConfig, slices: Any) -> _Frame:
+    """The frame of a device placed on ``slices`` (its grid slice tuple) of the config's grid.
+
+    Args:
+        config: the simulation config of the placement (its grid resolved, as fdtdx's
+            ``place_objects`` makes it).
+        slices: ((x0, x1), (y0, y1), (z0, z1)) cell ranges of the device.
+
+    Returns:
+        The frame; on a uniform grid ``h_um`` is ``config.uniform_spacing() * 1e6``.
+    """
+    counts = tuple(int(b) - int(a) for a, b in slices)
+    grid = config.resolved_grid
+    if grid is None or grid.is_uniform:
+        return _Frame(
+            config.uniform_spacing() * 1e6,
+            tuple(np.arange(n + 1, dtype=float) for n in counts),
+            (1.0, 1.0, 1.0),
+            (True, True, True),
+        )
+    edges, below, widths, uniform = [], [], [], []
+    for axis, (a, b) in enumerate(slices):
+        raw = np.asarray(grid.edges(axis))
+        full = raw.astype(np.float64) * 1e6
+        e = full[int(a) : int(b) + 1]
+        w = np.diff(e)
+        eps = float(np.finfo(raw.dtype).eps) if np.issubdtype(raw.dtype, np.floating) else 0.0
+        floor = 8.0 * eps * float(np.max(np.abs(full)))
+        edges.append(e)
+        widths.append(w)
+        below.append(float(full[a] - full[a - 1]) if a > 0 else float(w[0]))
+        uniform.append(bool(np.max(np.abs(w - w[0])) <= _FRAME_RTOL * w[0] + floor))
+    spacing = [(e[-1] - e[0]) / len(w) for e, w in zip(edges, widths, strict=True)]
+    if uniform[0] and uniform[1] and abs(spacing[0] - spacing[1]) <= _FRAME_RTOL * spacing[0]:
+        h = float(spacing[0])
+    else:
+        h = float(min(np.min(widths[0]), np.min(widths[1])))
+    out_edges, out_uniform = [], []
+    for e, w, u, s in zip(edges, widths, uniform, spacing, strict=True):
+        same = u and abs(s - h) <= _FRAME_RTOL * h
+        out_edges.append(np.arange(len(w) + 1, dtype=float) if same else (e - e[0]) / h)
+        out_uniform.append(same)
+    return _Frame(h, tuple(out_edges), tuple(b / h for b in below), tuple(out_uniform))
+
+
+def _conductivity_scale(config: SimulationConfig) -> float:
+    """The factor fdtdx stores conductivities with (its update's ``c * dt / courant_number``).
+
+    On a uniform grid this is the grid spacing, as bifrost always wrote it; on a non-uniform one
+    it is fdtdx's own expression (``fdtdx.fdtd.initialization``), the same for every cell.
+    """
+    if not config.has_nonuniform_grid:
+        return config.uniform_spacing()
+    return fdtdx.constants.c * config.time_step_duration / config.courant_number
+
+
 def _sizing(layer: Any) -> float:
     """Uniform grow of a Logical/DerivedLayer from its sizings.
 
@@ -1350,32 +1476,38 @@ def _point_slopes(lows: Array, surface_slopes: Array | None) -> Array | None:
     return jnp.concatenate([ends, surface_slopes.astype(lows.dtype)], axis=-2)
 
 
-def _split_layer(lows: Array, highs: Array, k: Array) -> tuple[Array, Array, Array, Array]:
+def _split_layer(
+    lows: Array, highs: Array, k: Array, top: Array | None = None
+) -> tuple[Array, Array, Array, Array]:
     """The z sub-intervals of voxel layer k and the levels present on each.
 
     Args:
         lows: (..., K) bottom surface per level (cells).
         highs: (..., K) top surface per level (cells).
-        k: the voxel layer, which spans [k, k + 1].
+        k: the voxel layer's bottom; it spans [k, k + 1] (a uniform grid's layer k).
+        top: the layer's top instead of k + 1 (a graded grid's layer spans [k, top],
+            in frame units, see :class:`_Frame`).
 
     Returns:
         perm: (..., 2K + 2) the sort of the points (the layer's ends, the
             bottoms, the tops), no gradient.
         bp: (..., S + 1) sorted sub-interval ends, S = 2K + 1 (cells).
-        length: (..., S) sub-interval lengths.
+        length: (..., S) sub-interval lengths, summing to the layer's height.
         present: (..., S, K) whether each level is in each sub-interval.
     """
     num_levels = lows.shape[-1]
-    lo = jnp.clip(lows, k, k + 1.0)
-    hi = jnp.clip(highs, k, k + 1.0)
-    ends = jnp.broadcast_to(jnp.asarray([k, k + 1.0], dtype=lows.dtype), (*lows.shape[:-1], 2))
+    # k + 1 is recomputed at every use, so a uniform grid's trace stays op for op what it was
+    up = (lambda: k + 1.0) if top is None else (lambda: top)
+    lo = jnp.clip(lows, k, up())
+    hi = jnp.clip(highs, k, up())
+    ends = jnp.broadcast_to(jnp.asarray([k, up()], dtype=lows.dtype), (*lows.shape[:-1], 2))
     points = jnp.concatenate([ends, lo, hi], axis=-1)  # (..., 2K+2)
     # membership of sub-interval m (between sorted points m and m+1) comes from
     # the ranks of each level's surfaces in a stable sort, not from midpoints:
     # with tied surfaces every level keeps the sub-interval on its own side,
     # so moving a surface always changes that level's coverage. The layer's
-    # ends sort outside any surface tied with them (k first, k + 1 last), so
-    # the lengths always add up to the constant k + 1 - k: a surface clipped
+    # ends sort outside any surface tied with them (bottom first, top last), so
+    # the lengths always add up to the constant layer height: a surface clipped
     # onto the top end (its derivative half there) moves the sub-interval
     # above it, not the layer's end
     tie = jnp.asarray([0, 2] + [1] * (2 * num_levels), dtype=jnp.int32)
@@ -1391,7 +1523,7 @@ def _split_layer(lows: Array, highs: Array, k: Array) -> tuple[Array, Array, Arr
     # after it) is clamped to a zero-length interval at one of its ends; it
     # is not there, and must not take the sub-intervals next to a surface
     # that moves onto that end (it would claim that surface's growth)
-    reach = (jax.lax.stop_gradient(highs) >= k) & (jax.lax.stop_gradient(lows) <= k + 1.0)
+    reach = (jax.lax.stop_gradient(highs) >= k) & (jax.lax.stop_gradient(lows) <= up())
     inside = inside & reach[..., None]
     return perm, bp, length, jnp.moveaxis(inside, -2, -1)
 
@@ -5329,6 +5461,11 @@ class StackDevice(StaticMultiMaterialObject):
     #: precision of the simulation, jnp.float32 or jnp.float64 (see the class docstring); any
     #: spelling of the two is accepted and stored as jnp.float32 / jnp.float64
     dtype: jnp.dtype = frozen_field(default=jnp.float32)
+    #: (name, nominal bottom, top in um) of the levels from_layer_stack left out as outside the box
+    #: (beyond level_margin and a small slack); place_on_grid warns when the grid samples one of them
+    dropped_levels: tuple[tuple[str, float, float], ...] = frozen_field(default=())
+    #: the static grid frame (:class:`_Frame`), set by place_on_grid from the resolved grid
+    grid_frame: _Frame | None = frozen_field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "dtype", _simulation_dtype(self.dtype))
@@ -5515,9 +5652,12 @@ class StackDevice(StaticMultiMaterialObject):
         nonempty = {index for index, polys in polygons.items() if polys} | set(rectangles)
         compiled = []
         empty: dict[int, list[tuple[str, float, float]]] = {}
+        dropped: list[tuple[str, float, float]] = []
         for name, level, expr in candidates:
             lo, hi = _span(level)
             if hi <= z0 - margin or lo >= z1 + margin:
+                if _expr_can_draw(expr, nonempty):
+                    dropped.append((name, float(lo), float(hi)))  # place_on_grid checks it is not sampled
                 continue  # outside the box
             for index in sorted(_expr_layers(expr) - nonempty):
                 empty.setdefault(index, []).append((name, float(lo), float(hi)))
@@ -5601,6 +5741,7 @@ class StackDevice(StaticMultiMaterialObject):
             source_extensions=tuple(exts),
             extended_ports=tuple(extended),
             empty_layers=tuple((index, tuple(levels)) for index, levels in sorted(empty.items())),
+            dropped_levels=tuple(dropped),
             background=background,
             partial_real_shape=((x1 - x0) * 1e-6, (y1 - y0) * 1e-6, (z1 - z0) * 1e-6),
             center=(0.5 * (x0 + x1), 0.5 * (y0 + y1)),
@@ -6422,7 +6563,9 @@ class StackDevice(StaticMultiMaterialObject):
     # ------------------------------------------------------------ geometry
 
     def _res_um(self) -> float:
-        """Grid resolution in um."""
+        """The frame unit in um (:class:`_Frame`): the grid resolution on a uniform grid."""
+        if self.grid_frame is not None:
+            return self.grid_frame.h_um
         return self._config.uniform_spacing() * 1e6
 
     def interface_offsets(self, key: Array | None) -> list[Array]:
@@ -7332,6 +7475,11 @@ class StackDevice(StaticMultiMaterialObject):
             RuntimeError: if a float64 device is placed with JAX's 64-bit mode off.
         """
         self._check_precision(config)
+        if config.has_nonuniform_grid:
+            raise NotImplementedError(
+                f"StackDevice {self.name!r}: non-uniform grids are not supported yet; use a uniform grid"
+            )
+        self = self.aset("grid_frame", _grid_frame(config, grid_slice_tuple))
         self = self._keep_reachable_levels(grid_slice_tuple, config)
         # aligned pole slots also for devices built without from_layer_stack;
         # fdtdx allocates the slots from the placed objects' materials
@@ -7419,11 +7567,13 @@ class StackDevice(StaticMultiMaterialObject):
         Returns:
             The device with the reachable levels only.
         """
-        res_um = config.uniform_spacing() * 1e6
-        start, stop = grid_slice_tuple[2]
-        half = 0.5 * (stop - start) * res_um
-        bottom = self.z_center - half - 0.5 * res_um - self.level_margin
+        frame = self.grid_frame if self.grid_frame is not None else _grid_frame(config, grid_slice_tuple)
+        res_um = frame.h_um
+        # on a uniform grid: half the box's cells, and half a cell below it
+        half = 0.5 * float(frame.edges[2][-1]) * res_um
+        bottom = self.z_center - half - 0.5 * frame.below[2] * res_um - self.level_margin
         top = self.z_center + half + self.level_margin
+        self._warn_dropped_levels(bottom, top)
         levels = tuple(lv for lv in self.levels if _span(lv)[1] > bottom and _span(lv)[0] < top)
         # empty layers matter only to levels that reach the box
         empty = tuple(
@@ -7451,6 +7601,30 @@ class StackDevice(StaticMultiMaterialObject):
             for d in self.derived_layers if any(n in names for n in d.levels)
         )
         return out.aset("derived_layers", shapes)
+
+    def _warn_dropped_levels(self, bottom: float, top: float) -> None:
+        """Warns about levels left out when the device was built that the placed grid samples.
+
+        ``from_layer_stack`` keeps the levels within ``level_margin`` plus a slack of the box; a
+        coarse cell at the box's bottom face samples below that, so a level there is missing.
+
+        Args:
+            bottom: lowest stack height (um) the grid samples, ``level_margin`` included.
+            top: highest one.
+        """
+        z_lo = self.z_center - 0.5 * self.partial_real_shape[2] * 1e6
+        z_hi = self.z_center + 0.5 * self.partial_real_shape[2] * 1e6
+        for name, lo, hi in self.dropped_levels:
+            if hi > bottom and lo < top:
+                gap = max(z_lo - hi, lo - z_hi)
+                warnings.warn(
+                    f"StackDevice {self.name!r}: level {name!r} (z {lo:g} to {hi:g} um) was left out when the "
+                    f"device was built, {gap:.3g} um outside the box, but this grid samples from {bottom:g} to "
+                    f"{top:g} um, so it is missing; build the device with level_margin >= "
+                    f"{max(gap - _SELECT_SLACK, 0.0) + 1e-3:.3g}",
+                    StackDiagnosticWarning,
+                    stacklevel=4,
+                )
 
     def get_voxel_mask_for_shape(self) -> Array:
         """fdtdx hook: the device fills its whole box.
@@ -7611,7 +7785,7 @@ class StackDevice(StaticMultiMaterialObject):
                     jnp.sum(w_cell * sigma[:, k, None, None, None], axis=0)
                     for k in range(sigma.shape[1])
                 ]
-            cond = jnp.stack(cond) * self._config.uniform_spacing()
+            cond = jnp.stack(cond) * _conductivity_scale(self._config)
             gradient_config = self._config.gradient_config
             if gradient_config is not None and gradient_config.method == "reversible":
                 # fdtdx's reversible backward pass closes over the conductivity:
@@ -7731,7 +7905,7 @@ class StackDevice(StaticMultiMaterialObject):
         if sigma is not None:
             if not cond:
                 cond = [jnp.sum(w_cell * sigma[:, k, None, None, None], axis=0) for k in range(sigma.shape[1])]
-            cond = jnp.stack(cond) * self._config.uniform_spacing()
+            cond = jnp.stack(cond) * _conductivity_scale(self._config)
             gradient_config = self._config.gradient_config
             if gradient_config is not None and gradient_config.method == "reversible":
                 cond = jax.lax.stop_gradient(cond)
