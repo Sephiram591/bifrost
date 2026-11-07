@@ -310,10 +310,38 @@ def test_graded_z_traces_once():
     assert len(traces) == 1
 
 
-def test_full_averaging_needs_a_uniform_z_grid():
+def test_graded_z_full_averaging_takes_the_horizontal_interface():
+    """averaging="subpixel_full": the laminate along z on graded cells, no off-diagonal entries."""
     d = slab_device(averaging="subpixel_full")
-    with pytest.raises(NotImplementedError, match="subpixel_full"):
-        place(d, z_graded(d, Z_EDGES))
+    objects, arrays, params = place_all(d, z_graded(d, Z_EDGES))
+    out, _, _ = bf.apply_stack(arrays, objects, params, jax.random.PRNGKey(0))
+    inv = np.asarray(out.inv_permittivities[:, 16, 11, :])  # (9, nz): xx, xy, xz, yx, yy, yz, zx, zy, zz
+    e = Z_EDGES - 0.2
+    c = 0.5 * (e[:-1] + e[1:])
+    f_dual = overlap(SLAB, np.concatenate([[e[0] - 0.5 * (e[1] - e[0])], c[:-1]]), c)
+    f_primal = overlap(SLAB, e[:-1], e[1:])
+    np.testing.assert_allclose(inv[0], 1.0 / (12.0 * f_dual + (1.0 - f_dual)), rtol=2e-5)
+    np.testing.assert_allclose(inv[8], f_primal / 12.0 + (1.0 - f_primal), rtol=2e-5)
+    np.testing.assert_allclose(inv[[1, 2, 5]], 0.0, atol=1e-6)
+
+
+def test_graded_z_full_averaging_junctions_are_bounded():
+    """Junction voxels (the corners of sloped walls) on graded cells: their closure, a box per voxel, solves
+    and stays between the materials (each row of the stored inverse comes from its own E component's Yee
+    position, so the 3 x 3 is not symmetric pointwise)."""
+    d = slab_device(angle=25.0, width=0.4, averaging="subpixel_full")
+    objects, arrays, params = place_all(d, z_graded(d, Z_EDGES))
+    placed = objects["s"]
+    out, status = placed.write_with_status(arrays, params["s"])
+    assert int(status["junctions"]) > 0 and int(status["junction_overflow"]) == 0
+    assert float(status["closure_residual"]) < 1e-3
+    inv = np.asarray(out.inv_permittivities[:, *placed.grid_slice]).reshape(3, 3, -1)
+    assert np.all(np.isfinite(inv))
+    diagonal = inv[[0, 1, 2], [0, 1, 2]]
+    assert diagonal.min() > 1.0 / 12.0 - 1e-5 and diagonal.max() < 1.0 + 1e-5
+    off = inv[[0, 0, 1, 1, 2, 2], [1, 2, 0, 2, 0, 1]]
+    assert np.abs(off).max() < 0.5 * (1.0 - 1.0 / 12.0)
+    assert np.abs(off).max() > 1e-4  # the sloped corners do couple the components
 
 
 def test_rectilinear_grid_spans_the_box():

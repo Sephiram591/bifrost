@@ -2541,7 +2541,7 @@ def _interface_parts(
     return visible, tensor, moments, slopes, b
 
 
-def _vertical_tensor(length: Array, bp: Array, moments: Array, slopes: Array) -> Array:
+def _vertical_tensor(length: Array, bp: Array, moments: Array, slopes: Array, graded: bool = False) -> Array:
     """The vertical part of a voxel's interface direction tensor (..., 6) from its sub-intervals.
 
     ``4 sum_s len_s |m_s - <m>|^2``, the variance along z of the sub-intervals' material moments (zeroth
@@ -2555,14 +2555,21 @@ def _vertical_tensor(length: Array, bp: Array, moments: Array, slopes: Array) ->
         bp: (..., S + 1) their ends.
         moments: (..., S, 6, 3) material moments per sub-interval.
         slopes: (..., S - 1, 2) the surfaces' slopes at the inner ends.
+        graded: the layer is ``bp[0]`` to ``bp[-1]`` high (a graded grid's, frame units): its lengths and
+            heights become shares of it.
 
     Returns:
         (..., 6) the tensor.
     """
+    if graded:
+        height = bp[..., -1:] - bp[..., :1]
+        length = length / height
     mean = jnp.sum(length[..., None, None] * moments, axis=-3)
     weight = 4.0 * jnp.sum(length * jnp.sum((moments - mean[..., None, :, :]) ** 2, axis=(-2, -1)), axis=-1)
     jump = jnp.sum((moments[..., 1:, :, :] - moments[..., :-1, :, :]) ** 2, axis=(-2, -1))  # (..., S - 1)
     t = bp[..., 1:-1] - bp[..., :1]
+    if graded:
+        t = t / height
     wj = jump * 4 * t * (1 - t)
     normal = jnp.concatenate([-slopes, jnp.ones_like(slopes[..., :1])], axis=-1)
     normal = normal / jnp.sqrt(jnp.sum(normal**2, axis=-1, keepdims=True))
@@ -2589,6 +2596,7 @@ def _interface_composite(
     contrast2: np.ndarray,
     surface_slopes: Array | None = None,
     corner: "_CornerInputs | None" = None,
+    zaxis: _SampleAxis | None = None,
 ) -> tuple[Array, Array]:
     """Volume fractions and the interface direction tensor of every voxel.
 
@@ -2614,6 +2622,8 @@ def _interface_composite(
         surface_slopes: (nx, ny, 2K, 2) or None, see :func:`_composite`.
         corner: the corner columns of this sample grid, or None: in them the corner model
             (:func:`_corner_interfaces`) replaces the half-planes, fractions and faces alike.
+        zaxis: see :func:`_composite`. On a graded axis the lateral faces are as high as the layer
+            (frame units), so they weigh against the horizontal ones as in the physical voxel.
 
     Returns:
         fractions: (nx, ny, nz, K + 1).
@@ -2623,17 +2633,23 @@ def _interface_composite(
     point_slopes = _point_slopes(lows, surface_slopes)
     num_levels = lows.shape[-1]
     area = (2 * half * cell) ** 2  # the square's area (cells^2), as the faces' areas
+    graded = zaxis is not None and not zaxis.uniform
 
     @jax.checkpoint
     def one_slice(k: Array) -> tuple:
-        split = _split_layer(lows, highs, k)
+        split = _split_layer(lows, highs, *k) if graded else _split_layer(lows, highs, k)
         visible, lateral_tensor, moments, slopes, b = _interface_parts(
             offsets, normals, is_fill, split, lateral, half, knots, cell, vectors, contrast2, point_slopes
         )
         length = split[2]
         fractions = jnp.sum(length[..., None] * visible, axis=-2)
+        if graded:
+            fractions = fractions / (k[1] - k[0])
         direction = jnp.sum(length[..., None] * lateral_tensor, axis=-2)
-        direction = direction + _vertical_tensor(length, split[1], moments, slopes) * area
+        if graded:
+            direction = direction + _vertical_tensor(length, split[1], moments, slopes, graded=True) * area
+        else:
+            direction = direction + _vertical_tensor(length, split[1], moments, slopes) * area
         if corner is None:
             return fractions, direction
         # the corner columns' sub-intervals, for the corner pass, with the offsets at their Gauss heights
@@ -2650,7 +2666,10 @@ def _interface_composite(
         )
         return (fractions, direction), columns
 
-    ks = jnp.arange(nz, dtype=lows.dtype)
+    if graded:
+        ks = (jnp.asarray(zaxis.lo, dtype=lows.dtype), jnp.asarray(zaxis.hi, dtype=lows.dtype))
+    else:
+        ks = jnp.arange(nz, dtype=lows.dtype)
     if corner is None:
         fractions, direction = jax.lax.map(one_slice, ks)
         return jnp.moveaxis(fractions, 0, 2), jnp.moveaxis(direction, 0, 2), jnp.zeros((), dtype=jnp.int32)
@@ -2670,6 +2689,7 @@ def _interface_composite(
         cell=float(cell),
         vectors=tuple(tuple(float(x) for x in row) for row in vectors),
         contrast2=tuple(tuple(float(x) for x in row) for row in contrast2),
+        **({"graded": True} if graded else {}),
     )  # (nz, N, K + 1), (nz, N, 6), (nz,)
     fractions = fractions.reshape(nz, -1, num_levels + 1).at[:, corner.cols].set(c_fractions, mode="drop")
     direction = direction.reshape(nz, -1, 6).at[:, corner.cols].set(c_direction, mode="drop")
@@ -2702,6 +2722,7 @@ def _junction_cells(
     planes: tuple[Array, Array] | None = None,
     target: Array | None = None,
     level_material: Sequence[int] = (),
+    top: Array | None = None,
 ) -> tuple[Array, Array]:
     """The sub-cells of junction voxels for their closure: the voxel's own geometry, cell by cell.
 
@@ -2743,6 +2764,9 @@ def _junction_cells(
             sub-squares are painted with their samples' half-planes, while the voxel's fractions blend the
             corner model in.
         level_material: (K + 1,) with ``target``, the material of every level, then the background's.
+        top: (N,) the voxels' layer tops on a graded grid (``layer`` is then their bottoms, frame units),
+            or None: layer k is [k, k + 1]. The sub-cells are then equal parts of the layer's own height,
+            and their lateral faces as high as they are.
 
     Returns:
         fractions: (N, n, n, m, K + 1) every sub-cell's fractions of the levels, then the background.
@@ -2752,7 +2776,10 @@ def _junction_cells(
     dtype = offsets.dtype
     if nxs != nys:
         raise ValueError(f"The junction sub-squares must be square, got {cells}")
-    split = jax.vmap(_split_layer)(lows, highs, layer)
+    if top is None:
+        split = jax.vmap(_split_layer)(lows, highs, layer)
+    else:
+        split = jax.vmap(_split_layer)(lows, highs, layer, top)
     count = nxs * nys
 
     def per_square(x: Array) -> Array:
@@ -2808,15 +2835,26 @@ def _junction_cells(
         )
         visible, tensor, moments = (jnp.swapaxes(x, 1, 2) for x in out[4:])  # (N, Q, S, ...)
     # the sub-cells along z: equal parts of the voxel layer, overlapping the sub-intervals
-    z0 = layer[:, None] + jnp.arange(nzs, dtype=dtype)[None, :] / nzs  # (N, m)
-    lo = jnp.maximum(bp[:, :-1, None], z0[:, None, :])
-    hi = jnp.minimum(bp[:, 1:, None], z0[:, None, :] + 1.0 / nzs)
-    overlap = jnp.maximum(hi - lo, 0.0) * nzs  # (N, S, m): share of the sub-cell's height
+    if top is None:
+        z0 = layer[:, None] + jnp.arange(nzs, dtype=dtype)[None, :] / nzs  # (N, m)
+        lo = jnp.maximum(bp[:, :-1, None], z0[:, None, :])
+        hi = jnp.minimum(bp[:, 1:, None], z0[:, None, :] + 1.0 / nzs)
+        overlap = jnp.maximum(hi - lo, 0.0) * nzs  # (N, S, m): share of the sub-cell's height
+    else:
+        part = (top - layer)[:, None] / nzs  # (N, 1) the sub-cells' height
+        z0 = layer[:, None] + part * jnp.arange(nzs, dtype=dtype)[None, :]
+        z1 = z0 + part
+        lo = jnp.maximum(bp[:, :-1, None], z0[:, None, :])
+        hi = jnp.minimum(bp[:, 1:, None], z1[:, None, :])
+        overlap = jnp.maximum(hi - lo, 0.0) / part[:, :, None]
     fractions = jnp.einsum("nsm,nqsl->nqml", overlap, visible, precision=_HIGHEST)  # (N, Q, m, K + 1)
     if target is not None:
         fractions = _match_fractions(fractions.reshape(fractions.shape[0], -1, fractions.shape[-1]), target,
                                      level_material).reshape(fractions.shape)
-    lateral_d = jnp.einsum("nsm,nqsv->nqmv", overlap, tensor, precision=_HIGHEST) / nzs
+    if top is None:
+        lateral_d = jnp.einsum("nsm,nqsv->nqmv", overlap, tensor, precision=_HIGHEST) / nzs
+    else:  # the faces per unit height times the sub-cell's height (frame units)
+        lateral_d = jnp.einsum("nsm,nqsv->nqmv", overlap, tensor, precision=_HIGHEST) * part[:, :, None, None]
     # each sub-cell's own vertical variance: its sub-intervals' moments weighted by their share of it
     mean = jnp.einsum("nsm,nqsvc->nqmvc", overlap, moments, precision=_HIGHEST)
     spread = jnp.einsum(
@@ -2827,7 +2865,10 @@ def _junction_cells(
     vertical = 4.0 * spread * (2 * sub * cell) ** 2  # times the sub-square's area (cells^2), like the faces
     if point_slopes is not None:  # tilted by the surfaces in the sub-cell (their jump-weighted mix)
         ends = bp[:, 1:-1]  # (N, S - 1)
-        inside = (ends[:, :, None] > z0[:, None, :]) & (ends[:, :, None] < z0[:, None, :] + 1.0 / nzs)
+        if top is None:
+            inside = (ends[:, :, None] > z0[:, None, :]) & (ends[:, :, None] < z0[:, None, :] + 1.0 / nzs)
+        else:
+            inside = (ends[:, :, None] > z0[:, None, :]) & (ends[:, :, None] < z1[:, None, :])
         jump = jnp.sum((moments[:, :, 1:] - moments[:, :, :-1]) ** 2, axis=(-2, -1))  # (N, n n, S - 1)
         wj = jump[:, :, :, None] * inside[:, None]  # (N, n n, S - 1, m)
         normal = jnp.concatenate([-slopes, jnp.ones_like(slopes[..., :1])], axis=-1)
@@ -2899,7 +2940,12 @@ def _junction_tensor(*args: Any, **kwargs: Any) -> tuple[Array, Array]:
             (:func:`bifrost.subpixel.periodic_cell_tensor`).
         residual: (N,) the solves' normwise backward errors.
     """
-    return periodic_cell_tensor(_junction_cells(*args, **kwargs)[1])
+    coefficients = _junction_cells(*args, **kwargs)[1]
+    if kwargs.get("top") is None:
+        return periodic_cell_tensor(coefficients)
+    height = kwargs["top"] - (args[6] if len(args) > 6 else kwargs["layer"])  # a graded layer: a box
+    ones = jnp.ones_like(height)
+    return periodic_cell_tensor(coefficients, jnp.stack([ones, ones, height], axis=-1))
 
 
 # ---------------------------------------------------------------- corner model
@@ -2956,6 +3002,8 @@ class _JunctionInputs(NamedTuple):
     corner: "_CornerInputs | None" = None
     #: (K + 1,) the material (index in the grid's material names) of every level, then the background's
     level_material: tuple[int, ...] = ()
+    #: the grid's z axis when it is graded (its layers' bounds), or None: layer k is [k, k + 1]
+    zaxis: _SampleAxis | None = None
 
 
 class _Interfaces(NamedTuple):
@@ -4317,7 +4365,7 @@ def _corner_interfaces(
 @timed("interface_corner_pass")
 @partial(
     jax.jit,
-    static_argnames=("trees", "literals", "is_fill", "lines", "sc", "half", "cell", "vectors", "contrast2"),
+    static_argnames=("trees", "literals", "is_fill", "lines", "sc", "half", "cell", "vectors", "contrast2", "graded"),
 )
 def _interface_corner_pass(
     layers: _LayerCorner,
@@ -4334,6 +4382,7 @@ def _interface_corner_pass(
     cell: float,
     vectors: tuple,
     contrast2: tuple,
+    graded: bool = False,
 ) -> tuple[Array, Array]:
     """The corner columns of every voxel layer with :func:`_corner_interfaces` (a separate jitted pass).
 
@@ -4353,6 +4402,7 @@ def _interface_corner_pass(
         cell: cells per side of the lateral square.
         vectors: (K + 1, 6) static normalized material tensors (nested tuples).
         contrast2: (K + 1, K + 1) static squared contrasts (nested tuples).
+        graded: the layers are a graded grid's (see :func:`_interface_composite`).
 
     Returns:
         (nz, N, K + 1) the columns' fractions, (nz, N, 6) their direction tensors and (nz,) the number of
@@ -4377,7 +4427,11 @@ def _interface_corner_pass(
             None,
         )
         fractions = jnp.sum(length[..., None] * f, axis=-2)
-        direction = jnp.sum(length[..., None] * d, axis=-2) + _vertical_tensor(length, bp, m, slopes) * area
+        if graded:  # the layer's fractions; its lateral faces as high as it is
+            fractions = fractions / (bp[..., -1:] - bp[..., :1])
+            direction = jnp.sum(length[..., None] * d, axis=-2) + _vertical_tensor(length, bp, m, slopes, True) * area
+        else:
+            direction = jnp.sum(length[..., None] * d, axis=-2) + _vertical_tensor(length, bp, m, slopes) * area
         # the columns' voxels whose polygon levels the corner model does not certify (partly half-planes)
         drawn = jnp.any(present[..., polygons], axis=-1) & (length > 0)
         uncertified = jnp.sum(taken & jnp.any(drawn & (w < 1.0 - _CERTIFIED), axis=-1), dtype=jnp.int32)
@@ -7299,7 +7353,9 @@ class StackDevice(StaticMultiMaterialObject):
         res_um = self._res_um()
         names, eps = self._material_table()
         dtype = self._config.dtype
-        active, lows, highs = self._level_surfaces(p, noise_key, apply_roughness, shift[2])
+        zaxis = self._z_axis(shift[2])
+        graded = {} if zaxis.uniform else {"zaxis": zaxis}
+        active, lows, highs = self._level_surfaces(p, noise_key, apply_roughness, zaxis.shift)
         if not active:
             w = jnp.zeros((len(names), nx, ny, nz), dtype=dtype).at[names.index(self.background)].set(1.0)
             return _Interfaces(names=names, weights=w, direction=jnp.zeros((nx, ny, nz, 6), dtype=dtype), voxel=None)
@@ -7344,7 +7400,7 @@ class StackDevice(StaticMultiMaterialObject):
 
         surfaces = (jnp.stack(lows, axis=-1), jnp.stack(highs, axis=-1))
         geometry = self._layer_geometry(p)
-        plan, radii = self._corner_plan(active, lows, highs)
+        plan, radii = self._corner_plan(active, lows, highs, zaxis)
         capacity = 0 if plan is None else self._corner_capacity(plan, geometry)
         direction = 0.0
         fractions = 0.0
@@ -7361,7 +7417,7 @@ class StackDevice(StaticMultiMaterialObject):
             planes.append((offsets, normals))
             f, d, u = _interface_composite(
                 offsets, normals, is_fill, *surfaces, lateral, nz, 0.5, knots, cell, vectors, contrast2,
-                surface_slopes, corner=corner,
+                surface_slopes, corner=corner, **graded,
             )
             fractions = fractions + f
             direction = direction + d
@@ -7393,6 +7449,7 @@ class StackDevice(StaticMultiMaterialObject):
             cell=cell,
             corner=corner if n_sub == 1 else None,
             level_material=tuple(names.index(m) for m in (*level_materials, self.background)),
+            zaxis=graded.get("zaxis"),
         )
         return _Interfaces(
             names=names, weights=w.astype(dtype), direction=direction, voxel=voxel, corner_dropped=dropped,
@@ -7459,6 +7516,10 @@ class StackDevice(StaticMultiMaterialObject):
             # the voxels' material fractions, which their sub-cells are made to add up to
             "target": jnp.moveaxis(g.weights, 0, -1).reshape(-1, g.weights.shape[0])[voxels],
         }
+        if v.zaxis is not None:  # a graded layer: its bottom and top (frame units) instead of k, k + 1
+            k = voxels % nz
+            inputs["layer"] = jnp.asarray(v.zaxis.lo, dtype=dtype)[k]
+            inputs["top"] = jnp.asarray(v.zaxis.hi, dtype=dtype)[k]
         if v.point_slopes is not None:
             inputs["point_slopes"] = gather(v.point_slopes)
         corner = v.corner
@@ -7484,6 +7545,7 @@ class StackDevice(StaticMultiMaterialObject):
                 args["offsets"], args["normals"], centers, v.is_fill, args["lows"], args["highs"], args["layer"],
                 v.lateral, sub, v.knots, v.cell, v.vectors, v.contrast2, v.level_eps, cells,
                 args.get("point_slopes"), corner_j, args.get("planes"), args["target"], v.level_material,
+                **({"top": args["top"]} if "top" in args else {}),
             )
 
         return inputs, cells_of
@@ -7552,7 +7614,12 @@ class StackDevice(StaticMultiMaterialObject):
             return x.reshape(-1, chunk, *x.shape[1:])
 
         def closure(args: dict[str, Any]) -> tuple[Array, Array]:
-            return periodic_cell_tensor(cells_of(args)[1])
+            if "top" not in args:
+                return periodic_cell_tensor(cells_of(args)[1])
+            # a graded layer: the voxel is a box, as high as its layer (frame units), its sides one cell
+            height = args["top"] - args["layer"]
+            ones = jnp.ones_like(height)
+            return periodic_cell_tensor(cells_of(args)[1], jnp.stack([ones, ones, height], axis=-1))
 
         tensor, residual = jax.lax.map(jax.checkpoint(closure), jax.tree.map(batched, inputs))
         tensor = tensor.reshape(-1, 3, 3)[:capacity]
@@ -7597,11 +7664,6 @@ class StackDevice(StaticMultiMaterialObject):
             raise NotImplementedError(
                 f"StackDevice {self.name!r}: the grid's x and y cells must all be one size here (also the "
                 "cells just outside the device's lower faces); only z may be graded so far"
-            )
-        if not frame.uniform[2] and self.averaging == "subpixel_full":
-            raise NotImplementedError(
-                f"StackDevice {self.name!r}: averaging='subpixel_full' needs a uniform z grid so far; "
-                "use averaging='subpixel' on a graded z grid"
             )
         self = self.aset("grid_frame", frame)
         self = self._keep_reachable_levels(grid_slice_tuple, config)

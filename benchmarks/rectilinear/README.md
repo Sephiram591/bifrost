@@ -21,3 +21,13 @@ most 1.25 to 40 nm, 40 nm under the PML. CPU (jax 0.11.2, fdtdx 0.6.3, float32).
 The graded grid is as accurate as the uniform fine one with a third of its cells; the time steps are the fine
 grid's, since the smallest cell sets the time step. Putting the slab's faces on cell edges does not help here:
 subpixel averaging already resolves faces inside cells.
+
+With `--case full` (`results/graded_slab_full.json`): the rotated uniaxial tensor with an xz entry of
+`benchmarks/subpixel/em_slab.py` (polarization conversion), `averaging="subpixel_full"`:
+
+| z grid | z cells | max \|t - t_ref\| | max \|\|r\| - \|r_ref\|\| | energy error |
+|---|---|---|---|---|
+| uniform 10 nm | 360 | 9.8e-4 | 5.5e-4 | 5e-6 |
+| uniform 40 nm | 90 | 1.17e-2 | 5.1e-3 | 1.3e-5 |
+| graded 10 / 40 nm | 121 | 1.10e-3 | 2.3e-4 | 5.4e-5 |
+| graded, the slab's faces on edges | 122 | 1.36e-3 | 7.3e-4 | 1.2e-4 |

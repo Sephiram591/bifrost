@@ -35,6 +35,18 @@ WAVELENGTH = 1.55  # um
 THICKNESS = 0.137  # um
 SLAB_Z = 0.013  # um: the slab's bottom (not on a cell edge of the uniform grids)
 EPS = np.diag([9.0, 12.0, 14.0])
+
+
+def full_tensor() -> np.ndarray:
+    """The rotated uniaxial tensor with an xz entry of benchmarks/subpixel/em_slab.py."""
+    a = np.radians(25.0)
+    r = np.array([[np.cos(a), -np.sin(a), 0.0], [np.sin(a), np.cos(a), 0.0], [0.0, 0.0, 1.0]])
+    eps = r @ EPS @ r.T
+    eps[0, 2] = eps[2, 0] = 0.8
+    return eps
+
+
+CASES = {"diag": (EPS, "subpixel"), "full": (full_tensor(), "subpixel_full")}  # (tensor, averaging)
 PML = 0.6  # um
 HALF = 1.8  # um: the volume runs from -HALF to HALF in z (PML included)
 Z_SRC, Z_T, Z_T2, Z_R = -0.7, 0.75, 0.95, -1.0  # um: source, transmission planes, reflection plane
@@ -52,7 +64,8 @@ def z_edges(kind: str, fine: float, coarse: float, band: float) -> np.ndarray:
     return bf.graded_edges(-HALF, HALF, coarse, fine=region, snap=snap, uniform_ends=(n_pml, n_pml))
 
 
-def run(kind: str, fine: float, coarse: float, band: float, with_slab: bool, pol: int) -> tuple[np.ndarray, dict]:
+def run(kind: str, fine: float, coarse: float, band: float, with_slab: bool, pol: int,
+        case: str = "diag") -> tuple[np.ndarray, dict]:
     """(3, 2) phasors (trans, trans2, refl) x (Ex, Ey) of one run, and facts about its grid."""
     import fdtdx
     import gdsfactory as gf
@@ -63,9 +76,11 @@ def run(kind: str, fine: float, coarse: float, band: float, with_slab: bool, pol
     gf.gpdk.PDK.activate()
     gf.snap.SNAP_ENABLED = False
     lateral = 4 * coarse
-    mats = {"air": fdtdx.Material(), "slab": fdtdx.Material(permittivity=tuple(float(x) for x in np.diag(EPS)))}
+    eps, averaging = CASES[case]
     if not with_slab:
-        mats["slab"] = fdtdx.Material()
+        eps = np.eye(3)
+    mats = {"air": fdtdx.Material(), "slab": fdtdx.Material(permittivity=tuple(tuple(float(x) for x in row)
+                                                                                for row in eps))}
     c = gf.Component()
     h = lateral / 2
     c.add_polygon([(-h, -h), (h, -h), (h, h), (-h, h)], layer=gf.gpdk.LAYER.WAFER)
@@ -75,6 +90,7 @@ def run(kind: str, fine: float, coarse: float, band: float, with_slab: bool, pol
     device = bf.StackDevice.from_layer_stack(
         c, ls, mats, background="air", name="stack", zrange_layers=["slab"],
         boundary_offset=(0.0, 0.0, 0.0, 0.0, HALF - SLAB_Z - THICKNESS, -HALF - SLAB_Z), diagnostics=False,
+        averaging=averaging,
     )
     z = z_edges(kind, fine, coarse, band)
     grid = device.rectilinear_grid(coarse, z_um=z)
@@ -126,12 +142,14 @@ def main() -> None:
     parser.add_argument("--coarse", type=float, default=40.0, help="coarse spacing (nm)")
     parser.add_argument("--band", type=float, default=0.1, help="fine band around the slab (um)")
     parser.add_argument("--kinds", nargs="+", default=["uniform-fine", "uniform-coarse", "graded", "graded-snap"])
+    parser.add_argument("--case", choices=sorted(CASES), default="diag",
+                        help="diag: diag(9, 12, 14), subpixel; full: rotated with an xz entry, subpixel_full")
     args = parser.parse_args()
     import fdtdx
     import jax
 
     fine, coarse = args.fine * 1e-3, args.coarse * 1e-3
-    r_ref, t_ref = jones([(EPS, THICKNESS)], 1.0, 1.0, WAVELENGTH)
+    r_ref, t_ref = jones([(CASES[args.case][0], THICKNESS)], 1.0, 1.0, WAVELENGTH)
     t_ref = t_ref * np.exp(-2j * np.pi / WAVELENGTH * THICKNESS)
     print("jax", jax.__version__, "fdtdx", getattr(fdtdx, "__version__", "?"), "on", jax.devices()[0].device_kind,
           flush=True)
@@ -141,8 +159,8 @@ def main() -> None:
         t = np.zeros((2, 2), dtype=complex)
         r = np.zeros((2, 2))
         for pol in (0, 1):
-            with_slab, facts = run(kind, fine, coarse, args.band, True, pol)
-            without, _ = run(kind, fine, coarse, args.band, False, pol)
+            with_slab, facts = run(kind, fine, coarse, args.band, True, pol, args.case)
+            without, _ = run(kind, fine, coarse, args.band, False, pol, args.case)
             inc = without[0, pol]
             t[:, pol] = with_slab[0] / inc
             r[:, pol] = np.abs(with_slab[2] / inc)
@@ -153,8 +171,8 @@ def main() -> None:
         }
         rows.append(row)
         print(json.dumps(row), flush=True)
-    Path(args.out).write_text(json.dumps({"fine_nm": args.fine, "coarse_nm": args.coarse, "band_um": args.band,
-                                          "rows": rows}, indent=1))
+    Path(args.out).write_text(json.dumps({"case": args.case, "fine_nm": args.fine, "coarse_nm": args.coarse,
+                                          "band_um": args.band, "rows": rows}, indent=1))
 
 
 if __name__ == "__main__":

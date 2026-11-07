@@ -135,8 +135,8 @@ config = stack.get_simulation_config(time=100e-15, grid=stack.rectilinear_grid(0
 source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid=config)
 ```
 
-- **x and y stay uniform** (one cell size, given to `rectilinear_grid`); only z may be graded so far, and with
-  `averaging="subpixel"` or `"inverse"` (`"subpixel_full"` needs a uniform grid).
+- **x and y stay uniform** (one cell size, given to `rectilinear_grid`); only z may be graded so far, with any
+  averaging. With `"subpixel_full"`, a junction voxel's closure solves its cell problem on the voxel's own box.
 - **The smallest cell sets the time step** of the whole simulation. Grading saves cells and memory (also the gradient's
   checkpoints), not time steps. `graded_edges` keeps neighbouring cells within a factor `growth` (1.25) and does not
   make slivers: a `snap` coordinate within half a cell of another edge is dropped, with a warning.
