@@ -30,7 +30,8 @@ def pdk() -> Iterator[None]:
 
 def grid(x_um, y_um, z_um) -> RectilinearGrid:
     """A rectilinear grid from edges in um."""
-    return RectilinearGrid(*(jnp.asarray(e, dtype=jnp.float32) * 1e-6 for e in (x_um, y_um, z_um)))
+    x, y, z = (jnp.asarray(e, dtype=jnp.float32) * 1e-6 for e in (x_um, y_um, z_um))
+    return RectilinearGrid(x_edges=x, y_edges=y, z_edges=z)
 
 
 def config(g) -> fdtdx.SimulationConfig:
@@ -126,9 +127,10 @@ def device(**kwargs) -> bf.StackDevice:
         "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
         "under": LayerLevel(layer=L.WAFER, zmin=-1.0, thickness=0.85, material="sio2", mesh_order=9),
     })
+    # the box: 1.6 x 1.2 x 0.8 um (x -0.2 to 1.4, y -0.2 to 1.0, z 0 to 0.8), whole 0.02 and 0.4 um cells
     return bf.StackDevice.from_layer_stack(
         c, ls, MATERIALS, background="air", name="s", zrange_layers=["core"],
-        boundary_offset=(0.2, -0.2, 0.2, -0.2, 0.38, 0.0), diagnostics=False, **kwargs,
+        boundary_offset=(0.4, -0.2, 0.5, -0.2, 0.58, 0.0), diagnostics=False, **kwargs,
     )
 
 
@@ -142,7 +144,8 @@ def place(d: bf.StackDevice, g) -> dict:
 
 def test_placed_device_has_its_frame():
     d = device()
-    assert d.dropped_levels == (("under", -1.0, -0.15),)  # 0.15 um under the box: beyond the slack
+    ((name, lo, hi),) = d.dropped_levels  # 0.15 um under the box: beyond the slack
+    assert name == "under" and (lo, hi) == pytest.approx((-1.0, -0.15))
     placed = place(d, UniformGrid(spacing=0.02e-6))["s"]
     assert placed.grid_frame is not None and placed.grid_frame.uniform == (True, True, True)
     assert placed._res_um() == placed._config.uniform_spacing() * 1e6
@@ -155,10 +158,215 @@ def test_coarse_grid_warns_about_a_dropped_level():
         place(d, UniformGrid(spacing=0.4e-6))  # half a 0.4 um cell under the box reaches it
 
 
-def test_non_uniform_grid_is_not_supported_yet():
+def test_graded_xy_is_not_supported_yet():
     d = device()
     sx, sy, sz = (s * 1e6 for s in d.partial_real_shape)
-    z = np.array([0.0, 0.1, 0.15, 0.2, 0.25, 0.35, 0.45, 0.6]) * sz / 0.6 - sz / 2
-    g = grid(np.linspace(-sx / 2, sx / 2, 15), np.linspace(-sy / 2, sy / 2, 10), z)
-    with pytest.raises(NotImplementedError, match="non-uniform"):
+    x = np.concatenate([np.linspace(-sx / 2, 0.0, 8), np.linspace(0.0, sx / 2, 15)[1:]])  # two sizes
+    g = grid(x, np.linspace(-sy / 2, sy / 2, 10), np.linspace(-sz / 2, sz / 2, 7))
+    with pytest.raises(NotImplementedError, match="x and y"):
         place(d, g)
+
+
+# ---------------------------------------------------------------- graded z
+
+H = 0.05  # um, the lateral cells
+SLAB = (0.0, 0.13)  # um, the slab level's span
+Z_EDGES = np.array([0.0, 0.1, 0.15, 0.18, 0.2, 0.25, 0.32, 0.36, 0.42, 0.5])  # um from the box's bottom
+
+
+def slab_device(angle: float = 0.0, width: float | None = None, **kwargs) -> bf.StackDevice:
+    """A silicon slab (0 to 0.13 um) in air; a rectangle past the box, or a ``width`` um wide strip.
+
+    The box is 1.6 x 1.1 um (whole 0.05 um cells) and 0.5 um high, from -0.2 um.
+    """
+    c = gf.Component()
+    c.add_polygon([(-0.5, -0.5), (1.5, -0.5), (1.5, 1.0), (-0.5, 1.0)], layer=L.SLAB150)  # sets the box (WAFER would be a fill: no box)
+    if width is None:
+        c.add_polygon([(-0.5, -0.5), (1.5, -0.5), (1.5, 1.0), (-0.5, 1.0)], layer=L.WG)
+    else:
+        c.add_polygon([(0.3, 0.25 - width / 2), (1.2, 0.25 - width / 2), (1.2, 0.25 + width / 2),
+                       (0.3, 0.25 + width / 2)], layer=L.WG)
+        c.add_port(name="o1", center=(0.3, 0.25), width=width, orientation=180, layer=L.WG)
+    ls = LayerStack(layers={
+        "slab": LayerLevel(layer=L.WG, zmin=SLAB[0], thickness=SLAB[1] - SLAB[0], material="si", mesh_order=1,
+                           sidewall_angle=angle),
+        # air over the whole box: sets the box, paints nothing
+        "frame": LayerLevel(layer=L.SLAB150, zmin=-0.2, thickness=0.5, material="air", mesh_order=9),
+    })
+    return bf.StackDevice.from_layer_stack(
+        c, ls, MATERIALS, background="air", name="s", zrange_layers=["slab"],
+        boundary_offset=(-0.2, 0.2, -0.2, 0.2, 0.17, -0.2), diagnostics=False, **kwargs,
+    )
+
+
+def z_graded(d: bf.StackDevice, z_um: np.ndarray) -> RectilinearGrid:
+    """x, y uniform (H) over the device's box, z edges ``z_um`` from the box's bottom."""
+    sx, sy, sz = (s * 1e6 for s in d.partial_real_shape)
+    assert abs(z_um[-1] - sz) < 1e-9
+    nx, ny = round(sx / H), round(sy / H)
+    return grid(np.linspace(-sx / 2, sx / 2, nx + 1), np.linspace(-sy / 2, sy / 2, ny + 1), z_um - sz / 2)
+
+
+def overlap(a: tuple[float, float], lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
+    """Fraction of each interval [lo, hi] inside a."""
+    return np.clip(np.minimum(hi, a[1]) - np.maximum(lo, a[0]), 0.0, None) / (hi - lo)
+
+
+def test_graded_z_fractions_are_exact():
+    d = slab_device()
+    placed = place(d, z_graded(d, Z_EDGES))["s"]
+    assert placed.grid_frame.uniform == (True, True, False)
+    names, w = placed.material_weights()
+    si = np.asarray(w[names.index("si")])
+    bottom = -0.2  # the box's bottom (stack z)
+    e = Z_EDGES + bottom
+    np.testing.assert_allclose(si[16, 11], overlap(SLAB, e[:-1], e[1:]), atol=2e-6)
+    # Ex, Ey: the dual cells between the cell centers (the first one mirrored below the box)
+    c = 0.5 * (e[:-1] + e[1:])
+    lo = np.concatenate([[e[0] - 0.5 * (e[1] - e[0])], c[:-1]])
+    for shift in ((0.0, -0.5, -0.5), (-0.5, 0.0, -0.5)):
+        names, w = placed.material_weights(shift=shift)
+        np.testing.assert_allclose(np.asarray(w[names.index("si")])[16, 11], overlap(SLAB, lo, c), atol=2e-6)
+
+
+def test_graded_z_split_cell_keeps_the_volumes():
+    """A uniform z grid and the same grid with one cell split in two: the halves add up to the cell.
+
+    Exact (to float32 round-off) for flat walls. Sloped walls are painted at each level's mean offset over its
+    part of the voxel (half-planes, see _composite: off the mean area by up to ~5e-3 where the edge crosses a
+    corner of the square inside the voxel) or at two Gauss heights (the corner model: exact where the corner's
+    area is quadratic in z, which near a corner of sloped walls it is only piecewise); either way splitting the
+    cell moves where it is painted, and the split cell changes by up to a few 1e-3 there.
+    """
+    cases = (  # (device, tolerance of the split cell)
+        ({"angle": 0.0, "width": 0.4}, 2e-5),
+        ({"angle": 25.0, "width": 0.4, "corner_lines": 0}, 5e-3),  # half-planes only
+        ({"angle": 25.0, "width": 0.4}, 1e-2),  # sloped walls with the corner model
+        ({"angle": 25.0, "width": 0.4, "xy_subsamples": 2}, 1e-2),
+    )
+    for kwargs, tol in cases:
+        d = slab_device(**kwargs)
+        uniform = np.linspace(0.0, 0.5, 11)  # 0.05 um cells: frame-uniform
+        # the slab's top (0.33 um above the box's bottom) cuts cell 6, which is split in two
+        split = np.insert(uniform, 7, 0.5 * (uniform[6] + uniform[7]))
+        a = place(d, z_graded(d, uniform))["s"]
+        b = place(d, z_graded(d, split))["s"]
+        assert a.grid_frame.uniform[2] and not b.grid_frame.uniform[2]
+        _, wa = a.material_weights()
+        _, wb = b.material_weights()
+        wa, wb = np.asarray(wa), np.asarray(wb)
+        merged = 0.5 * (wb[..., 6] + wb[..., 7])
+        np.testing.assert_allclose(merged, wa[..., 6], atol=tol, err_msg=str(kwargs))
+        # the other cells are the same cells, up to float32 round-off (the graded path splits the layers in frame
+        # units, up to 10 here, the uniform one in unit layers: ~6e-6 where an edge is on a voxel face)
+        np.testing.assert_allclose(wb[..., :6], wa[..., :6], atol=2e-5, err_msg=str(kwargs))
+        np.testing.assert_allclose(wb[..., 8:], wa[..., 7:], atol=2e-5, err_msg=str(kwargs))
+
+
+def test_graded_z_averaging_takes_the_horizontal_interface():
+    """Across a horizontal interface Ex, Ey see the mean eps and Ez the harmonic mean, on graded cells."""
+    d = slab_device()
+    objects, arrays, params = place_all(d, z_graded(d, Z_EDGES))
+    out, _, _ = bf.apply_stack(arrays, objects, params, jax.random.PRNGKey(0))
+    inv = np.asarray(out.inv_permittivities[:, 16, 11, :])  # (3, nz)
+    e = Z_EDGES - 0.2
+    c = 0.5 * (e[:-1] + e[1:])
+    dual = (np.concatenate([[e[0] - 0.5 * (e[1] - e[0])], c[:-1]]), c)
+    f_dual, f_primal = overlap(SLAB, *dual), overlap(SLAB, e[:-1], e[1:])
+    np.testing.assert_allclose(inv[0], 1.0 / (12.0 * f_dual + (1.0 - f_dual)), rtol=2e-5)
+    np.testing.assert_allclose(inv[2], f_primal / 12.0 + (1.0 - f_primal), rtol=2e-5)
+
+
+def test_graded_z_gradient():
+    d = slab_device(angle=20.0, width=0.4)
+    placed = place(d, z_graded(d, Z_EDGES))["s"]
+    p0 = placed.init_params()
+
+    def volume(t: jax.Array) -> jax.Array:
+        names, w = placed.material_weights({**p0, "thickness/slab": t})
+        return jnp.sum(w[names.index("si")] * jnp.arange(w.shape[-1], dtype=w.dtype))  # z-weighted
+
+    t0 = jnp.asarray(0.13, dtype=jnp.float32)
+    g = float(jax.grad(volume)(t0))
+    step = 2e-3
+    fd = (float(volume(t0 + step)) - float(volume(t0 - step))) / (2 * step)
+    assert np.isfinite(g) and g == pytest.approx(fd, rel=2e-2)
+
+
+def test_graded_z_traces_once():
+    """The grid is static: new parameters reuse the compiled program."""
+    d = slab_device(angle=20.0, width=0.4)
+    placed = place(d, z_graded(d, Z_EDGES))["s"]
+    p0 = placed.init_params()
+    traces = []
+
+    def weights(t: jax.Array) -> jax.Array:
+        traces.append(t)
+        return placed.material_weights({**p0, "thickness/slab": t})[1]
+
+    f = jax.jit(weights)
+    for t in (0.13, 0.14, 0.11):
+        f(jnp.asarray(t, dtype=jnp.float32)).block_until_ready()
+    assert len(traces) == 1
+
+
+def test_full_averaging_needs_a_uniform_z_grid():
+    d = slab_device(averaging="subpixel_full")
+    with pytest.raises(NotImplementedError, match="subpixel_full"):
+        place(d, z_graded(d, Z_EDGES))
+
+
+def test_rectilinear_grid_spans_the_box():
+    d = slab_device()
+    g = d.rectilinear_grid(H, z_um=Z_EDGES - 0.2)  # stack heights of the edges
+    ref = z_graded(d, Z_EDGES)
+    for a in range(3):
+        np.testing.assert_allclose(np.asarray(g.edges(a)), np.asarray(ref.edges(a)), atol=1e-13)
+    assert place(d, g)["s"].grid_frame.uniform == (True, True, False)
+    with pytest.raises(ValueError, match="box's face"):
+        d.rectilinear_grid(H, z_um=Z_EDGES)  # not stack heights
+    with pytest.raises(ValueError, match="whole number"):
+        d.rectilinear_grid(0.07)
+
+
+def test_graded_edges():
+    e = bf.graded_edges(-1.0, 2.0, 0.1, fine=[(0.0, 0.22, 0.01)], growth=1.2, snap=[0.0, 0.22, 0.5],
+                        uniform_ends=(5, 3))
+    w = np.diff(e)
+    assert e[0] == -1.0 and e[-1] == 2.0 and np.all(w > 0)
+    for z in (0.0, 0.22, 0.5):
+        assert np.min(np.abs(e - z)) < 1e-12
+    np.testing.assert_allclose(w[:5], 0.1, rtol=1e-12)  # the uniform ends
+    np.testing.assert_allclose(w[-3:], 0.1, rtol=1e-12)
+    assert np.max(w) <= 0.1 * (1 + 1e-9)
+    inside = (e[:-1] >= 0.0 - 1e-12) & (e[1:] <= 0.22 + 1e-12)
+    assert np.max(w[inside]) <= 0.01 * (1 + 1e-6)
+    assert np.max(np.maximum(w[1:] / w[:-1], w[:-1] / w[1:])) < 1.2 * 1.15  # graded
+    with pytest.warns(UserWarning, match="not edges"):  # a sliver of a cell is not made
+        e2 = bf.graded_edges(0.0, 1.0, 0.1, snap=[0.5, 0.501])
+    assert np.min(np.diff(e2)) > 0.04
+    with pytest.raises(ValueError):
+        bf.graded_edges(0.0, 1.0, 0.1, fine=[(0.0, 0.2, 0.01)], uniform_ends=(1, 0))  # under the uniform end
+
+
+def test_port_planes_take_whole_graded_cells():
+    d = slab_device(width=0.4)
+    g = d.rectilinear_grid(H, z_um=Z_EDGES - 0.2)
+    det, constraints = d.create_field_detector_at("o1", (0.0, 0.0), port_offset=-0.1, grid=g)
+    assert det.partial_real_shape[2] is None and det.partial_grid_shape[2] == 2  # z: graded, whole cells
+    assert det.partial_real_shape[1] == pytest.approx(0.4e-6)  # y: uniform, exact
+    volume, placing = d.get_simulation_volume()
+    objects, *_ = fdtdx.place_objects(
+        object_list=[volume, d, det], config=config(g), constraints=placing + constraints, key=jax.random.PRNGKey(0)
+    )
+    k0, k1 = objects["o1_field_detector"].grid_slice_tuple[2]
+    e = Z_EDGES - 0.2  # stack heights
+    assert (e[k0], e[k1]) == pytest.approx((0.0, 0.12))  # the slab, 0 to 0.13 um, on the nearest edges
+
+
+def place_all(d: bf.StackDevice, g) -> tuple:
+    volume, constraints = d.get_simulation_volume()
+    objects, arrays, params, _, _ = fdtdx.place_objects(
+        object_list=[volume, d], config=config(g), constraints=constraints, key=jax.random.PRNGKey(0)
+    )
+    return objects, arrays, {**params, **bf.init_stack_params(objects)}

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- [Graded z grids](guide/simulation-setup.md#graded-z-grids): a `StackDevice` runs on an fdtdx `RectilinearGrid` whose
+  z cells differ (x and y uniform; `averaging="subpixel"` or `"inverse"`). Fill fractions stay exact, and Ex and Ey
+  average over the dual cells between cell centers. `bf.graded_edges` places graded edges (fine regions, a growth limit,
+  interfaces on edges, uniform cells under the PML), `StackDevice.rectilinear_grid` builds the grid over the box, and
+  the `create_*_at` methods take `grid=` to give port planes whole cells there. Uniform grids are unchanged, bit for bit.
+- `place_on_grid` warns when a level that `from_layer_stack` left out (outside the box by more than `level_margin` and
+  a 0.1 um slack) is sampled by a coarse cell at the box's face; build the device with a larger `level_margin` then.
+
 ## 0.2.0
 
 - [Inverse design](guide/inverse-design.md) guide and example (`examples/guide/inverse_design.py`): the width on each

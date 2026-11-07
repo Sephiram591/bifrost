@@ -118,6 +118,34 @@ sources are still updated, and devices win where they overlap a stack. `bf.init_
 stack's own parameters (vertices, heights, thicknesses), which is what you differentiate; see
 [Gradients](gradients.md).
 
+## Graded z grids
+
+The cells can have different heights: fine cells where the layers are, coarse ones in the cladding above and below.
+`bf.graded_edges` places the z edges and `StackDevice.rectilinear_grid` turns them into fdtdx's grid over the box:
+
+```python
+half = 0.5 * stack.partial_real_shape[2] * 1e6  # the box's half height (um)
+z = bf.graded_edges(
+    stack.z_center - half, stack.z_center + half, 0.06,  # at most 60 nm cells
+    fine=[(-0.05, 0.27, 0.02)],    # 20 nm around the 220 nm core
+    snap=[0.0, 0.22],              # the core's faces on cell edges
+    uniform_ends=(10, 10),         # 10 cells of 60 nm under each PML, whose thickness fdtdx counts in cells
+)
+config = stack.get_simulation_config(time=100e-15, grid=stack.rectilinear_grid(0.06, z_um=z))
+source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid=config)
+```
+
+- **x and y stay uniform** (one cell size, given to `rectilinear_grid`); only z may be graded so far, and with
+  `averaging="subpixel"` or `"inverse"` (`"subpixel_full"` needs a uniform grid).
+- **The smallest cell sets the time step** of the whole simulation. Grading saves cells and memory (also the gradient's
+  checkpoints), not time steps. `graded_edges` keeps neighbouring cells within a factor `growth` (1.25) and does not
+  make slivers: a `snap` coordinate within half a cell of another edge is dropped, with a warning.
+- **Pass `grid=` to the `create_*_at` methods** (the config or the grid). fdtdx converts a plane's physical size to
+  cells from the bottom of the domain, which is wrong where the cells differ; with `grid=` the plane's faces snap to the
+  nearest edges at its own height.
+- **Fill fractions stay exact.** A level's part of a cell is its overlap with the cell's own height, and the Ex and Ey
+  samples average over the cells between neighbouring cell centers (the dual cells), as fdtdx staggers them.
+
 ## Precision
 
 The whole simulation runs in the `StackDevice`'s `dtype`, `jnp.float32` (the default) or `jnp.float64`, and the device
