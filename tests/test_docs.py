@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 MARKDOWN = sorted(p for p in DOCS.rglob("*.md") if "_build" not in p.parts)
 HARDWARE = os.environ.get("BIFROST_HARDWARE") == "1"
+#: folders `make docs` generates before the build; links into them may be missing in a fresh checkout
+GENERATED = (DOCS / "demo" / "notebook",)
 
 SNIPPET = re.compile(r'--8<--\s+"([^":]+)(?::([\w-]+))?"')
 FENCE = re.compile(r"^(```|~~~).*?^\1", re.S | re.M)
@@ -95,6 +97,8 @@ def test_internal_links_and_images_exist(page: Path) -> None:
             continue
         target, _, anchor = link.partition("#")
         resolved = (base / target).resolve() if target else page
+        if any(resolved.is_relative_to(folder) for folder in GENERATED):
+            continue
         if resolved.is_dir():
             resolved = resolved / "index.md"
         assert resolved.exists(), f"{page.relative_to(DOCS)} links to {link}, which does not exist"
@@ -223,3 +227,32 @@ def test_the_documentation_builds_strictly(tmp_path: Path) -> None:
         ["zensical", "build", "--strict", "-f", str(DOCS / "zensical.yml")], capture_output=True, text=True, cwd=ROOT,
     )
     assert done.returncode == 0, (done.stdout + done.stderr)[-3000:]
+
+
+# ------------------------------------------------------------------ the Widget Demo notebook
+
+NOTEBOOK = DOCS / "notebooks" / "widget_demo.py"
+
+
+def test_the_widget_demo_page_embeds_the_exported_notebook() -> None:
+    """`make demo-notebook` exports to docs/demo/notebook, and the page's iframe points there."""
+    assert 'src="demo/notebook/index.html"' in (DOCS / "live-demo.md").read_text()
+    assert "-o docs/demo/notebook" in (ROOT / "Makefile").read_text()
+
+
+def test_the_notebook_never_imports_bifrost_and_the_bundle_still_offers_what_it_calls() -> None:
+    """A browser kernel has no jax, fdtdx or gdsfactory, so the notebook only replays the exported files."""
+    source = NOTEBOOK.read_text()
+    assert not re.search(r"^\s*(import|from)\s+bifrost", source, re.MULTILINE)
+    assert "mountInto" in source and "mountInto" in (DOCS / "demo" / "viewer-demo.js").read_text()
+
+
+@pytest.mark.skipif(shutil.which("marimo") is None, reason="marimo is not installed (pip install -e '.[docs]')")
+def test_the_widget_demo_notebook_exports_to_wasm(tmp_path: Path) -> None:
+    command = ["marimo", "export", "html-wasm", str(NOTEBOOK), "-o", str(tmp_path)]
+    done = subprocess.run(
+        [*command, "--mode", "run", "--no-show-code", "--no-sandbox", "-f"],
+        check=False, capture_output=True, text=True, cwd=ROOT,
+    )
+    assert done.returncode == 0, (done.stdout + done.stderr)[-3000:]
+    assert (tmp_path / "index.html").is_file() and (tmp_path / "assets").is_dir()

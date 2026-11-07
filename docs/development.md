@@ -58,6 +58,7 @@ Its pieces:
 | the regeneration script | `scripts/build_demo.py` |
 | the browser adapter that stands in for the kernel | `js/viewer/static.ts`, entry `js/viewer/demo.ts` |
 | the page, bundle and data that are published | `docs/demo/` (`index.html`, `viewer-demo.js`, `viewer.css`, `data/`) |
+| the notebook around it (the Widget Demo page embeds it) | `docs/notebooks/widget_demo.py`, exported to `docs/demo/notebook/` by `make demo-notebook`; the export is generated, not committed |
 
 To regenerate it after changing the example, the viewer or the export format, run on a GPU node, then commit `docs/demo/`:
 
@@ -69,7 +70,8 @@ python scripts/capture_demo_poster.py   # the fallback picture, from the viewer'
 
 `docs/demo/data/manifest.json` records the source revision (and whether the working tree was dirty), the package
 versions, the device, the simulation parameters, the measured transmission, wall time and memory, and the size of every
-file. The documentation build only copies `docs/demo/`; it never reruns the simulation. The demo is about 17 MB, 15 of
+file. The documentation build copies `docs/demo/` and first exports the notebook (`make docs` runs `make demo-notebook`); it never reruns the simulation.
+The notebook is a marimo WASM export (`marimo export html-wasm`) and never imports bifrost: its widget loads `docs/demo/viewer-demo.js` on `docs/demo/data/`, so it only works from `docs/demo/notebook/`. The demo is about 17 MB, 15 of
 them the field movie: the 2D slices are stored at 0.1 µm spacing and the fields as 16-bit numbers against a per-file
 range.
 

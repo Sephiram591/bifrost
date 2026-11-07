@@ -3,7 +3,7 @@ title: Widget Demo
 ---
 
 <div class="bf-live-demo" style="background: #101014 url(../images/viewer-demo.png) center / cover no-repeat;">
-  <iframe src="demo/index.html" title="bifrost viewer: a precomputed 90 degree waveguide bend" loading="lazy" allowfullscreen></iframe>
+  <iframe src="demo/notebook/index.html" title="bifrost viewer: a precomputed 90 degree waveguide bend, in a marimo notebook" loading="lazy" allowfullscreen></iframe>
 </div>
 
 <div class="bf-live-demo-notes" markdown>
@@ -11,10 +11,12 @@ title: Widget Demo
 The viewer on the result of the [bend tutorial](getting-started.md), in your browser with no installation and no
 Python. Drag to orbit, scroll to zoom, and use the **Result** tab to choose what to display.
 
-[Open the demo full screen](demo/index.html){ target="_blank" }
+[Open the demo full screen](demo/notebook/index.html){ target="_blank" } ·
+[the same viewer without the notebook](demo/index.html){ target="_blank" }
 
-The demo needs a browser with WebGL. If it does not load, the picture behind it shows the same result; reload the page to
-try again.
+The demo is a [marimo](https://marimo.io) notebook that runs in your browser: it starts a Python runtime there
+(Pyodide), so the first load takes a few seconds longer than the plain viewer. It needs a browser with WebGL. If it does
+not load, the picture behind it shows the same result; reload the page to try again, or use the plain viewer.
 
 ## What the demo can and cannot do
 
@@ -36,6 +38,11 @@ The demo's data is the output of one real run of `examples/waveguide_bend.py`, e
 [Contributing and tests](development.md#the-live-demo)). `docs/demo/data/manifest.json` records the source revision, the package
 versions, the simulation parameters, and the size of every file. The documentation build only publishes those prepared
 files; it never reruns the simulation.
+
+The page around the viewer is a notebook, [`docs/notebooks/widget_demo.py`](https://github.com/Sephiram591/bifrost/blob/main/docs/notebooks/widget_demo.py),
+exported with `marimo export html-wasm` when the docs are built. It does not import bifrost (jax, fdtdx and gdsfactory do not
+run in a browser): its widget loads the same viewer bundle on the exported files, and one of its cells reads the run's
+`manifest.json` for the summary under the viewer.
 
 To run the viewer on your own devices, see the [Viewer guide](guide/viewer.md).
 

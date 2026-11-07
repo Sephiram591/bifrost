@@ -36,7 +36,7 @@ Issues = "https://github.com/Sephiram591/bifrost/issues"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-xdist", "pytest-randomly", "ruff", "mypy", "marimo", "playwright"]
-docs = ["zensical>=0.0.46,<0.1.0", "mkdocstrings[python]"]
+docs = ["zensical>=0.0.46,<0.1.0", "mkdocstrings[python]", "marimo>=0.23"]
 meep = ["meep"]
 
 [tool.flit.module]

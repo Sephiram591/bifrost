@@ -1,4 +1,4 @@
-.PHONY: install test test-js test-docs test-hardware viewer-js demo docs docs-serve clean
+.PHONY: install test test-js test-docs test-hardware viewer-js demo demo-notebook docs docs-serve clean
 
 install: ## Install bifrost with its dev and docs extras
 	pip install -e ".[dev,docs]"
@@ -22,11 +22,15 @@ demo: viewer-js ## Regenerate the live demo's data and poster (needs a GPU; comm
 viewer-js: ## Rebuild the committed viewer bundle from js/ (output: bifrost/viewer/static)
 	cd js && npm install && npm run build && npm run typecheck
 
-docs: ## Build the docs site (strict)
+demo-notebook: ## Export the Widget Demo notebook (docs/notebooks/widget_demo.py) to docs/demo/notebook
+	marimo export html-wasm docs/notebooks/widget_demo.py -o docs/demo/notebook --mode run --no-show-code --no-sandbox -f
+	rm -f docs/demo/notebook/CLAUDE.md  # marimo's editor-assistant prompt: no use in a run-mode export
+
+docs: demo-notebook ## Build the docs site (strict)
 	zensical build --strict -f docs/zensical.yml
 
-docs-serve: ## Serve the docs locally
+docs-serve: demo-notebook ## Serve the docs locally
 	zensical serve -f docs/zensical.yml -a localhost:8080
 
 clean:
-	rm -rf docs/_build build dist
+	rm -rf docs/_build docs/demo/notebook build dist

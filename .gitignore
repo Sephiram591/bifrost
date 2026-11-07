@@ -231,3 +231,6 @@ examples/output/
 
 # esbuild also writes the demo bundle's stylesheet next to it; the page loads viewer.css instead
 docs/demo/viewer-demo.css
+
+# the Widget Demo notebook, exported at docs build time (make demo-notebook)
+docs/demo/notebook/

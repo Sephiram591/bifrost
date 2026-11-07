@@ -24,6 +24,8 @@ playwright_sync = pytest.importorskip("playwright.sync_api")
 
 ROOT = Path(os.environ.get("BIFROST_DEMO_ROOT", Path(__file__).resolve().parents[1] / "docs"))
 DEMO = ROOT / "demo"
+#: the built site (``make docs``), for the checks of the Widget Demo page around the notebook
+SITE = Path(os.environ.get("BIFROST_SITE_ROOT", ROOT / "_build" / "html"))
 
 if not (DEMO / "viewer-demo.js").exists() or not (DEMO / "data" / "manifest.json").exists():
     pytest.skip("the demo bundle or its data is not built (make viewer-js; python scripts/build_demo.py)", allow_module_level=True)
@@ -350,3 +352,83 @@ def test_a_failing_slice_download_reports_the_error(browser, base_url):
         assert "yz.json" in d.page.locator("#status").inner_text()
     finally:
         d.close()
+
+
+# --------------------------------------------------------------------- the notebook and the page around it
+
+needs_notebook = pytest.mark.skipif(
+    not (DEMO / "notebook" / "index.html").exists(), reason="the notebook is not exported (make demo-notebook)"
+)
+needs_site = pytest.mark.skipif(
+    not (SITE / "live-demo" / "index.html").exists(), reason="the site is not built (make docs)"
+)
+NAV_TABS = ["Home", "Installation", "Getting started", "Widget Demo", "User guide", "Examples", "API reference", "Development"]
+
+
+class _PrefixHandler(_Handler):
+    """Serves the site under /bifrost/ like GitHub Pages does for a project, so a path that only works at the root fails."""
+
+    def translate_path(self, path: str) -> str:
+        return super().translate_path(path.removeprefix("/bifrost"))
+
+
+@pytest.fixture(scope="module")
+def site_url():
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), functools.partial(_PrefixHandler, directory=str(SITE)))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}/bifrost"
+    server.shutdown()
+
+
+def _console_errors(page) -> list[str]:
+    """Errors only: marimo's own warnings (preloaded images, a secure-context notice) are not ours."""
+    errors: list[str] = []
+    page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    return errors
+
+
+@needs_notebook
+def test_the_notebook_runs_python_in_the_browser_and_shows_the_viewer(browser, base_url):
+    context = browser.new_context(viewport={"width": 1200, "height": 800})
+    try:
+        page = context.new_page()
+        errors = _console_errors(page)
+        page.goto(f"{base_url}/demo/notebook/index.html")
+        # the viewer sits in a shadow root (marimo's), which these locators see into
+        page.locator(".gfx-shell .gfx-menubar").wait_for(timeout=120000)
+        page.locator(".gfx-field-group").nth(len(MANIFEST["fields"]) - 1).wait_for(timeout=60000)
+        assert page.locator(".gfx-shell canvas").first.is_visible()
+        assert "gfx-active" in page.get_by_role("button", name="Result", exact=True).get_attribute("class")
+        assert page.locator("button[title*='Precomputed demo']").is_visible()
+        # the summary under the viewer is a Python cell that read manifest.json in Pyodide
+        summary = page.get_by_text("simulated with fdtdx").first
+        summary.wait_for(timeout=60000)
+        assert f"transmission {MANIFEST['result']['transmission']:.3f}" in summary.inner_text()
+        assert page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 1
+        # marimo asks the server for an optional /wasm/controller.js; a static host answers 404, which is fine
+        assert not [e for e in errors if "controller.js" not in e and "404" not in e], errors
+    finally:
+        context.close()
+
+
+@needs_notebook
+@needs_site
+def test_the_widget_demo_page_keeps_the_site_menu_around_the_notebook(browser, site_url):
+    # the theme shows the tab bar from 76.25em (1220 px) up; narrower, the menu is its drawer
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    try:
+        page = context.new_page()
+        page.goto(f"{site_url}/live-demo/")
+        tabs = [t.strip() for t in page.locator(".md-tabs__link").all_inner_texts()]
+        assert tabs == NAV_TABS, tabs
+        frame = page.frame_locator("iframe")
+        frame.locator(".gfx-shell .gfx-menubar").wait_for(timeout=120000)
+        assert frame.locator(".gfx-shell canvas").first.is_visible()
+        box = page.locator("iframe").bounding_box()
+        assert box["height"] > 400 and box["width"] > 800, box
+        # the rest of the site is still one click away from the page
+        page.locator(".md-tabs__link", has_text="Installation").click()
+        page.wait_for_url("**/bifrost/installation/")
+    finally:
+        context.close()
