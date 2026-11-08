@@ -29,6 +29,7 @@ widget's current setup by name, grid shape, grid spacing and plane position.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -44,6 +45,9 @@ TRANSFORMS = ("real", "imag", "abs", "phase", "logabs")
 #: x and y samples lie on the cell's lower edge, z samples at its centre. The
 #: browser draws every sample as a cell, so it shifts the raster by this much.
 _SAMPLE_SHIFT = (-0.5, -0.5, 0.0)
+
+#: The most points an in-plane axis of graded cells is resampled onto (an even grid at its finest cell).
+_MAX_RESAMPLED = 2048
 
 #: The number of grid points a grid extent may differ by before a result is
 #: refused as "recorded on a different device" (spec Q23).
@@ -204,9 +208,13 @@ def field_payload(result: Any, name: str, spec_id: str) -> dict[str, Any] | None
     frames, kind = found
     complex_valued = kind == "freq"
     recorded = int(frames.shape[0])
+    # on a non-uniform grid, the in-plane axes whose cells differ are resampled onto even grids
+    plane_axes = [i for i in range(2, frames.ndim) if frames.shape[i] > 1]
+    resample = _even_axes(result, name, [i - 2 for i in plane_axes]) if len(plane_axes) == 2 else []
+    growth = math.prod(len(r[1]) / len(r[0]) for r in resample if r is not None)
     # thin the frames on the device, before the host copy, when they would not
     # fit the wire budget (float32, twice over for a complex field)
-    frame_bytes = int(np.prod(frames.shape[1:])) * 4 * (2 if complex_valued else 1)
+    frame_bytes = int(np.prod(frames.shape[1:]) * growth) * 4 * (2 if complex_valued else 1)
     stride = max(1, -(-recorded * frame_bytes // _MAX_FIELD_BYTES))
     phasor = np.asarray(frames[::stride] if stride > 1 else frames)
     components = _detector_components(result, name)
@@ -223,6 +231,9 @@ def field_payload(result: Any, name: str, spec_id: str) -> dict[str, Any] | None
         return None
     # drop the normal axis, leaving (num_freqs, components, u, v) in stack order
     plane = np.squeeze(phasor, axis=tuple(i for i in range(2, phasor.ndim) if i not in in_plane))
+    for k, r in enumerate(resample):  # graded cells onto an even grid, which the browser draws
+        if r is not None:
+            plane = np.moveaxis(np.tensordot(plane, _interp_matrix(*r), axes=([2 + k], [1])), -1, 2 + k)
     # The browser textures a plane row-major with the rows as v and the columns
     # as u (the same order the 2D blit and the 3D ``DataTexture`` use), so the
     # field is transposed to (num_freqs, components, v, u). Sending it in stack
@@ -261,6 +272,46 @@ def field_payload(result: Any, name: str, spec_id: str) -> dict[str, Any] | None
             # no on-mask or clock: the frames are ordered but not timed
             entry["times"] = [float(i) for i in range(recorded)][::stride]
     return entry
+
+
+def _even_axes(result: Any, name: str, stack_axes: list[int]) -> list[tuple[np.ndarray, np.ndarray] | None]:
+    """Per in-plane stack axis of a detector: (its samples' positions, those of an even grid), or None.
+
+    None where the axis's cells are all one size (or the grid is uniform or unknown). Otherwise the samples
+    are where fdtdx records them (a cell's lower edge along x and y, its center along z) and the even grid
+    has the finest of the axis's cells over the detector's extent (at most ``_MAX_RESAMPLED`` points), with
+    the same offset of its samples from its cells' centers, so the browser draws it as a uniform plane.
+    """
+    grid = getattr(getattr(result, "config", None), "resolved_grid", None)
+    if grid is None or getattr(grid, "is_uniform", True):
+        return [None] * len(stack_axes)
+    try:
+        slices = tuple(result.objects[name].grid_slice)
+    except (AttributeError, KeyError, TypeError, IndexError):
+        return [None] * len(stack_axes)
+    out = []
+    for a in stack_axes:
+        e = np.asarray(grid.edges(a), dtype=np.float64)[slices[a].start : slices[a].stop + 1]
+        w = np.diff(e)
+        if len(w) < 2 or np.max(np.abs(w - w[0])) <= 1e-4 * w[0]:
+            out.append(None)
+            continue
+        shift = _SAMPLE_SHIFT[a]
+        old = e[:-1] if shift == -0.5 else 0.5 * (e[:-1] + e[1:])
+        n = int(min(_MAX_RESAMPLED, max(len(w), math.ceil((e[-1] - e[0]) / np.min(w) - 1e-9))))
+        new = e[0] + (np.arange(n) + 0.5 + shift) * ((e[-1] - e[0]) / n)
+        out.append((old, new))
+    return out
+
+
+def _interp_matrix(old: np.ndarray, new: np.ndarray) -> np.ndarray:
+    """(len(new), len(old)) weights of linear interpolation from points ``old`` to ``new`` (held at the ends)."""
+    idx = np.clip(np.searchsorted(old, new) - 1, 0, len(old) - 2)
+    t = np.clip((new - old[idx]) / (old[idx + 1] - old[idx]), 0.0, 1.0)
+    m = np.zeros((len(new), len(old)))
+    m[np.arange(len(new)), idx] = 1.0 - t
+    m[np.arange(len(new)), idx + 1] = t
+    return m
 
 
 def validate_result(state: Any, result: Any) -> None:
@@ -411,8 +462,11 @@ def validate_foreign_result(
     volume = getattr(objects, "volume", None)
     if detectors is None or volume is None:
         raise ValueError("the result needs .objects.detectors and .objects.volume")
+    from .adopt import config_edges_um
+
     resolution = _config_spacing(config)
-    if resolution is None or not resolution > 0:
+    edges = config_edges_um(config) if resolution is None else None  # a non-uniform grid: its edges
+    if (resolution is None or not resolution > 0) and edges is None:
         raise ValueError("the result needs a positive grid resolution (.config.grid.spacing)")
 
     for obj in detectors:
@@ -444,11 +498,16 @@ def validate_foreign_result(
         real_shape_m = tuple(float(v) for v in stack.partial_real_shape)
         grid_shape = tuple(int(v) for v in volume.grid_shape)
         for i in range(3):
-            grid_m = grid_shape[i] * float(resolution)
-            if abs(grid_m - real_shape_m[i]) > float(resolution):
+            if edges is None:
+                grid_m, cell_m = grid_shape[i] * float(resolution), float(resolution)
+                cells = f"{grid_shape[i]} cells at {float(resolution)} m"
+            else:  # the volume's extent from the edges; a tolerance of its largest cell
+                grid_m = float(edges[i][-1]) * 1e-6
+                cell_m = float(np.max(np.diff(edges[i]))) * 1e-6
+                cells = f"{grid_shape[i]} cells, {grid_m:g} m"
+            if abs(grid_m - real_shape_m[i]) > cell_m:
                 raise ValueError(
-                    f"the result's grid extent along axis {i} ({grid_shape[i]} cells "
-                    f"at {float(resolution)} m) does not fit the stack's box "
+                    f"the result's grid extent along axis {i} ({cells}) does not fit the stack's box "
                     f"({real_shape_m[i]:g} m, tolerance one cell); pass the stack "
                     "the result was recorded on"
                 )

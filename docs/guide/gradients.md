@@ -95,6 +95,11 @@ Where a surface lies exactly on a voxel face (a thickness or `zmin` that is a wh
 bottom, at some Yee position), the voxel fractions have a kink: the derivative there is the mean of the two one-sided
 ones, half of the surface's movement in each of the two voxels, with every material's fraction changing consistently.
 
+On a [non-uniform grid](simulation-setup.md#graded-z-grids) the grid is part of the compiled program, like a uniform
+one: a fixed grid compiles once, and the derivatives are those of that grid's discretization (none with respect
+to the cell edges). The kinks above sit on that grid's own voxel faces, so they are closer together in fine cells;
+refine where an interface whose position you optimize can move.
+
 ## Polygon topology
 
 The device takes a few things from the vertices it is built with, once, and indexes later vertices with them by polygon

@@ -10,6 +10,8 @@
   finite-difference normals. `bf.graded_edges` places graded edges (fine regions, a growth limit,
   interfaces on edges, uniform cells under the PML), `StackDevice.rectilinear_grid` builds the grid over the box, and
   the `create_*_at` methods take `grid=` to give port planes whole cells there. Uniform grids are unchanged, bit for bit.
+- The viewer adopts results recorded on non-uniform grids (detectors at their physical extent, from the grid's
+  edges) and draws their field planes resampled onto an even grid at each graded axis's finest cell.
 - `place_on_grid` warns when a level that `from_layer_stack` left out (outside the box by more than `level_margin` and
   a 0.1 um slack) is sampled by a coarse cell at the box's face; build the device with a larger `level_margin` then.
 

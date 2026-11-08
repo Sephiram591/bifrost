@@ -544,6 +544,46 @@ def test_normal_squared_uses_the_cell_sizes():
     assert float(np.asarray(_normal_squared(q))[0, 2, 3, 1]) == pytest.approx(0.8)  # undivided: biased
 
 
+def test_viewer_adopts_and_draws_a_graded_result():
+    """A result on a graded z grid: its detector is adopted at its physical extent, the result is accepted for
+    its stack, and an xz plane's field reaches the browser on an even z grid at the finest cell."""
+    from types import SimpleNamespace
+
+    pytest.importorskip("anywidget")
+    d = slab_device(width=0.4)
+    g = d.rectilinear_grid(H, z_um=Z_EDGES - 0.2)
+    det = fdtdx.PhasorDetector(
+        name="xz", wave_characters=(fdtdx.WaveCharacter(wavelength=1.55e-6),), components=("Ex",),
+        partial_grid_shape=(None, 1, None),
+    )
+    volume, placing = d.get_simulation_volume()
+    objects, _, _, cfg, _ = fdtdx.place_objects(
+        object_list=[volume, d, det], config=config(g),
+        constraints=[*placing, det.same_size(volume, axes=(0, 2)), det.place_at_center(volume)],
+        key=jax.random.PRNGKey(0),
+    )
+    state = bf.viewer.state.ViewerState(d)
+    specs = {s.params["name"]: s for s in bf.viewer.adopt.adopt_result(state, objects, cfg)}
+    glyph = specs["xz"].glyph
+    assert glyph is not None and glyph["axis"] == 1
+    assert glyph["v_half"] == pytest.approx(0.25, abs=1e-6)  # z: the whole 0.5 um box, from the graded edges
+    # a field linear in z, at the Ex samples (cell centers along z)
+    nx, _, nz = objects["xz"].grid_shape
+    zc = 0.5 * (Z_EDGES[:-1] + Z_EDGES[1:])  # um from the box's bottom
+    phasor = np.broadcast_to(zc[None, None, :], (nx, 1, nz)).astype(np.complex64)[None, None, None]
+    result = SimpleNamespace(
+        objects=objects, arrays=SimpleNamespace(detector_states={"xz": {"phasor": phasor}}), config=cfg
+    )
+    bf.viewer.fields.validate_foreign_result(objects, result.arrays, cfg, d)
+    entry = bf.viewer.fields.field_payload(result, "xz", "id")
+    nv, nu = entry["grid"]  # (v, u) = (z, x)
+    assert nu == nx and nv == 25  # z on an even grid at its finest cell, 0.02 um
+    real = np.frombuffer(entry["real"], dtype=np.float32).reshape(1, 1, nv, nu)
+    even = (np.arange(nv) + 0.5) * (0.5 / nv)  # the even grid's sample heights (um from the bottom)
+    inside = (even >= zc[0]) & (even <= zc[-1])
+    np.testing.assert_allclose(real[0, 0, inside, 0], even[inside], atol=1e-5)
+
+
 def test_random_field_with_two_lengths():
     key = jax.random.PRNGKey(1)
     a = gaussian_random_field((20, 30), 3.0, key)

@@ -18,7 +18,8 @@ StackDevice 'stack', level 'core': 1 part narrower than 0.075 um (1.5 cells); th
 One `StackDiagnosticWarning` per level and kind of problem, about:
 
 - **Narrow parts and gaps.** Parts of a level, or gaps in it, narrower than 1.5 cells divided by `xy_subsamples`
-  (sub-samples resolve thinner features), between any two edges that face each other at less than 90°. That includes a
+  (sub-samples resolve thinner features; where the x and y cells differ in size, the larger one), between any two
+  edges that face each other at less than 90°. That includes a
   corner pointing at an edge or at another corner, and a V-notch that nearly cuts through a part. The two sides of one
   corner (sharp, cut, blunt or rounded) are the corner, not a narrow part, where they meet at 45° or more. Sides meeting
   at a smaller angle (a needle or a taper) are measured where they do not touch, so a sharp tip is never reported but a
