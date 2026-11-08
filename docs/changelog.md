@@ -2,12 +2,13 @@
 
 ## Unreleased
 
-- [Graded z grids](guide/simulation-setup.md#graded-z-grids): a `StackDevice` runs on an fdtdx `RectilinearGrid` whose
-  z cells differ (x and y uniform; every averaging). Fill fractions stay exact, Ex and Ey average over the dual
-  cells between cell centers, and `averaging="subpixel_full"` solves a junction voxel's cell problem on its own box
-  (`bf.subpixel.periodic_cell_tensor(..., sides=...)`). x and y may each have their own (uniform) cell size: a voxel
-  is then painted as a rectangle with Euclidean normals and round corners, with per-axis roughness and
-  finite-difference normals. `bf.graded_edges` places graded edges (fine regions, a growth limit,
+- [Graded grids](guide/simulation-setup.md#graded-grids): a `StackDevice` runs on an fdtdx `RectilinearGrid` whose
+  cells differ along any axis (every averaging). Fill fractions stay exact, each field component averages over the dual
+  cells between cell centers along the axes it is staggered on, and `averaging="subpixel_full"` solves a junction
+  voxel's cell problem on its own box (`bf.subpixel.periodic_cell_tensor(..., sides=...)`). Where the x and y cells
+  differ, a voxel is painted as a rectangle with Euclidean normals and round corners; on graded x or y every column on
+  its own (half-planes, corner model, sub-samples and junctions), with roughness drawn on an even lattice and
+  interpolated to the columns, and finite-difference normals from the distances between cell centers. `bf.graded_edges` places graded edges (fine regions, a growth limit,
   interfaces on edges, uniform cells under the PML), `StackDevice.rectilinear_grid` builds the grid over the box, and
   the `create_*_at` methods take `grid=` to give port planes whole cells there. Uniform grids are unchanged, bit for bit.
 - The viewer adopts results recorded on non-uniform grids (detectors at their physical extent, from the grid's

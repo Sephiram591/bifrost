@@ -98,11 +98,14 @@ Levels are painted by increasing `mesh_order` by clipping each voxel exactly, bo
 level surfaces; the background gets the rest. Laterally, each level is one half-plane per voxel, taken from its distance
 and gradient at the voxel center, which is exact wherever at most one edge of the level crosses the voxel.
 
-On a [non-uniform grid](simulation-setup.md#graded-z-grids) the voxels are the grid's own cells. Along a graded z
+On a [non-uniform grid](simulation-setup.md#graded-grids) the voxels are the grid's own cells. Along a graded z
 axis each voxel layer is clipped between its own bottom and top, so a level's part of a cell is its overlap with
 that cell's height; Ex and Ey, which fdtdx samples on the cells' lower faces, average over the dual cells between
-neighbouring cell centers. Where the x and y cells differ in size, the lateral cell is painted as a rectangle in a
-frame scaled the same way along x and y, so distances, normals, sidewall slopes and round corners stay Euclidean.
+neighbouring cell centers (and likewise along x and y for the components staggered there). Where the x and y cells
+differ in size, the lateral cell is painted as a rectangle in a frame scaled the same way along x and y, so distances,
+normals, sidewall slopes and round corners stay Euclidean. On graded x or y every column has its own rectangle: the
+half-planes, the corner model and the full-tensor faces are painted in that column's cell, and its tolerances scale with
+it.
 
 ## Corners
 

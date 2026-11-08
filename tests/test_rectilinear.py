@@ -167,15 +167,6 @@ def test_coarse_grid_warns_about_a_dropped_level():
         place(d, UniformGrid(spacing=0.4e-6))  # half a 0.4 um cell under the box reaches it
 
 
-def test_graded_xy_is_not_supported_yet():
-    d = device()
-    sx, sy, sz = (s * 1e6 for s in d.partial_real_shape)
-    x = np.concatenate([np.linspace(-sx / 2, 0.0, 8), np.linspace(0.0, sx / 2, 15)[1:]])  # two sizes
-    g = grid(x, np.linspace(-sy / 2, sy / 2, 10), np.linspace(-sz / 2, sz / 2, 7))
-    with pytest.raises(NotImplementedError, match="one size"):
-        place(d, g)
-
-
 # ---------------------------------------------------------------- graded z
 
 H = 0.05  # um, the lateral cells
@@ -589,3 +580,198 @@ def test_random_field_with_two_lengths():
     a = gaussian_random_field((20, 30), 3.0, key)
     b = gaussian_random_field((20, 30), (3.0, 3.0), key)
     np.testing.assert_allclose(np.asarray(a), np.asarray(b), atol=1e-5)
+
+
+# ---------------------------------------------------------------- graded x and y
+
+# x edges (um, stack x) over BOX_XY: 20 nm cells from 0.2 to 0.9 um, growing to 60 nm outside
+X_GRADED = bf.graded_edges(BOX_XY[0], BOX_XY[1], 0.06, fine=[(0.2, 0.9, 0.02)], growth=1.25)
+
+
+def x_graded_grid(d: bf.StackDevice, dy: float = 0.02, dz: float = 0.02) -> RectilinearGrid:
+    """X_GRADED along x, dy and dz cells along y and z, over the device's box (BOX_XY)."""
+    _, sy, sz = (s * 1e6 for s in d.partial_real_shape)
+    middle = 0.5 * (BOX_XY[0] + BOX_XY[1])
+    return grid(X_GRADED - middle, np.linspace(-sy / 2, sy / 2, round(sy / dy) + 1),
+                np.linspace(-sz / 2, sz / 2, round(sz / dz) + 1))
+
+
+def dual_cells(e: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """[C_{i-1}, C_i] between neighbouring cell centers (the first cell mirrored below the first edge)."""
+    c = 0.5 * (e[:-1] + e[1:])
+    return np.concatenate([[e[0] - 0.5 * (e[1] - e[0])], c[:-1]]), c
+
+
+Y_EDGES = BOX_XY[2] + 0.02 * np.arange(66)  # um: the y edges of x_graded_grid over BOX_XY
+
+
+def sample_boxes(e: np.ndarray, shifted: bool) -> tuple[np.ndarray, np.ndarray]:
+    """The sample boxes along an axis of edges e: the cells, or on a Yee-shifted axis the dual cells."""
+    return dual_cells(e) if shifted else (e[:-1], e[1:])
+
+
+def exact_areas(polygon, x: tuple, y: tuple, erode: float = 0.0) -> np.ndarray:
+    """(nx, ny) fraction of every box [x_lo, x_hi] x [y_lo, y_hi] (um) inside the polygon eroded by ``erode`` um
+    (its signed distance's level set: round at reflex corners)."""
+    shapely = pytest.importorskip("shapely")
+    shape = shapely.Polygon(polygon)
+    if erode:
+        shape = shape.buffer(-erode, join_style="round", quad_segs=256)
+    xl, yl = np.meshgrid(x[0], y[0], indexing="ij")
+    xh, yh = np.meshgrid(x[1], y[1], indexing="ij")
+    return shapely.area(shapely.intersection(shape, shapely.box(xl, yl, xh, yh))) / ((xh - xl) * (yh - yl))
+
+
+def y_graded_grid(d: bf.StackDevice, dx: float = 0.02, dz: float = 0.02) -> RectilinearGrid:
+    """X_GRADED along y over a transposed lateral_device (its y spans BOX_XY's x), dx and dz cells along x and z."""
+    sx, _, sz = (s * 1e6 for s in d.partial_real_shape)
+    middle = 0.5 * (BOX_XY[0] + BOX_XY[1])
+    return grid(np.linspace(-sx / 2, sx / 2, round(sx / dx) + 1), X_GRADED - middle,
+                np.linspace(-sz / 2, sz / 2, round(sz / dz) + 1))
+
+
+def test_graded_x_strip_fractions_are_exact():
+    """corner_lines=0 on graded x: a strip with edges along y fills each column (its own cell, or for Ey, which
+    fdtdx samples on the x faces, the dual cell) exactly by its overlap."""
+    _, _, y0, y1 = BOX_XY
+    strip = [(0.33, y0 - 0.5), (0.87, y0 - 0.5), (0.87, y1 + 0.5), (0.33, y1 + 0.5)]
+    d = lateral_device(strip, shrink=(0.0, 0.5), corner_lines=0)
+    placed = place(d, x_graded_grid(d))["s"]
+    frame = placed.grid_frame  # the frame unit: the smallest lateral width (the fine x cells, about 0.02 um)
+    assert frame.widths[0] is None and frame.widths[1] == pytest.approx(0.02 / frame.h_um)
+    span = (0.33, 0.87)
+    names, w = placed.material_weights()
+    np.testing.assert_allclose(np.asarray(w[names.index("si")])[:, 20, CORE_LAYER],
+                               overlap(span, X_GRADED[:-1], X_GRADED[1:]), atol=2e-5)
+    names, w = placed.material_weights(shift=(-0.5, 0.0, -0.5))  # Ey
+    np.testing.assert_allclose(np.asarray(w[names.index("si")])[:, 20, CORE_LAYER],
+                               overlap(span, *dual_cells(X_GRADED)), atol=2e-5)
+
+
+def test_graded_x_strip_along_x_matches_the_uniform_grid():
+    """A strip with edges along x (sloped walls): every graded column is the uniform grid's column."""
+    x0, x1, _, _ = BOX_XY
+    strip = [(x0 - 0.5, 0.13), (x1 + 0.5, 0.13), (x1 + 0.5, 0.42), (x0 - 0.5, 0.42)]
+    d = lateral_device(strip, angle=20.0, shrink=(0.5, 0.0), corner_lines=0)
+    _, wg = place(d, x_graded_grid(d))["s"].material_weights()
+    _, wu = place(d, lateral_grid(d, 0.02, 0.02))["s"].material_weights()
+    wg, wu = np.asarray(wg), np.asarray(wu)
+    np.testing.assert_allclose(wg, np.broadcast_to(wu[:, :1], wg.shape), atol=2e-5)
+
+
+def test_graded_x_averaging_takes_the_horizontal_interface():
+    """Per-column normal tensors on graded x: the core (everywhere laterally) ends at 0.22 um, a voxel face; Ex
+    and Ey sample the dual cells 0.21 to 0.23 um, half silicon, and see the mean eps (the normal along z) in every
+    graded column, while Ez sees silicon below the face and air above it."""
+    d = lateral_device([(-0.3, -0.3), (1.5, -0.3), (1.5, 1.2), (-0.3, 1.2)], shrink=(0.1, 0.1), corner_lines=0)
+    objects, arrays, params = place_all(d, lateral_grid_x(d))
+    out, _, _ = bf.apply_stack(arrays, objects, params, jax.random.PRNGKey(0))
+    inv = np.asarray(out.inv_permittivities[:, :, 30, :])  # (3, nx, nz); voxel layer k is -0.1 + 0.02 k um
+    np.testing.assert_allclose(inv[2, :, 15], 1.0 / 12.0, rtol=1e-5)
+    np.testing.assert_allclose(inv[2, :, 16], 1.0, rtol=1e-5)
+    np.testing.assert_allclose(inv[0, :, 16], 2.0 / 13.0, rtol=1e-5)
+    np.testing.assert_allclose(inv[1, :, 16], 2.0 / 13.0, rtol=1e-5)
+
+
+def lateral_grid_x(d: bf.StackDevice) -> RectilinearGrid:
+    """X_GRADED along x over a device whose box is BOX_XY shrunk by 0.1 um: its own graded edges."""
+    sx, sy, sz = (s * 1e6 for s in d.partial_real_shape)
+    x = bf.graded_edges(-sx / 2, sx / 2, 0.06, fine=[(-0.3, 0.3, 0.02)], growth=1.25)
+    return grid(x, np.linspace(-sy / 2, sy / 2, round(sy / 0.02) + 1), np.linspace(-sz / 2, sz / 2, round(sz / 0.02) + 1))
+
+
+def test_graded_x_traces_once_and_roughness_runs():
+    rough = bf.TopRoughness(level="core", rms=0.004, correlation_length=0.1)
+    d = lateral_device(L_SHAPE, angle=10.0, roughness=(rough,))  # with the corner model (corner_lines=2)
+    placed = place(d, x_graded_grid(d))["s"]
+    offsets = placed.interface_offsets(jax.random.PRNGKey(2))
+    assert offsets[0].shape == tuple(placed.grid_shape[:2]) and bool(jnp.all(jnp.isfinite(offsets[0])))
+    p0 = placed.init_params()
+    traces = []
+
+    def weights(t: jax.Array) -> jax.Array:
+        traces.append(t)
+        return placed.material_weights({**p0, "thickness/core": t})[1]
+
+    f = jax.jit(weights)
+    for t in (0.22, 0.21):
+        assert bool(jnp.all(jnp.isfinite(f(jnp.asarray(t, dtype=jnp.float32)))))
+    assert len(traces) == 1
+
+
+@pytest.mark.parametrize(
+    ("shift", "subsamples"),
+    [((0.0, 0.0, 0.0), 1), ((-0.5, 0.0, -0.5), 1), ((0.0, -0.5, -0.5), 1), ((0.0, 0.0, 0.0), 2), ((-0.5, 0.0, -0.5), 2)],
+)
+def test_graded_x_corners_get_exact_areas(shift: tuple[float, float, float], subsamples: int):
+    """The corner model on graded x: every voxel of a rotated non-convex polygon, at its corners too, gets its exact
+    area, on the cells and on the Yee positions' dual cells, also painted on sub-samples."""
+    d = lateral_device(L_SHAPE, xy_subsamples=subsamples)
+    placed = place(d, x_graded_grid(d))["s"]
+    names, w = placed.material_weights(shift=shift)
+    exact = exact_areas(L_SHAPE, sample_boxes(X_GRADED, shift[0] != 0), sample_boxes(Y_EDGES, shift[1] != 0))
+    assert ((exact > 0) & (exact < 1)).sum() > 50
+    tol = 1e-4 if subsamples == 1 else 1e-3  # sub-samples blend the corner model by the voxel's certificate
+    np.testing.assert_allclose(np.asarray(w[names.index("si")])[:, :, CORE_LAYER], exact, atol=tol)
+
+
+def test_graded_x_sloped_corners_follow_the_eroded_polygon():
+    """15 degree walls on graded x: the layer 0.10 to 0.12 um holds the polygon eroded by z tan(15 deg) (round at
+    its reflex corner), averaged over the layer's heights. Its volume, summed over cells of different areas, is
+    exact; per voxel the half-planes paint a wall at its mean offset over the layer, which differs from the mean
+    area where the wall crosses a cell's corner within the layer (by up to 1.1e-2 of the voxel here, on a uniform
+    0.02 um grid too), and these errors cancel along the edge."""
+    angle = 15.0
+    d = lateral_device(L_SHAPE, angle=angle)
+    names, w = place(d, x_graded_grid(d))["s"].material_weights()
+    nodes, gauss = np.polynomial.legendre.leggauss(8)
+    boxes = (sample_boxes(X_GRADED, False), sample_boxes(Y_EDGES, False))
+    exact = sum(0.5 * g * exact_areas(L_SHAPE, *boxes, (0.11 + 0.01 * x) * math.tan(math.radians(angle)))
+                for x, g in zip(nodes, gauss, strict=True))
+    got = np.asarray(w[names.index("si")])[:, :, CORE_LAYER]
+    edge = (exact > 0) & (exact < 1)
+    assert edge.sum() > 50
+    areas = np.outer(np.diff(X_GRADED), np.diff(Y_EDGES))
+    assert np.sum(got * areas) == pytest.approx(np.sum(exact * areas), rel=1e-4)
+    assert np.abs(got - exact)[edge].mean() < 1.5e-3
+    assert np.abs(got - exact).max() < 1.5e-2
+
+
+def test_graded_y_is_graded_x_transposed():
+    d = lateral_device(L_SHAPE, angle=15.0)
+    _, w = place(d, x_graded_grid(d))["s"].material_weights()
+    t = lateral_device(L_SHAPE, angle=15.0, transpose=True)
+    _, wt = place(t, y_graded_grid(t))["s"].material_weights()
+    np.testing.assert_allclose(np.asarray(wt), np.asarray(w).transpose(0, 2, 1, 3), atol=1e-4)
+
+
+def test_graded_x_corner_tensors_keep_ez_along_vertical_walls():
+    """The corner model's normal tensors on graded x: vertical walls are parallel to Ez, which sees the mean eps of
+    its exact (dual x and y cell) fractions in every voxel inside the core, at corners too."""
+    d = lateral_device(L_SHAPE)
+    objects, arrays, params = place_all(d, x_graded_grid(d))
+    out, _, _ = bf.apply_stack(arrays, objects, params, jax.random.PRNGKey(0))
+    inv = np.asarray(out.inv_permittivities[2, :, :, CORE_LAYER])
+    exact = exact_areas(L_SHAPE, dual_cells(X_GRADED), dual_cells(Y_EDGES))
+    np.testing.assert_allclose((1.0 / inv - 1.0) / 11.0, exact, atol=1e-4)  # eps = 1 + 11 f
+
+
+@pytest.mark.parametrize("angle", [0.0, 15.0])
+def test_graded_x_full_averaging_closes_corners(angle: float):
+    """averaging="subpixel_full" on graded x: the junction voxels' closure solves on every voxel's own box and stays
+    between the materials; with vertical walls (z-invariant: the cell problem's zz entry is the mean eps) Ez keeps
+    the mean eps of its exact dual-cell fractions in every voxel inside the core, junctions at corners too."""
+    d = lateral_device(L_SHAPE, angle=angle, averaging="subpixel_full")
+    objects, arrays, params = place_all(d, x_graded_grid(d))
+    out, status = objects["s"].write_with_status(arrays, params["s"])
+    assert int(status["junctions"]) > 0 and int(status["junction_overflow"]) == 0
+    assert float(status["closure_residual"]) < 1e-3
+    inv = np.asarray(out.inv_permittivities)
+    inv = inv.reshape(3, 3, *inv.shape[1:])
+    assert np.all(np.isfinite(inv))
+    diagonal = inv[[0, 1, 2], [0, 1, 2]]
+    assert diagonal.min() > 1.0 / 12.0 - 1e-5 and diagonal.max() < 1.0 + 1e-5
+    assert np.abs(inv[[0, 0, 1, 1, 2, 2], [1, 2, 0, 2, 0, 1]]).max() < 0.5 * (1.0 - 1.0 / 12.0)
+    if angle == 0.0:
+        exact = exact_areas(L_SHAPE, dual_cells(X_GRADED), dual_cells(Y_EDGES))
+        np.testing.assert_allclose((1.0 / inv[2, 2, :, :, CORE_LAYER] - 1.0) / 11.0, exact, atol=1e-4)

@@ -118,10 +118,11 @@ sources are still updated, and devices win where they overlap a stack. `bf.init_
 stack's own parameters (vertices, heights, thicknesses), which is what you differentiate; see
 [Gradients](gradients.md).
 
-## Graded z grids
+## Graded grids
 
-The cells can have different heights: fine cells where the layers are, coarse ones in the cladding above and below.
-`bf.graded_edges` places the z edges and `StackDevice.rectilinear_grid` turns them into fdtdx's grid over the box:
+The cells can have different sizes along every axis: fine cells where the layers and the edges are, coarse ones in the
+cladding around them. `bf.graded_edges` places the edges of one axis and `StackDevice.rectilinear_grid` turns them into
+fdtdx's grid over the box, here graded along z:
 
 ```python
 half = 0.5 * stack.partial_real_shape[2] * 1e6  # the box's half height (um)
@@ -135,19 +136,23 @@ config = stack.get_simulation_config(time=100e-15, grid=stack.rectilinear_grid(0
 source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid=config)
 ```
 
-- **x and y stay uniform**, each with one cell size, which may differ (pass `x_um` / `y_um` edges to
-  `rectilinear_grid` for a size other than `spacing_um`, e.g. coarser along a waveguide); only z may be graded so
-  far, with any averaging. A voxel is then painted as a rectangle, its normals and round corners kept Euclidean, and
-  with `"subpixel_full"` a junction voxel's closure solves its cell problem on the voxel's own box. Keep the
-  cells within a factor 16 of square (a placement warning says when they are not).
+- **x and y may be graded too**, with any averaging: pass `x_um` / `y_um` edges to `rectilinear_grid` (from
+  `graded_edges`, e.g. fine across a gap and coarse along the waveguides, or uniform ones of a size other than
+  `spacing_um`). Every column of voxels is painted on its own lateral cell, a rectangle of the cell's aspect in a frame
+  scaled the same way along x and y, so normals, sidewall slopes and round corners stay Euclidean; the corner model and
+  `xy_subsamples` work per column, and with `"subpixel_full"` a junction voxel's closure solves its cell problem on the
+  voxel's own box. Rough surfaces on graded x or y are drawn on an even lattice at the finest cell and interpolated to
+  the columns, so they come out slightly smoothed in the coarse ones. Keep the cells within a factor 16 of square (a
+  placement warning says when they are not).
 - **The smallest cell sets the time step** of the whole simulation. Grading saves cells and memory (also the gradient's
   checkpoints), not time steps. `graded_edges` keeps neighbouring cells within a factor `growth` (1.25) and does not
   make slivers: a `snap` coordinate within half a cell of another edge is dropped, with a warning.
 - **Pass `grid=` to the `create_*_at` methods** (the config or the grid). fdtdx converts a plane's physical size to
   cells from the bottom of the domain, which is wrong where the cells differ; with `grid=` the plane's faces snap to the
   nearest edges at its own height.
-- **Fill fractions stay exact.** A level's part of a cell is its overlap with the cell's own height, and the Ex and Ey
-  samples average over the cells between neighbouring cell centers (the dual cells), as fdtdx staggers them.
+- **Fill fractions stay exact.** A level's part of a cell is its overlap with the cell, and each field component
+  averages over the cells between neighbouring cell centers (the dual cells) along the axes fdtdx staggers it on: Ex
+  along y and z, Ey along x and z, Ez along x and y.
 
 ## Precision
 
