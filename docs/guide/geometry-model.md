@@ -195,7 +195,10 @@ by what the voxel holds there:
   parallel layers of any number and order (with scalar materials it is the usual
   `<1/eps> n n^T + (I - n n^T) / <eps>` for the inverse);
 - a junction (a corner, a wall meeting a surface, three materials): the closure. The voxel's own model is cut into
-  4 x 4 x 4 sub-cells (`junction_cells`), each the laminate of its own faces, and homogenized by a periodic cell problem
+  4 x 4 x 4 sub-cells (`junction_cells`), each the laminate of its own faces (along their leading direction; where a
+  sub-cell's two largest face directions weigh nearly the same, as at a corner inside it, that direction is not defined
+  and the laminate blends smoothly toward the laminates along x, y and z weighted by its faces), and homogenized by a
+  periodic cell problem
   (trilinear finite elements, one Cholesky factorization for the three fields, the energy of the computed fields).
 
 A voxel is a junction where its interface direction tensor `D = sum_faces (area contrast^2 fade) N N^T` spreads off its

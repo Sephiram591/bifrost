@@ -117,8 +117,11 @@ where rounding puts it next to it ((0 + 0.56) / 0.04 is not exact in binary): bo
 response, which is not differentiable there.
 
 With `subpixel_full` the uniform grid's bump has its corner (0, 0.4) on a cell's corner, its two walls on the cell's
-faces. There the junction closure's inverse permittivity jumps by 2.3e-3 (in 40 voxels by more than 1e-6) as the
-sidewall angle or zmin moves the corner by about 1e-8 um around the cell's corner, so the central differences of
-zmin, sidewall angle and the vertex do not converge (they differ by 7e-2 to 1.1 between the two steps). This is the
-uniform grids' code, unchanged since 0.2.0; on the graded grid the corner is inside a cell and every derivative
-agrees.
+faces. Until the junction sub-cells' fix (see the changelog) the closure's inverse permittivity jumped there by 2.3e-3
+(in 40 voxels by more than 1e-6) as the sidewall angle or zmin moved the corner by about 1e-8 um: a sub-cell holding
+the corner switched its laminate between the two walls' normals at round-off. The central differences of zmin,
+sidewall angle and the vertex did not converge (they differed by 7e-2 to 1.1 between the two steps; errors 0.088, 1.1
+and 0.65). With the fix the tensor is continuous and they converge: sidewall angle 1.5e-9, zmin 2.2e-7, and the vertex
+1.2e-3 at 1e-5 um (1e-1 at 1e-4 um: second order, the blend is steep where the corner sits on a sub-cell's corner too;
+a band of 0.05 to 0.3 instead of 0.02 to 0.1 gives 1.8e-5, but `validate_closure.py`'s median error of the written
+tensor grows from 5.1 % to 5.8 %). The graded results above are unchanged by it (zmin 9.6e-5).

@@ -13,6 +13,11 @@
   the `create_*_at` methods take `grid=` to give port planes whole cells there. Uniform grids are unchanged, bit for bit.
 - The viewer adopts results recorded on non-uniform grids (detectors at their physical extent, from the grid's
   edges) and draws their field planes resampled onto an even grid at each graded axis's finest cell.
+- `averaging="subpixel_full"`: a junction sub-cell whose two largest face directions weigh nearly the same (a polygon
+  corner in it) blends its laminate toward a direction-free one instead of switching it between the walls' normals at
+  round-off, so the written tensor is continuous there (a corner on a cell's corner made it jump by about 2e-3, and
+  finite differences did not converge). Other sub-cells keep their laminate exactly; the closure's accuracy against
+  the finite-element reference (`benchmarks/subpixel/validate_closure.py`) is unchanged.
 - `place_on_grid` warns when a level that `from_layer_stack` left out (outside the box by more than `level_margin` and
   a 0.1 um slack) is sampled by a coarse cell at the box's face; build the device with a larger `level_margin` then.
 
