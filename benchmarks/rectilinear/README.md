@@ -92,3 +92,33 @@ of them on the sloped walls) is uniform 20 nm's within 1.5e-6 (Ex, Ey) and 3.0e-
 3.7e-5: the float32 positions of the grid's edges (about 1e-5 of a cell). At 20 nm fdtdx's neff still moves by a
 few 1e-3 with where the cells fall on the sloped walls (40, 20 and 10 nm: 2.3814, 2.3781, 2.3801), which is the
 difference of the graded grid whose fine cells are 19.9 nm.
+
+## Gradients on graded grids (`graded_gradients.py`, `results/gradients.json`)
+
+A silicon strip with a bump on one side (8 degree walls) in silica, 2.4 x 2.0 x 1.32 um, float64 on a CPU; graded
+along x, y and z (25 nm around the bump and the core, 50 nm elsewhere) or uniform 40 nm. `jax.grad` against central
+differences (steps 1e-4 and 1e-5 um, 1e-3 and 1e-4 degrees; the error against the smaller) of the silicon fractions
+weighted by a fixed random field (`weights`), and of the energy of Ey at 1.55 um on a plane past the bump in a full
+fdtdx run from a point dipole (`fdtd`, backward through the checkpointed loop; a dipole and a phasor detector read no
+mode, so both sides differentiate the same function), for the core's thickness, zmin and sidewall angle and a vertex
+of the bump. The largest relative error over the four parameters:
+
+| grid, averaging | weights | fdtd |
+|---|---|---|
+| graded, subpixel | 3.2e-7 | 4.2e-7 |
+| graded, subpixel_full | 3.2e-7 | 9.7e-5 (zmin; its two differences differ by 7e-3) |
+| uniform 40 nm, subpixel (core from 0.013 um) | 1.2e-10 | 1.6e-7 |
+| uniform 40 nm, subpixel_full (core from 0.013 um) | 1.2e-10 | thickness 4.5e-9; see below |
+
+On the uniform grid with the core from 0 um, its bottom lies on a cell face and its top on a face of Ex's and Ey's
+dual cells: the fractions have kinks there, which the central differences straddle. Autodiff gives the mean of the
+two sides where the surface's frame coordinate is on the face exactly (the dual faces here) and one side's slope
+where rounding puts it next to it ((0 + 0.56) / 0.04 is not exact in binary): both are slopes of the discretized
+response, which is not differentiable there.
+
+With `subpixel_full` the uniform grid's bump has its corner (0, 0.4) on a cell's corner, its two walls on the cell's
+faces. There the junction closure's inverse permittivity jumps by 2.3e-3 (in 40 voxels by more than 1e-6) as the
+sidewall angle or zmin moves the corner by about 1e-8 um around the cell's corner, so the central differences of
+zmin, sidewall angle and the vertex do not converge (they differ by 7e-2 to 1.1 between the two steps). This is the
+uniform grids' code, unchanged since 0.2.0; on the graded grid the corner is inside a cell and every derivative
+agrees.
