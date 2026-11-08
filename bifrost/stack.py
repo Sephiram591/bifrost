@@ -229,6 +229,11 @@ _GL3 = ((0.5 - 0.5 * math.sqrt(0.6), 5 / 18), (0.5, 8 / 18), (0.5 + 0.5 * math.s
 # _JUNCTION_HIGH a junction (the closure), with a smooth step between
 _JUNCTION_LOW = 0.002
 _JUNCTION_HIGH = 0.02
+# the junction closure's sub-cells: the gap between the two largest eigenvalues of a sub-cell's direction tensor
+# (over its trace) below which its laminate blends away from the leading direction (fully below the first; see
+# _junction_cells), and the trace below which it has no faces
+_SUBCELL_GAP = (0.02, 0.1)
+_NO_FACES = 1e-15
 # sides of the square: a face next to a part thinner than this (the part's area over the face's length)
 # counts less, t / (t + _FACE_THICKNESS), so the faces of a sliver fade in with it
 _FACE_THICKNESS = 0.1
@@ -3086,9 +3091,28 @@ def _junction_cells(
         vertical_d = vertical[..., None] * jnp.where(some[..., None], mix, up)
     else:
         vertical_d = vertical[..., None] * jnp.asarray([0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=dtype)
-    direction = lateral_d + vertical_d  # (N, n n, m, 6)
-    normal, _ = principal_direction(from_six(direction))
+    direction = from_six(lateral_d + vertical_d)  # (N, n n, m, 3, 3)
+    normal, _ = principal_direction(direction)
     coefficients = laminate(level_eps, fractions, normal)  # (N, n n, m, 3, 3)
+    # Where a sub-cell's two largest face directions weigh nearly the same (a corner in it with two walls of like
+    # weight), its leading direction is not defined: it would switch between the walls' normals at round-off as
+    # the corner moves, and the laminate with it. There the laminate blends, by a smooth step in the gap between
+    # the two largest eigenvalues, toward one that needs no direction: the laminates along x, y and z weighted by
+    # the direction tensor's diagonal (continuous in it). Elsewhere it is the leading direction's, exactly.
+    lam = jnp.linalg.eigvalsh(direction)  # ascending
+    trace = jnp.sum(lam, axis=-1)
+    some = trace > _NO_FACES
+    gap = jnp.where(some, (lam[..., 2] - lam[..., 1]) / jnp.where(some, trace, 1.0), 1.0)
+    x = jnp.clip((gap - _SUBCELL_GAP[0]) / (_SUBCELL_GAP[1] - _SUBCELL_GAP[0]), 0.0, 1.0)
+    keep = x * x * (3.0 - 2.0 * x)  # 1: the leading direction's laminate
+    share = jnp.diagonal(direction, axis1=-2, axis2=-1) / jnp.where(some, trace, 1.0)[..., None]
+    axes = sum(
+        share[..., a, None, None]
+        * laminate(level_eps, fractions, jnp.broadcast_to(jnp.asarray(np.eye(3)[a], dtype=dtype), normal.shape))
+        for a in range(3)
+    )
+    coefficients = jnp.where((keep < 1.0)[..., None, None], axes + keep[..., None, None] * (coefficients - axes),
+                             coefficients)
     shape = (offsets.shape[0], nxs, nys, nzs)
     return fractions.reshape(*shape, -1), coefficients.reshape(*shape, 3, 3)
 
