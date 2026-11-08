@@ -1318,13 +1318,25 @@ def _nearest_scan(points: Array, a: Array, b: Array, index: Array, counted: Arra
 
 
 def gaussian_random_field(
-    shape: tuple[int, int], correlation_length: float, key: Array
+    shape: tuple[int, int], correlation_length: float | tuple[float, float], key: Array
 ) -> Array:
     """Unit-variance Gaussian random field with covariance exp(-r^2 / L^2).
 
     White noise filtered in Fourier space on a grid padded by 3 L on each side,
-    so the field is not periodic over ``shape``. Lengths are in cells.
+    so the field is not periodic over ``shape``. Lengths are in cells; a pair
+    (Lx, Ly) is one length on cells of different sizes along x and y
+    (covariance ``exp(-(x / Lx)^2 - (y / Ly)^2)`` in cells).
     """
+    if isinstance(correlation_length, tuple):
+        lx, ly = correlation_length
+        pad = (math.ceil(3 * lx), math.ceil(3 * ly))
+        n = (shape[0] + 2 * pad[0], shape[1] + 2 * pad[1])
+        w = jax.random.normal(key, n)
+        kx = 2 * jnp.pi * jnp.fft.fftfreq(n[0])
+        ky = 2 * jnp.pi * jnp.fft.fftfreq(n[1])
+        h = jnp.exp(-(kx[:, None] ** 2 * lx**2 + ky[None, :] ** 2 * ly**2) / 8)
+        f = jnp.fft.ifft2(jnp.fft.fft2(w) * h).real / jnp.sqrt(jnp.mean(h**2))
+        return f[pad[0] : pad[0] + shape[0], pad[1] : pad[1] + shape[1]]
     pad = math.ceil(3 * correlation_length)
     n = (shape[0] + 2 * pad, shape[1] + 2 * pad)
     w = jax.random.normal(key, n)

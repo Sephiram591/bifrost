@@ -1,0 +1,1085 @@
+{
+ "note": "jax.grad against central differences (the two steps of PARAMS in graded_gradients.py; rel_err against the smaller), float64, CPU; zmin is the core's bottom (um)",
+ "rows": [
+  {
+   "kind": "graded",
+   "averaging": "subpixel",
+   "target": "weights",
+   "param": "thickness/core",
+   "grad": 24600.765061599173,
+   "fd": [
+    24600.765067502834,
+    24600.76506181394
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 8.730138202491469e-12,
+   "fd_spread": 2.3124862106012088e-10,
+   "seconds": 9.5,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel",
+   "target": "weights",
+   "param": "zmin/core",
+   "grad": 633.8973268648979,
+   "fd": [
+    633.8767689476299,
+    633.8971217701328
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 3.2354582160897777e-07,
+   "fd_spread": 3.2107453723824966e-05,
+   "seconds": 8.4,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel",
+   "target": "weights",
+   "param": "sidewall_angle/core",
+   "grad": -57.810928960758645,
+   "fd": [
+    -57.810928829439945,
+    -57.81092896086193
+   ],
+   "steps": [
+    0.001,
+    0.0001
+   ],
+   "rel_err": 1.7865911156697014e-12,
+   "fd_spread": 2.2733069121785083e-09,
+   "seconds": 9.5,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel",
+   "target": "weights",
+   "param": "vertex",
+   "grad": 445.64238326556443,
+   "fd": [
+    435.2170911124631,
+    445.642363592924
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 4.4144457557805644e-08,
+   "fd_spread": 0.023393809323711403,
+   "seconds": 10.6,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel",
+   "target": "fdtd",
+   "param": "thickness/core",
+   "grad": -5.714175950942113e-05,
+   "fd": [
+    -5.714174160675973e-05,
+    -5.714175933029734e-05
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 3.1347265848772877e-09,
+   "fd_spread": 3.1016786703558393e-07,
+   "seconds": 80.3,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel",
+   "target": "fdtd",
+   "param": "zmin/core",
+   "grad": -4.570212744530379e-07,
+   "fd": [
+    -4.5700416266900154e-07,
+    -4.5702108208436025e-07
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 4.209186079244228e-07,
+   "fd_spread": 3.702108288210832e-05,
+   "seconds": 70.3,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel",
+   "target": "fdtd",
+   "param": "sidewall_angle/core",
+   "grad": 9.717728000766873e-08,
+   "fd": [
+    9.717728107902707e-08,
+    9.717728004056468e-08
+   ],
+   "steps": [
+    0.001,
+    0.0001
+   ],
+   "rel_err": 3.3851486541903105e-10,
+   "fd_spread": 1.0686267334301673e-08,
+   "seconds": 70.0,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel",
+   "target": "fdtd",
+   "param": "vertex",
+   "grad": -5.215962861780602e-07,
+   "fd": [
+    -5.207190291478016e-07,
+    -5.215963118777693e-07
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 4.927126312358542e-08,
+   "fd_spread": 0.0016819189668145396,
+   "seconds": 190.6,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel_full",
+   "target": "weights",
+   "param": "thickness/core",
+   "grad": 24600.765061599173,
+   "fd": [
+    24600.765067502834,
+    24600.76506181394
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 8.730138202491469e-12,
+   "fd_spread": 2.3124862106012088e-10,
+   "seconds": 8.3,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel_full",
+   "target": "weights",
+   "param": "zmin/core",
+   "grad": 633.8973268648979,
+   "fd": [
+    633.8767689476299,
+    633.8971217701328
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 3.2354582160897777e-07,
+   "fd_spread": 3.2107453723824966e-05,
+   "seconds": 6.8,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel_full",
+   "target": "weights",
+   "param": "sidewall_angle/core",
+   "grad": -57.810928960758645,
+   "fd": [
+    -57.810928829439945,
+    -57.81092896086193
+   ],
+   "steps": [
+    0.001,
+    0.0001
+   ],
+   "rel_err": 1.7865911156697014e-12,
+   "fd_spread": 2.2733069121785083e-09,
+   "seconds": 8.2,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel_full",
+   "target": "weights",
+   "param": "vertex",
+   "grad": 445.64238326556443,
+   "fd": [
+    435.2170911124631,
+    445.642363592924
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 4.4144457557805644e-08,
+   "fd_spread": 0.023393809323711403,
+   "seconds": 9.1,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel_full",
+   "target": "fdtd",
+   "param": "thickness/core",
+   "grad": -5.706482887901746e-05,
+   "fd": [
+    -5.706343563063919e-05,
+    -5.706472659924616e-05
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 1.7923466455952853e-06,
+   "fd_spread": 2.2622882538825e-05,
+   "seconds": 438.2,
+   "cells": [
+    64,
+    61,
+    36
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "target": "weights",
+   "param": "thickness/core",
+   "grad": 8192.45288608324,
+   "fd": [
+    8192.4528891318,
+    8192.45288608954
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 7.691199914718654e-13,
+   "fd_spread": 3.7134907209488883e-10,
+   "seconds": 8.0,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "target": "weights",
+   "param": "zmin/core",
+   "grad": -238.86660778251212,
+   "fd": [
+    -217.45001041153955,
+    -217.43640256772775
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 0.09855849784908587,
+   "fd_spread": 6.258309855710145e-05,
+   "seconds": 6.1,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "target": "weights",
+   "param": "sidewall_angle/core",
+   "grad": -20.128167722706824,
+   "fd": [
+    -20.12816772617043,
+    -20.128167720940837
+   ],
+   "steps": [
+    0.001,
+    0.0001
+   ],
+   "rel_err": 8.773707039089027e-11,
+   "fd_spread": 2.598147336458052e-10,
+   "seconds": 7.6,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "target": "weights",
+   "param": "vertex",
+   "grad": 114.49032622391675,
+   "fd": [
+    114.49032639006873,
+    114.49032622294907
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 8.452139003842858e-12,
+   "fd_spread": 1.4596837232885087e-09,
+   "seconds": 7.8,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "target": "fdtd",
+   "param": "thickness/core",
+   "grad": -3.7691754092265996e-05,
+   "fd": [
+    -5.0950781672156315e-05,
+    -5.095911619094954e-05
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 0.2603530651703072,
+   "fd_spread": 0.0001635530483298333,
+   "seconds": 44.5,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "target": "fdtd",
+   "param": "zmin/core",
+   "grad": -4.3160313238721535e-05,
+   "fd": [
+    -4.1547771831679746e-05,
+    -4.156884941990189e-05
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 0.03828501007433954,
+   "fd_spread": 0.0005070524807946689,
+   "seconds": 39.5,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "target": "fdtd",
+   "param": "sidewall_angle/core",
+   "grad": 5.418806050472747e-08,
+   "fd": [
+    5.418806035835226e-08,
+    5.418806052606478e-08
+   ],
+   "steps": [
+    0.001,
+    0.0001
+   ],
+   "rel_err": 3.937640318202418e-10,
+   "fd_spread": 3.0950087884337685e-09,
+   "seconds": 45.0,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "target": "fdtd",
+   "param": "vertex",
+   "grad": -2.1786120625229644e-07,
+   "fd": [
+    -2.1786210115882685e-07,
+    -2.178612152470673e-07
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 4.128670097647806e-08,
+   "fd_spread": 4.066404194776326e-06,
+   "seconds": 48.5,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "target": "weights",
+   "param": "thickness/core",
+   "grad": 8192.45288608324,
+   "fd": [
+    8192.4528891318,
+    8192.45288608954
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 7.691199914718654e-13,
+   "fd_spread": 3.7134907209488883e-10,
+   "seconds": 6.9,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "target": "weights",
+   "param": "zmin/core",
+   "grad": -238.86660778251212,
+   "fd": [
+    -217.45001041153955,
+    -217.43640256772775
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 0.09855849784908587,
+   "fd_spread": 6.258309855710145e-05,
+   "seconds": 5.5,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "target": "weights",
+   "param": "sidewall_angle/core",
+   "grad": -20.128167722706824,
+   "fd": [
+    -20.12816772617043,
+    -20.128167720940837
+   ],
+   "steps": [
+    0.001,
+    0.0001
+   ],
+   "rel_err": 8.773707039089027e-11,
+   "fd_spread": 2.598147336458052e-10,
+   "seconds": 6.3,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "target": "weights",
+   "param": "vertex",
+   "grad": 114.49032622391675,
+   "fd": [
+    114.49032639006873,
+    114.49032622294907
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 8.452139003842858e-12,
+   "fd_spread": 1.4596837232885087e-09,
+   "seconds": 7.9,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "target": "fdtd",
+   "param": "thickness/core",
+   "grad": -3.770542010659369e-05,
+   "fd": [
+    -5.208563998414047e-05,
+    -5.123760572833945e-05
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 0.2641065176521534,
+   "fd_spread": 0.01655101255701282,
+   "seconds": 236.7,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "target": "fdtd",
+   "param": "zmin/core",
+   "grad": -0.00017764895567822534,
+   "fd": [
+    -4.345464743977697e-05,
+    -4.212535350909808e-05
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 3.2171505015348383,
+   "fd_spread": 0.03155567419491906,
+   "seconds": 246.7,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "target": "fdtd",
+   "param": "sidewall_angle/core",
+   "grad": 4.9550172705001886e-08,
+   "fd": [
+    6.33410263267483e-08,
+    1.4958378550297257e-07
+   ],
+   "steps": [
+    0.001,
+    0.0001
+   ],
+   "rel_err": 0.668746364865748,
+   "fd_spread": 0.5765515218526839,
+   "seconds": 255.0,
+   "cells": [
+    60,
+    50,
+    33
+   ],
+   "zmin": 0.0
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel_full",
+   "zmin": 0.0,
+   "target": "fdtd",
+   "param": "sidewall_angle/core",
+   "grad": 9.91453687741548e-08,
+   "fd": [
+    9.914520488708205e-08,
+    9.91453693266703e-08
+   ],
+   "steps": [
+    0.001,
+    0.0001
+   ],
+   "rel_err": 5.5727815875866035e-09,
+   "fd_spread": 1.658570535012635e-06,
+   "seconds": 367.9,
+   "cells": [
+    64,
+    61,
+    36
+   ]
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel_full",
+   "zmin": 0.0,
+   "target": "fdtd",
+   "param": "vertex",
+   "grad": -3.09728046872328e-07,
+   "fd": [
+    -3.0578173426356247e-07,
+    -3.0973611262613554e-07
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 2.6040727828414475e-05,
+   "fd_spread": 0.012766927075585039,
+   "seconds": 383.7,
+   "cells": [
+    64,
+    61,
+    36
+   ]
+  },
+  {
+   "kind": "graded",
+   "averaging": "subpixel_full",
+   "zmin": 0.0,
+   "target": "fdtd",
+   "param": "zmin/core",
+   "grad": -7.692941148104671e-07,
+   "fd": [
+    -7.635335016626939e-07,
+    -7.692198189990141e-07
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 9.658592981864173e-05,
+   "fd_spread": 0.007392317769086979,
+   "seconds": 403.0,
+   "cells": [
+    64,
+    61,
+    36
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "zmin": 0.013,
+   "target": "weights",
+   "param": "thickness/core",
+   "grad": 8192.452884954359,
+   "fd": [
+    8192.45288800289,
+    8192.452884964041
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 1.1818780932930679e-12,
+   "fd_spread": 3.7093276152690807e-10,
+   "seconds": 7.5,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "zmin": 0.013,
+   "target": "weights",
+   "param": "zmin/core",
+   "grad": -246.74960061919364,
+   "fd": [
+    -246.74960328638917,
+    -246.7496006488545
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 1.2020634465816262e-10,
+   "fd_spread": 1.068911421387318e-08,
+   "seconds": 6.3,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "zmin": 0.013,
+   "target": "fdtd",
+   "param": "thickness/core",
+   "grad": -3.608245220115573e-05,
+   "fd": [
+    -3.608559282435173e-05,
+    -3.608245203783002e-05
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 4.526458253065261e-09,
+   "fd_spread": 8.704470855869269e-05,
+   "seconds": 282.2,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "zmin": 0.013,
+   "target": "fdtd",
+   "param": "zmin/core",
+   "grad": -3.635245175458323e-06,
+   "fd": [
+    -3.5732366660340344e-06,
+    -3.3408901784371527e-06
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 0.0881067563731975,
+   "fd_spread": 0.0695462811368352,
+   "seconds": 289.6,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "zmin": 0.013,
+   "target": "fdtd",
+   "param": "sidewall_angle/core",
+   "grad": 5.8073239441350574e-08,
+   "fd": [
+    5.8715002486530604e-08,
+    2.7768295890562658e-08
+   ],
+   "steps": [
+    0.001,
+    0.0001
+   ],
+   "rel_err": 1.091350498072421,
+   "fd_spread": 1.114461856713559,
+   "seconds": 336.4,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel_full",
+   "zmin": 0.013,
+   "target": "fdtd",
+   "param": "vertex",
+   "grad": -2.5772844757681673e-07,
+   "fd": [
+    -3.1376948844080244e-07,
+    -7.307953689148827e-07
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 0.6473315807138963,
+   "fd_spread": 0.5706465834523538,
+   "seconds": 333.2,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "zmin": 0.013,
+   "target": "weights",
+   "param": "thickness/core",
+   "grad": 8192.452884954359,
+   "fd": [
+    8192.45288800289,
+    8192.452884964041
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 1.1818780932930679e-12,
+   "fd_spread": 3.7093276152690807e-10,
+   "seconds": 8.2,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "zmin": 0.013,
+   "target": "weights",
+   "param": "zmin/core",
+   "grad": -246.74960061919364,
+   "fd": [
+    -246.74960328638917,
+    -246.7496006488545
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 1.2020634465816262e-10,
+   "fd_spread": 1.068911421387318e-08,
+   "seconds": 6.2,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "zmin": 0.013,
+   "target": "weights",
+   "param": "sidewall_angle/core",
+   "grad": -19.95885524450062,
+   "fd": [
+    -19.958855245931773,
+    -19.958855243658036
+   ],
+   "steps": [
+    0.001,
+    0.0001
+   ],
+   "rel_err": 4.2215992954512354e-11,
+   "fd_spread": 1.1392120072391451e-10,
+   "seconds": 7.5,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "zmin": 0.013,
+   "target": "weights",
+   "param": "vertex",
+   "grad": 110.21696177911305,
+   "fd": [
+    110.21696192983654,
+    110.21696177522243
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 3.5299642809544524e-11,
+   "fd_spread": 1.4028159642757536e-09,
+   "seconds": 8.6,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "zmin": 0.013,
+   "target": "fdtd",
+   "param": "thickness/core",
+   "grad": -3.601138553338862e-05,
+   "fd": [
+    -3.601271732055329e-05,
+    -3.601138534734392e-05
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 5.166274310443112e-09,
+   "fd_spread": 3.6987558143643964e-05,
+   "seconds": 80.1,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "zmin": 0.013,
+   "target": "fdtd",
+   "param": "zmin/core",
+   "grad": -3.3725431490174116e-06,
+   "fd": [
+    -3.3711563034231044e-06,
+    -3.37254305936925e-06
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 2.6581769338012404e-08,
+   "fd_spread": 0.0004111899897891662,
+   "seconds": 76.0,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "zmin": 0.013,
+   "target": "fdtd",
+   "param": "sidewall_angle/core",
+   "grad": 5.936018559168124e-08,
+   "fd": [
+    5.936018544025777e-08,
+    5.9360185580018205e-08
+   ],
+   "steps": [
+    0.001,
+    0.0001
+   ],
+   "rel_err": 1.96479083830339e-10,
+   "fd_spread": 2.3544474285472188e-09,
+   "seconds": 78.0,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  },
+  {
+   "kind": "uniform",
+   "averaging": "subpixel",
+   "zmin": 0.013,
+   "target": "fdtd",
+   "param": "vertex",
+   "grad": -3.32521533846877e-07,
+   "fd": [
+    -3.325162632964048e-07,
+    -3.325214816969862e-07
+   ],
+   "steps": [
+    0.0001,
+    1e-05
+   ],
+   "rel_err": 1.5683164454578183e-07,
+   "fd_spread": 1.569342393989053e-05,
+   "seconds": 80.4,
+   "cells": [
+    60,
+    50,
+    33
+   ]
+  }
+ ]
+}

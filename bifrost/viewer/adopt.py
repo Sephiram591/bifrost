@@ -25,14 +25,16 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
 from .sim import TYPES, ObjectSpec, _IN_PLANE
 
-__all__ = ["adopt_result", "glyph_from_grid"]
+__all__ = ["adopt_result", "config_edges_um", "glyph_from_grid"]
 
 
 def grid_bounds_um(
     grid_slice: tuple[slice, slice, slice],
-    resolution_m: float,
+    resolution_m: Any,
     volume_grid_shape: tuple[int, int, int],
     origin_um: tuple[float, float, float],
 ) -> tuple[list[float], list[float]]:
@@ -41,8 +43,17 @@ def grid_bounds_um(
     Grid axis ``i`` spans ``grid_slice[i].start * res`` to
     ``grid_slice[i].stop * res`` from the volume corner; ``origin_um`` is the
     box center the meshes are shifted by (spec C5), so the volume corner sits
-    at ``origin - 0.5 * size`` in that frame.
+    at ``origin - 0.5 * size`` in that frame. On a non-uniform grid
+    ``resolution_m`` is instead the per-axis cell edges in µm from the volume
+    corner (:func:`config_edges_um`), and axis ``i`` spans
+    ``edges[i][start]`` to ``edges[i][stop]``.
     """
+    if isinstance(resolution_m, tuple):
+        edges = resolution_m
+        corner = [origin_um[i] - 0.5 * float(edges[i][-1]) for i in range(3)]
+        lo = [corner[i] + float(edges[i][grid_slice[i].start]) for i in range(3)]
+        hi = [corner[i] + float(edges[i][grid_slice[i].stop]) for i in range(3)]
+        return lo, hi
     res_um = float(resolution_m) * 1e6
     corner = [origin_um[i] - 0.5 * volume_grid_shape[i] * res_um for i in range(3)]
     lo = [corner[i] + grid_slice[i].start * res_um for i in range(3)]
@@ -67,7 +78,7 @@ def _sampled_center(
 
 def glyph_from_grid(
     grid_slice: tuple[slice, slice, slice],
-    resolution_m: float,
+    resolution_m: Any,
     volume_grid_shape: tuple[int, int, int],
     origin_um: tuple[float, float, float],
     spec_id: str,
@@ -125,7 +136,7 @@ def _spec_type_for(obj: Any, category: str) -> str:
 
 def _absolute_params(
     grid_slice: tuple[slice, slice, slice],
-    resolution_m: float,
+    resolution_m: Any,
     volume_grid_shape: tuple[int, int, int],
     origin_um: tuple[float, float, float],
     category: str = "source",
@@ -142,6 +153,22 @@ def _absolute_params(
         "center": center,
         "size": [hi[u_axis] - lo[u_axis], hi[v_axis] - lo[v_axis]],
     }
+
+
+def config_edges_um(config: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """A config's per-axis cell edges in µm from the grid's lower corner, where its cells differ, else None.
+
+    fdtdx resolves every grid to a ``RectilinearGrid`` in ``place_objects``; a uniform one has a spacing
+    (:func:`_config_spacing`) and gets None here.
+    """
+    grid = getattr(config, "resolved_grid", None)
+    if grid is None or getattr(grid, "is_uniform", True):
+        return None
+    out = []
+    for axis in range(3):
+        e = np.asarray(grid.edges(axis), dtype=np.float64) * 1e6
+        out.append(e - e[0])
+    return tuple(out)
 
 
 def _config_spacing(config: Any) -> float | None:
@@ -175,6 +202,8 @@ def adopt_result(state: Any, objects: Any, config: Any) -> list[ObjectSpec]:
     """
     resolution_m = _config_spacing(config)
     if resolution_m is None:
+        resolution_m = config_edges_um(config)  # a non-uniform grid: its edges
+    if resolution_m is None:
         raise ValueError("the result needs a positive grid spacing (.config.grid.spacing)")
     volume = objects.volume
     volume_grid_shape = tuple(int(v) for v in volume.grid_shape)
@@ -199,7 +228,7 @@ def _adopt_object(
     obj: Any,
     category: str,
     anchored: bool,
-    resolution_m: float,
+    resolution_m: Any,
     volume_grid_shape: tuple[int, int, int],
     origin_um: tuple[float, float, float],
 ) -> ObjectSpec:

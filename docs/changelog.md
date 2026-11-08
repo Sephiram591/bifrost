@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- [Graded grids](guide/simulation-setup.md#graded-grids): a `StackDevice` runs on an fdtdx `RectilinearGrid` whose
+  cells differ along any axis (every averaging). Fill fractions stay exact, each field component averages over the dual
+  cells between cell centers along the axes it is staggered on, and `averaging="subpixel_full"` solves a junction
+  voxel's cell problem on its own box (`bf.subpixel.periodic_cell_tensor(..., sides=...)`). Where the x and y cells
+  differ, a voxel is painted as a rectangle with Euclidean normals and round corners; on graded x or y every column on
+  its own (half-planes, corner model, sub-samples and junctions), with roughness drawn on an even lattice and
+  interpolated to the columns, and finite-difference normals from the distances between cell centers. `bf.graded_edges` places graded edges (fine regions, a growth limit,
+  interfaces on edges, uniform cells under the PML), `StackDevice.rectilinear_grid` builds the grid over the box, and
+  the `create_*_at` methods take `grid=` to give port planes whole cells there. Uniform grids are unchanged, bit for bit.
+- The viewer adopts results recorded on non-uniform grids (detectors at their physical extent, from the grid's
+  edges) and draws their field planes resampled onto an even grid at each graded axis's finest cell.
+- `averaging="subpixel_full"`: a junction sub-cell whose two largest face directions weigh nearly the same (a polygon
+  corner in it) blends its laminate toward a direction-free one instead of switching it between the walls' normals at
+  round-off, so the written tensor is continuous there (a corner on a cell's corner made it jump by about 2e-3, and
+  finite differences did not converge). Other sub-cells keep their laminate exactly; the closure's accuracy against
+  the finite-element reference (`benchmarks/subpixel/validate_closure.py`) is unchanged.
+- `place_on_grid` warns when a level that `from_layer_stack` left out (outside the box by more than `level_margin` and
+  a 0.1 um slack) is sampled by a coarse cell at the box's face; build the device with a larger `level_margin` then.
+
 ## 0.2.0
 
 - [Inverse design](guide/inverse-design.md) guide and example (`examples/guide/inverse_design.py`): the width on each

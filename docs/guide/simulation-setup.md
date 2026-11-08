@@ -118,6 +118,52 @@ sources are still updated, and devices win where they overlap a stack. `bf.init_
 stack's own parameters (vertices, heights, thicknesses), which is what you differentiate; see
 [Gradients](gradients.md).
 
+## Graded grids
+
+The cells can have different sizes along every axis: fine cells where the layers and the edges are, coarse ones in the
+cladding around them. `bf.graded_edges` places the edges of one axis and `StackDevice.rectilinear_grid` turns them into
+fdtdx's grid over the box, here graded along z:
+
+```python
+half = 0.5 * stack.partial_real_shape[2] * 1e6  # the box's half height (um)
+z = bf.graded_edges(
+    stack.z_center - half, stack.z_center + half, 0.06,  # at most 60 nm cells
+    fine=[(-0.05, 0.27, 0.02)],    # 20 nm around the 220 nm core
+    snap=[0.0, 0.22],              # the core's faces on cell edges
+    uniform_ends=(10, 10),         # 10 cells of 60 nm under each PML, whose thickness fdtdx counts in cells
+)
+config = stack.get_simulation_config(time=100e-15, grid=stack.rectilinear_grid(0.06, z_um=z))
+source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid=config)
+```
+
+- **x and y may be graded too**, with any averaging: pass `x_um` / `y_um` edges to `rectilinear_grid` (from
+  `graded_edges`, e.g. fine across a gap and coarse along the waveguides, or uniform ones of a size other than
+  `spacing_um`). Every column of voxels is painted on its own lateral cell, a rectangle of the cell's aspect in a frame
+  scaled the same way along x and y, so normals, sidewall slopes and round corners stay Euclidean; the corner model and
+  `xy_subsamples` work per column, and with `"subpixel_full"` a junction voxel's closure solves its cell problem on the
+  voxel's own box. Rough surfaces on graded x or y are drawn on an even lattice at the finest cell and interpolated to
+  the columns, so they come out slightly smoothed in the coarse ones. Keep the cells within a factor 16 of square (a
+  placement warning says when they are not).
+- **The smallest cell sets the time step** of the whole simulation. Grading saves cells and memory (also the gradient's
+  checkpoints), not time steps. `graded_edges` keeps neighbouring cells within a factor `growth` (1.25) and does not
+  make slivers: a `snap` coordinate within half a cell of another edge is dropped, with a warning.
+- **Pass `grid=` to the `create_*_at` methods** (the config or the grid). fdtdx converts a plane's physical size to
+  cells from the bottom of the domain, which is wrong where the cells differ; with `grid=` the plane's faces snap to the
+  nearest edges at its own height. The device must fill the simulation volume (`get_simulation_volume`, any
+  `boundary_offset`); a grid that spans more than its box is refused.
+- **Build the config with `get_simulation_config`.** fdtdx scales the fields by the cell widths in the dtype of the
+  grid's edges, so a float32 simulation needs float32 edges; `rectilinear_grid` makes them in the device's dtype and
+  `get_simulation_config(grid=...)` converts those of a `RectilinearGrid` built otherwise. Placing a device with a
+  config whose graded edges are in another dtype raises a `ValueError`.
+- **Fill fractions stay exact.** A level's part of a cell is its overlap with the cell, and each field component
+  averages over the cells between neighbouring cell centers (the dual cells) along the axes fdtdx staggers it on: Ex
+  along y and z, Ey along x and z, Ez along x and y.
+- **Optimizations compile once** on a fixed graded grid, like on a uniform one; a graded grid's step costs what its
+  cells cost. In `benchmarks/rectilinear` a sloped silicon strip graded in y and z gives the uniform 20 nm grid's
+  effective index within 7e-5 with 27 % of its cells, and the inverse-design bend graded to 80 nm away from the
+  guide gives the uniform 40 nm grid's transmission within 4.4e-4 with 63 %. Keep the fine cells over the mode's
+  evanescent tail, not only over the core: cells that grow too early (120 nm in the bend's silica) cost accuracy.
+
 ## Precision
 
 The whole simulation runs in the `StackDevice`'s `dtype`, `jnp.float32` (the default) or `jnp.float64`, and the device

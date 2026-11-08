@@ -229,6 +229,11 @@ _GL3 = ((0.5 - 0.5 * math.sqrt(0.6), 5 / 18), (0.5, 8 / 18), (0.5 + 0.5 * math.s
 # _JUNCTION_HIGH a junction (the closure), with a smooth step between
 _JUNCTION_LOW = 0.002
 _JUNCTION_HIGH = 0.02
+# the junction closure's sub-cells: the gap between the two largest eigenvalues of a sub-cell's direction tensor
+# (over its trace) below which its laminate blends away from the leading direction (fully below the first; see
+# _junction_cells), and the trace below which it has no faces
+_SUBCELL_GAP = (0.02, 0.1)
+_NO_FACES = 1e-15
 # sides of the square: a face next to a part thinner than this (the part's area over the face's length)
 # counts less, t / (t + _FACE_THICKNESS), so the faces of a sliver fade in with it
 _FACE_THICKNESS = 0.1
@@ -622,6 +627,150 @@ def _span(level: Any) -> tuple[float, float]:
     return min(z0, z1), max(z0, z1)
 
 
+# ---------------------------------------------------------------- grid frame
+
+# relative cell-width variation up to which an axis of a non-uniform grid counts as uniform (fdtdx's
+# own test, fdtdx.core.grid.RectilinearGrid), plus a round-off floor that grows with the coordinates
+_FRAME_RTOL = 1e-4
+# lateral cells longer than this in one direction than in the other get a placement warning
+_MAX_ASPECT = 16.0
+
+
+class _SampleAxis(NamedTuple):
+    """One axis of a sample grid: the voxel centers', or one E component's Yee positions.
+
+    Sample voxel k spans ``[lo[k], hi[k]]`` in the frame (:class:`_Frame`) moved by ``shift``.
+    On a frame-uniform axis that is the lattice the device always used: ``shift`` is the Yee
+    shift (0 or -0.5 cells), ``lo = 0, 1, ..., n - 1`` and ``hi = lo + 1``. On a graded axis
+    ``shift`` is 0 and the sample voxels are the cells (unshifted) or the dual cells between
+    neighbouring cell centers (shifted by half a cell): a Yee point lies in its dual cell, but
+    not at its center where the two cells differ.
+    """
+
+    shift: float
+    lo: np.ndarray  # (n,) frame units
+    hi: np.ndarray  # (n,) frame units
+    uniform: bool
+
+
+class _Frame(NamedTuple):
+    """The static grid frame of a placed device, from the resolved simulation grid.
+
+    Frame coordinates are lengths over ``h_um`` from the lower corner of the device's box. On a
+    uniform grid ``h_um`` is the grid spacing and every axis has the edges 0, 1, ..., n: the cell
+    frame of a uniform grid. On a non-uniform grid ``h_um`` is the lateral spacing when x and y
+    are uniform with one spacing, else the smallest lateral cell, and an axis whose cells all
+    have that width keeps the integer edges.
+    """
+
+    h_um: float
+    #: per axis, the (n + 1,) cell edges in frame units, from 0
+    edges: tuple[np.ndarray, np.ndarray, np.ndarray]
+    #: per axis, the width (frame units) of the grid cell just below the box: the box's first
+    #: cell where the box starts at the domain's lower face (mirrored, as fdtdx's dual widths)
+    below: tuple[float, float, float]
+    #: per axis, whether the edges are exactly 0, 1, ..., n
+    uniform: tuple[bool, bool, bool]
+    #: per axis, the width (frame units) of its cells where they are all one size (also the cell below the
+    #: box), the edges then exactly 0, w, 2 w, ...; None on a graded axis
+    widths: tuple[float | None, float | None, float | None] = (1.0, 1.0, 1.0)
+
+    def sample_axis(self, axis: int, shift: float) -> _SampleAxis:
+        """The sample voxels along ``axis`` of the grid whose points are moved by ``shift`` cells.
+
+        Args:
+            axis: 0, 1 or 2.
+            shift: 0 (cell centers) or -0.5 (Yee positions on the lower cell faces).
+
+        Returns:
+            The sample axis.
+
+        Raises:
+            ValueError: if a graded axis gets a shift other than 0 or -0.5.
+        """
+        edges = self.edges[axis]
+        n = len(edges) - 1
+        if self.uniform[axis]:
+            lo = np.arange(n, dtype=float)
+            return _SampleAxis(float(shift), lo, lo + 1.0, True)
+        if shift == 0:
+            return _SampleAxis(0.0, edges[:-1], edges[1:], False)
+        if shift != -0.5:
+            raise ValueError(f"a graded axis samples at cell centers (0) or Yee positions (-0.5), not {shift}")
+        centers = 0.5 * (edges[:-1] + edges[1:])
+        lo = np.concatenate([[-0.5 * self.below[axis]], centers[:-1]])
+        return _SampleAxis(0.0, lo, centers, False)
+
+
+def _grid_frame(config: SimulationConfig, slices: Any) -> _Frame:
+    """The frame of a device placed on ``slices`` (its grid slice tuple) of the config's grid.
+
+    Args:
+        config: the simulation config of the placement (its grid resolved, as fdtdx's
+            ``place_objects`` makes it).
+        slices: ((x0, x1), (y0, y1), (z0, z1)) cell ranges of the device.
+
+    Returns:
+        The frame; on a uniform grid ``h_um`` is ``config.uniform_spacing() * 1e6``.
+    """
+    counts = tuple(int(b) - int(a) for a, b in slices)
+    grid = config.resolved_grid
+    if grid is None or grid.is_uniform:
+        return _Frame(
+            config.uniform_spacing() * 1e6,
+            tuple(np.arange(n + 1, dtype=float) for n in counts),
+            (1.0, 1.0, 1.0),
+            (True, True, True),
+        )
+    edges, below, widths, uniform = [], [], [], []
+    for axis, (a, b) in enumerate(slices):
+        raw = np.asarray(grid.edges(axis))
+        full = raw.astype(np.float64) * 1e6
+        e = full[int(a) : int(b) + 1]
+        w = np.diff(e)
+        eps = float(np.finfo(raw.dtype).eps) if np.issubdtype(raw.dtype, np.floating) else 0.0
+        floor = 8.0 * eps * float(np.max(np.abs(full)))
+        edges.append(e)
+        widths.append(w)
+        below.append(float(full[a] - full[a - 1]) if a > 0 else float(w[0]))
+        uniform.append(bool(np.max(np.abs(w - w[0])) <= _FRAME_RTOL * w[0] + floor))
+    # an evenly spaced axis' spacing over its whole extent, rounded like fdtdx rounds a uniform grid's (1e-14 m):
+    # one cell's width carries the float32 round-off of the edges (~1e-6 of it), which would move the frame
+    spacing = [
+        round(float(e[-1] - e[0]) / len(w), 8) if u else float(e[-1] - e[0]) / len(w)
+        for e, w, u in zip(edges, widths, uniform, strict=True)
+    ]
+    if uniform[0] and uniform[1]:
+        h = min(spacing[0], spacing[1])
+    else:
+        h = float(min(np.min(widths[0]), np.min(widths[1])))
+    out_edges, out_uniform, out_widths = [], [], []
+    for e, w, u, s, b in zip(edges, widths, uniform, spacing, below, strict=True):
+        # the cell below the box too: the Yee-shifted samples of the first layer reach into it
+        even = u and abs(b - s) <= _FRAME_RTOL * s
+        same = even and abs(s - h) <= _FRAME_RTOL * h
+        if same:
+            out_edges.append(np.arange(len(w) + 1, dtype=float))
+        elif even:  # one other size: exact multiples of it
+            out_edges.append(np.arange(len(w) + 1, dtype=float) * (s / h))
+        else:
+            out_edges.append((e - e[0]) / h)
+        out_uniform.append(same)
+        out_widths.append(1.0 if same else (float(s / h) if even else None))
+    return _Frame(h, tuple(out_edges), tuple(b / h for b in below), tuple(out_uniform), tuple(out_widths))
+
+
+def _conductivity_scale(config: SimulationConfig) -> float:
+    """The factor fdtdx stores conductivities with (its update's ``c * dt / courant_number``).
+
+    On a uniform grid this is the grid spacing, as bifrost always wrote it; on a non-uniform one
+    it is fdtdx's own expression (``fdtdx.fdtd.initialization``), the same for every cell.
+    """
+    if not config.has_nonuniform_grid:
+        return config.uniform_spacing()
+    return fdtdx.constants.c * config.time_step_duration / config.courant_number
+
+
 def _sizing(layer: Any) -> float:
     """Uniform grow of a Logical/DerivedLayer from its sizings.
 
@@ -983,6 +1132,113 @@ def _area(poly: Array, count: Array) -> Array:
     return 0.5 * jnp.sum(jnp.where(i < count[..., None], cross, 0.0), axis=-1)
 
 
+# ---------------------------------------------------------------- the lateral cell
+# A voxel is painted on its lateral cell: the square of half side ``half`` (a float: uniform x and y), or, where
+# x and y have cells of different sizes, the rectangle of half sides ``half = (hx, hy)`` with the same area in an
+# isotropic frame (see StackDevice._lateral_cell), so that distances, normals and round joins stay Euclidean.
+# For a float these helpers keep the square's own expressions, so uniform grids paint bit for bit as before.
+
+
+class _Cells(NamedTuple):
+    """The lateral cells of a grid whose x or y cells are graded: one per column.
+
+    Each is the rectangle of :func:`_cell_corners` (area 1) for its own widths, in its own frame of ``cell``
+    frame units per side (see StackDevice._sample_cells). The arrays broadcast against the leading (column) axes
+    of the call that paints them: the caller expands them (:func:`_cells_expand`) to that call's batch.
+    """
+
+    hx: Any  # half sides along x (sides of the cell's frame)
+    hy: Any
+    cell: Any  # frame units per side of the cell's frame
+    reach: float  # static: 2 max(hx, hy) over every cell (the painted offsets' clip)
+    area: float = 1.0  # static: 4 hx hy (1; 1 / per^2 for the junction closure's sub-rectangles)
+
+
+def _cells_expand(cells: _Cells, extra: int) -> _Cells:
+    """The cells with ``extra`` trailing singleton axes, to broadcast against a batch with more axes."""
+    if extra == 0:
+        return cells
+    index = (...,) + (None,) * extra
+    return cells._replace(hx=cells.hx[index], hy=cells.hy[index], cell=cells.cell[index])
+
+
+def _cells_twice(cells: _Cells) -> _Cells:
+    """The cells of (N,) columns twice, (2N,): the corner model's two Gauss heights."""
+    return cells._replace(**{f: jnp.concatenate([getattr(cells, f)] * 2) for f in ("hx", "hy", "cell")})
+
+
+def _cells_take(cells: _Cells, cols: Array) -> _Cells:
+    """The cells of the columns ``cols`` (flat, i-major) of dense (nx, ny) cells: (N,) arrays."""
+    return cells._replace(
+        hx=jnp.reshape(cells.hx, (-1,))[cols], hy=jnp.reshape(cells.hy, (-1,))[cols],
+        cell=jnp.reshape(cells.cell, (-1,))[cols],
+    )
+
+
+def _half_sides(half: Any) -> tuple[Any, Any]:
+    """(hx, hy) of a lateral cell."""
+    if isinstance(half, _Cells):
+        return half.hx, half.hy
+    return half if isinstance(half, tuple) else (half, half)
+
+
+def _cell_corners(half: Any, dtype: Any) -> Array:
+    """(4, 2) counter-clockwise corners of a lateral cell, centered on it ((..., 4, 2) per column for _Cells)."""
+    if isinstance(half, _Cells):
+        hx, hy = (jnp.asarray(x, dtype=dtype) for x in (half.hx, half.hy))
+        return jnp.stack([jnp.stack(c, axis=-1) for c in ((-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy))], axis=-2)
+    if not isinstance(half, tuple):
+        return jnp.asarray([[-half, -half], [half, -half], [half, half], [-half, half]], dtype=dtype)
+    hx, hy = half
+    return jnp.asarray([[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]], dtype=dtype)
+
+
+def _cell_area(half: Any) -> float:
+    """Area of a lateral cell (the same for every rectangle of a _Cells: 1, or a sub-rectangle's)."""
+    if isinstance(half, _Cells):
+        return half.area
+    return 4.0 * half[0] * half[1] if isinstance(half, tuple) else (2 * half) ** 2
+
+
+def _cell_reach(half: Any) -> float:
+    """An offset beyond which a line keeps or removes a lateral cell whole (its painted offsets are clipped to it)."""
+    if isinstance(half, _Cells):
+        return half.reach
+    return 2.0 * max(half) if isinstance(half, tuple) else 2 * half
+
+
+def _cell_standard(half: Any, side: float, dtype: Any) -> Any:
+    """Scale of first moments about a cell's center: ``sqrt(12) / side`` per axis (the sides' standard deviation)."""
+    if isinstance(half, _Cells):
+        return jnp.stack([math.sqrt(12.0) / (2.0 * jnp.asarray(h, dtype=dtype)) for h in (half.hx, half.hy)], axis=-1)
+    if not isinstance(half, tuple):
+        return math.sqrt(12.0) / side
+    return jnp.asarray([math.sqrt(12.0) / (2.0 * half[0]), math.sqrt(12.0) / (2.0 * half[1])], dtype=dtype)
+
+
+def _cell_diagonal(half: Any) -> Any:
+    """Half-diagonal of a lateral cell."""
+    if isinstance(half, _Cells):
+        return jnp.hypot(half.hx, half.hy)
+    return math.hypot(*half) if isinstance(half, tuple) else math.sqrt(2.0) * half
+
+
+def _kernel_scales(kernel: tuple, half: Any) -> tuple:
+    """The kernel (ax, ay, beta) of :func:`_moments` on a lateral cell: on a rectangle, per-axis scales.
+
+    The kernel is ``psi(ax + beta u / side_x) psi(ay + beta v / side_y)`` over the cell's sides; a square of side
+    1 (half 0.5) keeps the 3-entry kernel. For _Cells the scales get a trailing axis for :func:`_moments`'s
+    vertices.
+    """
+    if isinstance(half, _Cells):
+        ax, ay, beta = kernel
+        return (ax, ay, (beta / (2.0 * half.hx))[..., None], (beta / (2.0 * half.hy))[..., None])
+    if not isinstance(half, tuple):
+        return kernel
+    ax, ay, beta = kernel
+    return (ax, ay, beta / (2.0 * half[0]), beta / (2.0 * half[1]))
+
+
 def _moments(
     poly: Array, count: Array, attr: Array, kernel: tuple[float, float, float]
 ) -> tuple[Array, Array, Array]:
@@ -1003,7 +1259,8 @@ def _moments(
         count: (...,) number of valid vertices.
         attr: (..., V, A) attributes of the vertices' outgoing edges, A >= 3.
         kernel: (ax, ay, beta): the kernel's center (floats or traced
-            scalars) and its scale.
+            scalars) and its scale; or (ax, ay, beta_x, beta_y) on a rectangular
+            cell (:func:`_kernel_scales`).
 
     Returns:
         area: (...,) areas (as :func:`_area`).
@@ -1012,7 +1269,11 @@ def _moments(
             rate of change of the area with height when the planes move (p and
             z in one unit), then the further rates.
     """
-    ax, ay, beta = kernel
+    if len(kernel) == 3:
+        ax, ay, beta = kernel
+        bx = by = beta
+    else:
+        ax, ay, bx, by = kernel
     area = _area(poly, count)
     i = jnp.arange(poly.shape[-2])
     q = jnp.take_along_axis(poly, jnp.where(i + 1 < count[..., None], i + 1, 0)[..., None], axis=-2)
@@ -1020,8 +1281,8 @@ def _moments(
     ell = jnp.where(i < count[..., None], du * attr[..., 1] - dv * attr[..., 0], 0.0)
     omega = 0.0
     for t, weight in _GL3:
-        xi = ax + beta * (poly[..., 0] + t * du)
-        eta = ay + beta * (poly[..., 1] + t * dv)
+        xi = ax + bx * (poly[..., 0] + t * du)
+        eta = ay + by * (poly[..., 1] + t * dv)
         omega = omega + weight * (1 - 4 * xi**2) * (1 - 4 * eta**2)
     flux = jnp.sum((ell * omega)[..., None] * attr[..., :3], axis=-2)
     return area, flux, jnp.sum(ell[..., None] * attr[..., 2:], axis=-2)
@@ -1152,12 +1413,13 @@ def _paint_levels(
         flux: (..., K, 3) with ``attr``: the kernel flux of each level's part.
         rate: (..., K, R) with ``attr``: its rates (see :func:`_moments`).
     """
-    full_area = (2 * half) ** 2
+    full_area = _cell_area(half)
     area = area0  # uncovered fraction so far
     overflow = jnp.zeros(count.shape, dtype=bool)
     visible = []
     moments = attr is not None
     if moments:
+        kernel = _kernel_scales(kernel, half)
         _, flux, rate = _moments(poly, count, attr, kernel)  # of the uncovered part so far
         fluxes, rates = [], []
     for j, fill in enumerate(is_fill):
@@ -1173,7 +1435,7 @@ def _paint_levels(
                 rate = jnp.where(here[..., None], 0.0, rate)
             continue
         # beyond the square's half-diagonal a line keeps or removes it whole
-        s = jnp.clip(o[..., j], -2 * half, 2 * half)
+        s = jnp.clip(o[..., j], -_cell_reach(half), _cell_reach(half))
         if moments:
             new_attr = jnp.concatenate([n[..., j, :], slope[..., j, :]], axis=-1)
             clipped, c_count, c_attr = _clip(poly, count, n[..., j, :], s, attr, new_attr)
@@ -1230,6 +1492,7 @@ def _normal_tensor(
     kmass: float,
     slopes: Array | None = None,
     offdiag: bool = False,
+    graded: bool = False,
 ) -> Array:
     """Squared-normal tensor of the voxels of one layer from their own model.
 
@@ -1256,7 +1519,8 @@ def _normal_tensor(
     gradients stay finite in float32 at any sliver of any contrast.
 
     Args:
-        length: (..., S) sub-interval lengths (cells; summing to one).
+        length: (..., S) sub-interval lengths (cells; summing to one, or to the
+            layer's height with ``graded``).
         bp: (..., S + 1) sorted sub-interval ends (cells).
         flux: (..., S, C, 3) kernel-weighted contrast flux per sub-interval
             (see :func:`_moments`).
@@ -1273,6 +1537,10 @@ def _normal_tensor(
             at each inner end, or None (flat surfaces).
         offdiag: also the off-diagonal entries (signed products of normal
             components) of the variance-weighted normal tensor.
+        graded: the layer is ``bp[0]`` to ``bp[-1]`` high (a graded grid's, in
+            frame units, see :class:`_Frame`): lengths and heights in the
+            variances become shares of it, while the drift stays in frame
+            units, the units of the rates.
 
     Returns:
         (..., C, 4): the variance along x, y, z (variance times squared normal
@@ -1280,6 +1548,9 @@ def _normal_tensor(
         (..., C, 7), followed by the xy, xz and yz entries (variance times the
         products of normal components, summed).
     """
+    if graded:
+        height = bp[..., -1:] - bp[..., :1]
+        length = length / height
     v_lat = jnp.maximum(square - mean**2, 0.0)
     f = flux / kmass
     f2 = jnp.sum(f**2, axis=-1)
@@ -1317,6 +1588,8 @@ def _normal_tensor(
         # each surface's normal (-g, 1), weighted by its squared jump and by
         # 4 t (1 - t) at its height t in the voxel
         t = c - bp[..., :1]
+        if graded:
+            t = t / height
         wj = (flat[..., 1:, :] - flat[..., :-1, :]) ** 2 * (4 * t * (1 - t))[..., None]  # (..., S - 1, C)
         g2 = slopes**2
         dirs = jnp.concatenate([g2, jnp.ones_like(g2[..., :1])], axis=-1) / (1 + jnp.sum(g2, axis=-1))[..., None]
@@ -1350,32 +1623,38 @@ def _point_slopes(lows: Array, surface_slopes: Array | None) -> Array | None:
     return jnp.concatenate([ends, surface_slopes.astype(lows.dtype)], axis=-2)
 
 
-def _split_layer(lows: Array, highs: Array, k: Array) -> tuple[Array, Array, Array, Array]:
+def _split_layer(
+    lows: Array, highs: Array, k: Array, top: Array | None = None
+) -> tuple[Array, Array, Array, Array]:
     """The z sub-intervals of voxel layer k and the levels present on each.
 
     Args:
         lows: (..., K) bottom surface per level (cells).
         highs: (..., K) top surface per level (cells).
-        k: the voxel layer, which spans [k, k + 1].
+        k: the voxel layer's bottom; it spans [k, k + 1] (a uniform grid's layer k).
+        top: the layer's top instead of k + 1 (a graded grid's layer spans [k, top],
+            in frame units, see :class:`_Frame`).
 
     Returns:
         perm: (..., 2K + 2) the sort of the points (the layer's ends, the
             bottoms, the tops), no gradient.
         bp: (..., S + 1) sorted sub-interval ends, S = 2K + 1 (cells).
-        length: (..., S) sub-interval lengths.
+        length: (..., S) sub-interval lengths, summing to the layer's height.
         present: (..., S, K) whether each level is in each sub-interval.
     """
     num_levels = lows.shape[-1]
-    lo = jnp.clip(lows, k, k + 1.0)
-    hi = jnp.clip(highs, k, k + 1.0)
-    ends = jnp.broadcast_to(jnp.asarray([k, k + 1.0], dtype=lows.dtype), (*lows.shape[:-1], 2))
+    # k + 1 is recomputed at every use, so a uniform grid's trace stays op for op what it was
+    up = (lambda: k + 1.0) if top is None else (lambda: top)
+    lo = jnp.clip(lows, k, up())
+    hi = jnp.clip(highs, k, up())
+    ends = jnp.broadcast_to(jnp.asarray([k, up()], dtype=lows.dtype), (*lows.shape[:-1], 2))
     points = jnp.concatenate([ends, lo, hi], axis=-1)  # (..., 2K+2)
     # membership of sub-interval m (between sorted points m and m+1) comes from
     # the ranks of each level's surfaces in a stable sort, not from midpoints:
     # with tied surfaces every level keeps the sub-interval on its own side,
     # so moving a surface always changes that level's coverage. The layer's
-    # ends sort outside any surface tied with them (k first, k + 1 last), so
-    # the lengths always add up to the constant k + 1 - k: a surface clipped
+    # ends sort outside any surface tied with them (bottom first, top last), so
+    # the lengths always add up to the constant layer height: a surface clipped
     # onto the top end (its derivative half there) moves the sub-interval
     # above it, not the layer's end
     tie = jnp.asarray([0, 2] + [1] * (2 * num_levels), dtype=jnp.int32)
@@ -1391,7 +1670,7 @@ def _split_layer(lows: Array, highs: Array, k: Array) -> tuple[Array, Array, Arr
     # after it) is clamped to a zero-length interval at one of its ends; it
     # is not there, and must not take the sub-intervals next to a surface
     # that moves onto that end (it would claim that surface's growth)
-    reach = (jax.lax.stop_gradient(highs) >= k) & (jax.lax.stop_gradient(lows) <= k + 1.0)
+    reach = (jax.lax.stop_gradient(highs) >= k) & (jax.lax.stop_gradient(lows) <= up())
     inside = inside & reach[..., None]
     return perm, bp, length, jnp.moveaxis(inside, -2, -1)
 
@@ -1507,20 +1786,29 @@ def _paint_layer(
     perm, bp, length, present = split
     num_levels = len(is_fill)
     num_vertices = 4 + sum(not f for f in is_fill)
-    square = jnp.asarray([[-half, -half], [half, -half], [half, half], [-half, half]], dtype=bp.dtype)
-    square = jnp.concatenate([square, jnp.repeat(square[-1:], num_vertices - 4, axis=0)])
+    per_column = isinstance(half, _Cells)  # graded x or y: each column's own cell, lateral() in frame units
+    if per_column:
+        half = _cells_expand(half, 1)  # (B1, B2, 1): over the sub-intervals
+        square = _cell_corners(half, bp.dtype)  # (B1, B2, 1, 4, 2)
+        square = jnp.concatenate([square, jnp.repeat(square[..., -1:, :], num_vertices - 4, axis=-2)], axis=-2)
+    else:
+        square = _cell_corners(half, bp.dtype)
+        square = jnp.concatenate([square, jnp.repeat(square[-1:], num_vertices - 4, axis=0)])
     with_n = level_eps is not None
     # each level's sidewall over its own part of the layer (the same in every
     # sub-interval), which follows its (traced) surfaces; with level_eps also
     # its z slope (cells per cell; 0 for fill levels)
     batch = length.shape
     shift, slope, middle = _level_walls(split, lateral, num_levels, knots, with_n)
+    if per_column:  # frame units -> sides of each column's cell
+        shift = shift / half.cell[..., 0, None]
     shift = jnp.broadcast_to(shift[..., None, :], (*batch, num_levels))  # (B1, B2, S, K)
     if with_n:
         # and how far the sub-interval's middle is from where the wall is
         # painted: the normal's drift is that of walls at the middles
         lag = 0.5 * (bp[..., 1:] + bp[..., :-1])[..., None] - middle[..., None, :]  # (B1, B2, S, K)
-        slope = cell * slope[..., None, :]
+        # per column the slope is already frame units per frame unit
+        slope = slope[..., None, :] if per_column else cell * slope[..., None, :]
         slope = jnp.stack([jnp.broadcast_to(slope, (*batch, num_levels)), slope * lag], axis=-1)
 
     painted = _paint_levels(
@@ -1593,6 +1881,7 @@ def _composite(
     surface_slopes: Array | None = None,
     knots: Array | None = None,
     offdiag: bool = False,
+    zaxis: _SampleAxis | None = None,
 ) -> Array | tuple[Array, Array]:
     """Volume fraction of each level (and the background) per voxel.
 
@@ -1608,8 +1897,10 @@ def _composite(
     at its own height, and a straight edge gets its exact volume summed along
     the edge, also with z_to_bias (per voxel, the area at s_j differs from its
     mean over z where the edge crosses a corner of the square within the
-    voxel, by up to about 5e-3 of the voxel at 20 deg, but these errors cancel
-    along the edge; corner columns use two heights, see below): level j gets
+    voxel, by up to about 5e-3 of the voxel for axis-aligned edges and 2e-2
+    for edges at 17 deg to the grid, at a 20 deg wall on cubic voxels (as
+    measured), but these errors cancel along the edge; corner columns use two
+    heights, see below): level j gets
     the area of the voxel square
     inside it but outside every earlier present level, computed exactly by
     clipping the square with the complements in priority order. Levels that
@@ -1660,6 +1951,9 @@ def _composite(
             z_to_bias knots), or None: every offset is linear in z.
         offdiag: the tensor also has the off-diagonal entries (C, 7; see
             :func:`_normal_tensor`).
+        zaxis: the z axis of the sample grid (:class:`_Frame`); a graded one
+            gives the voxel layers [lo, hi] (frame units, the surfaces' frame)
+            instead of [k, k + 1]. None: [k, k + 1].
 
     Returns:
         (nx, ny, nz, K + 1): K levels then the background, summing to one;
@@ -1671,16 +1965,22 @@ def _composite(
     point_slopes = _point_slopes(lows, surface_slopes) if with_n else None
     if with_n:
         kmass = _kernel_mass(kernel)
+    graded = zaxis is not None and not zaxis.uniform
+    # per column (graded x or y): each column's frame units per side, over the sub-intervals and components
+    per_column = isinstance(half, _Cells)
+    cell_n = half.cell[..., None, None] if per_column else cell
 
     @jax.checkpoint
     def one_slice(k: Array) -> Array:
-        """Fractions (nx, ny, K + 1) of the voxel layer k."""
-        split = _split_layer(lows, highs, k)
+        """Fractions (nx, ny, K + 1) of the voxel layer k (graded: k is the layer's (bottom, top))."""
+        split = _split_layer(lows, highs, *k) if graded else _split_layer(lows, highs, k)
         parts = _paint_layer(
             offsets, normals, is_fill, split, lateral, half, level_eps, kernel, cell, point_slopes, knots
         )
         visible, length = parts[:2]  # (nx, ny, S, K + 1), (nx, ny, S)
         out = jnp.stack([jnp.sum(length * visible[..., j], axis=-1) for j in range(num_levels + 1)], axis=-1)
+        if graded:
+            out = out / (k[1] - k[0])
         if with_n:
             flux, rate, bp = parts[5:8]
             tensor = _normal_tensor(
@@ -1690,10 +1990,11 @@ def _composite(
                 _weigh_levels(visible[..., :-1], level_eps),
                 _weigh_levels(visible[..., :-1], level_eps, power=2),
                 rate,
-                cell,
+                cell_n,
                 kmass,
                 parts[8] if len(parts) > 8 else None,
                 offdiag=offdiag,
+                graded=graded,
             )
             out = (out, tensor)  # (nx, ny, K + 1), (nx, ny, C, 4)
         if corner is None:
@@ -1702,10 +2003,16 @@ def _composite(
         # offsets at their Gauss heights
         cols = jnp.minimum(corner.cols, length.shape[0] * length.shape[1] - 1)
         gathered = [x.reshape(-1, *x.shape[2:])[cols][:, None] for x in split]
-        parts = (*parts[:3], _gauss_heights(gathered, lateral, num_levels)[:, 0], *parts[4:])
+        gauss = _gauss_heights(gathered, lateral, num_levels)[:, 0]
+        if per_column:  # frame units -> sides of each corner column's cell
+            gauss = gauss / corner.cells.cell[:, None, None, None]
+        parts = (*parts[:3], gauss, *parts[4:])
         return out, tuple(x if i == 3 else x.reshape(-1, *x.shape[2:])[cols] for i, x in enumerate(parts))
 
-    ks = jnp.arange(nz, dtype=lows.dtype)
+    if graded:
+        ks = (jnp.asarray(zaxis.lo, dtype=lows.dtype), jnp.asarray(zaxis.hi, dtype=lows.dtype))
+    else:
+        ks = jnp.arange(nz, dtype=lows.dtype)
     if corner is None:
         out = jax.lax.map(one_slice, ks)  # (nz, nx, ny, K+1)
         if with_n:
@@ -1726,15 +2033,19 @@ def _composite(
         literals=corner.literals,
         is_fill=tuple(is_fill),
         lines=corner.lines,
-        sc=corner.sc,
-        half=half,
+        sc=None if per_column else corner.sc,
+        half=half.reach if per_column else half,  # per column: the cells' static reach, the cells traced
         level_eps=None if level_eps is None else tuple(tuple(float(e) for e in row) for row in level_eps),
         kernel=tuple(float(x) for x in kernel),
-        cell=float(cell),
+        cell=1.0 if per_column else float(cell),
         offdiag=offdiag,
+        graded=graded,
+        **({"cells": (corner.cells.hx, corner.cells.hy, corner.cells.cell)} if per_column else {}),
     )  # (nz, N, K + 1)
     if with_n:
         fill, corner_tensor = fill
+    if graded:
+        fill = fill / (ks[1] - ks[0])[:, None, None]
     out = out.reshape(nz, -1, num_levels + 1).at[:, corner.cols].set(fill, mode="drop").reshape(out.shape)
     if not with_n:
         return jnp.moveaxis(out, 0, 2)
@@ -1787,6 +2098,7 @@ def _composite_samples(
     half: float = 0.5,
     knots: Array | None = None,
     offdiag: bool = False,
+    zaxis: _SampleAxis | None = None,
 ) -> tuple[Array, Array | None]:
     """Fractions and normal tensor of voxels painted on several lateral sub-squares.
 
@@ -1842,9 +2154,11 @@ def _composite_samples(
         corners: every sample's corner columns (all with the same number of
             columns and the same static structure), or None: none.
         surface_slopes: see :func:`_composite`.
-        half: half side of a sample's square.
+        half: half side of a sample's square; on graded x or y each column's own cell (dense :class:`_Cells`,
+            see :func:`_composite`), ``cell`` then unused.
         knots: see :func:`_composite`.
         offdiag: see :func:`_composite`.
+        zaxis: see :func:`_composite`.
 
     Returns:
         (nx, ny, nz, K + 1) the samples' fractions, summed (not averaged), and
@@ -1868,8 +2182,18 @@ def _composite_samples(
     point_slopes = _point_slopes(lows, surface_slopes) if with_n else None
     if with_n:
         level_eps = tuple(tuple(float(e) for e in row) for row in level_eps)
-    ks = jnp.arange(nz, dtype=lows.dtype)
+    graded = zaxis is not None and not zaxis.uniform
+    if graded:  # the voxel layers' (bottom, top)
+        ks = (jnp.asarray(zaxis.lo, dtype=lows.dtype), jnp.asarray(zaxis.hi, dtype=lows.dtype))
+    else:
+        ks = jnp.arange(nz, dtype=lows.dtype)
     dtype = lows.dtype
+    per_column = isinstance(half, _Cells)  # graded x or y (see _composite)
+    cell_n = half.cell[..., None, None] if per_column else cell
+
+    def split_at(lo: Array, hi: Array, k: Array | tuple[Array, Array]) -> tuple[Array, ...]:
+        """:func:`_split_layer` of the voxel layer k (graded: its (bottom, top))."""
+        return _split_layer(lo, hi, *k) if graded else _split_layer(lo, hi, k)
 
     def take(x: Array | None, cols: Array) -> Array | None:
         """(nx, ny, ...) -> (N, 1, ...) at the columns cols."""
@@ -1882,14 +2206,20 @@ def _composite_samples(
         o, n, center, cols, taken, layers = inputs
         gathered = tuple(take(x, cols) for x in (o, n, lows, highs, point_slopes))
         kernel = (center[0], center[1], scale)
+        # per column: the corner columns' own cells, (N,) and (N, 1) over the gathered columns' batch
+        col_cells = _cells_take(half, cols) if per_column else None
+        col_half = _cells_expand(col_cells, 1) if per_column else half
 
         @jax.checkpoint
         def columns(k: Array) -> tuple[Array, ...]:
             """(N, ...) half-plane painting of the corner columns in voxel layer k."""
             go, gn, lo, hi, slopes = gathered
-            split = _split_layer(lo, hi, k)
-            parts = _paint_layer(go, gn, is_fill, split, lateral, half, level_eps, kernel, cell, slopes, knots)
-            parts = (*parts[:3], _gauss_heights(split, lateral, num_levels), *parts[4:7])
+            split = split_at(lo, hi, k)
+            parts = _paint_layer(go, gn, is_fill, split, lateral, col_half, level_eps, kernel, cell, slopes, knots)
+            gauss = _gauss_heights(split, lateral, num_levels)
+            if per_column:  # frame units -> sides of each column's cell
+                gauss = gauss / col_cells.cell[:, None, None, None, None]
+            parts = (*parts[:3], gauss, *parts[4:7])
             return tuple(x[:, 0] for x in parts)
 
         dense = jax.lax.map(columns, ks)
@@ -1905,12 +2235,13 @@ def _composite_samples(
             literals=first.literals,
             is_fill=tuple(is_fill),
             lines=first.lines,
-            sc=first.sc,
-            half=half,
+            sc=None if per_column else first.sc,
+            half=half.reach if per_column else half,
             level_eps=level_eps,
             kernel=(0.0, 0.0, float(scale)),
-            cell=float(cell),
+            cell=1.0 if per_column else float(cell),
             per_interval=True,
+            **({"cells": (col_cells.hx, col_cells.hy, col_cells.cell)} if per_column else {}),
         )  # (nz, N, S, K + 1), (nz, N, S) and (nz, N, S, C, 3), (nz, N, S, C, 2)
 
     repainted, corner_cols, dropped = (), None, None
@@ -1942,7 +2273,7 @@ def _composite_samples(
     def one_slice(inputs: tuple[Array, tuple]) -> tuple[Array, Array | None]:
         """Summed fractions (nx, ny, K + 1) and tensor (nx, ny, C, 4) of the voxel layer k."""
         k, corner_layers = inputs
-        split = _split_layer(lows, highs, k)
+        split = split_at(lows, highs, k)
         perm, bp, length, _ = split
         if corners:
             # the voxel's certificate per sub-interval: the least of its samples'
@@ -1988,6 +2319,8 @@ def _composite_samples(
             )
         samples = (offsets, normals, centers) + ((corner_cols, *corner_layers) if corners else ())
         total, _ = jax.lax.scan(add, zeros, samples)
+        if graded:  # the layer's fractions, not its volumes (frame units)
+            total = (total[0] / (k[1] - k[0]), *total[1:])
         if not with_n:
             return total[0], None
         fractions, visible, flux, rate = total
@@ -2001,10 +2334,11 @@ def _composite_samples(
             _weigh_levels(visible[..., :-1], level_eps) / num_samples,
             _weigh_levels(visible[..., :-1], level_eps, power=2) / num_samples,
             rate / num_samples,
-            cell,
+            cell_n,
             kmass,
             slopes,
             offdiag=offdiag,
+            graded=graded,
         )
         return fractions, tensor
 
@@ -2047,7 +2381,7 @@ def _paint_moments(
         first: (..., K + 1, 2) their first moments about the square's center, over the square's area.
         overflow: (...,) a clip produced more vertices than V.
     """
-    full_area = (2 * half) ** 2
+    full_area = _cell_area(half)
     area = _area(poly, count) / full_area
     first = _first_moment(poly, count) / full_area
     overflow = jnp.zeros(count.shape, dtype=bool)
@@ -2061,7 +2395,7 @@ def _paint_moments(
             first = jnp.where(here[..., None], 0.0, first)
             count = jnp.where(here, 0, count)
             continue
-        s = jnp.clip(o[..., j], -2 * half, 2 * half)
+        s = jnp.clip(o[..., j], -_cell_reach(half), _cell_reach(half))
         clipped, c_count = _clip(poly, count, n[..., j, :], s)
         c_area = _area(clipped, c_count) / full_area  # the part outside level j
         c_first = _first_moment(clipped, c_count) / full_area
@@ -2077,20 +2411,21 @@ def _paint_moments(
     return jnp.stack(visible, axis=-1), jnp.stack(moments, axis=-2), overflow
 
 
-def _line_range(p0: Array, d: Array, center: Array, half: float) -> tuple[Array, Array]:
-    """Parameter range (lo, hi) of the points ``p0 + t d`` inside the square ``|p - center|_max <= half``.
+def _line_range(p0: Array, d: Array, center: Array, half: Any) -> tuple[Array, Array]:
+    """Parameter range (lo, hi) of the points ``p0 + t d`` inside the cell ``|p_a - center_a| <= half_a``.
 
-    Empty where lo > hi. ``center`` is (..., 2) or (2,).
+    Empty where lo > hi. ``center`` is (..., 2) or (2,); ``half`` a square's half side or a rectangle's (hx, hy).
     """
     lo = jnp.full(p0.shape[:-1], -_T_FAR, dtype=p0.dtype)
     hi = jnp.full(p0.shape[:-1], _T_FAR, dtype=p0.dtype)
     for a in (0, 1):
+        ha = _half_sides(half)[a]
         da = d[..., a]
         ok = jnp.abs(da) > _PARALLEL
         inv = 1.0 / jnp.where(ok, da, 1.0)
-        t1 = (center[..., a] - half - p0[..., a]) * inv
-        t2 = (center[..., a] + half - p0[..., a]) * inv
-        inside = jnp.abs(jax.lax.stop_gradient(p0[..., a] - center[..., a])) <= half
+        t1 = (center[..., a] - ha - p0[..., a]) * inv
+        t2 = (center[..., a] + ha - p0[..., a]) * inv
+        inside = jnp.abs(jax.lax.stop_gradient(p0[..., a] - center[..., a])) <= ha
         lo = jnp.where(ok, jnp.maximum(lo, jnp.minimum(t1, t2)), jnp.where(inside, lo, _T_FAR))
         hi = jnp.where(ok, jnp.minimum(hi, jnp.maximum(t1, t2)), jnp.where(inside, hi, -_T_FAR))
     return lo, hi
@@ -2319,6 +2654,9 @@ def _interface_parts(
         center: (..., 2) center of the painted square in the frame of the half-planes (a sub-square), or
             None: the frame's origin.
 
+    On graded x or y ``half`` is the columns' own cells (:class:`_Cells`, broadcasting against the leading
+    axes), ``lateral`` gives frame units (scaled here per column) and ``cell`` is unused (the cells' own).
+
     Returns:
         visible: (..., S, K + 1) fractions of the painted square per sub-interval (not length weighted).
         lateral_tensor: (..., S, 6) per sub-interval: sum over its faces of ``cell l w`` times the faces'
@@ -2330,18 +2668,27 @@ def _interface_parts(
     """
     perm, bp, length, present = split
     num = len(is_fill)
+    per_column = isinstance(half, _Cells)
+    if per_column:
+        half = _cells_expand(half, 1)  # over the sub-intervals
     shift, slope, _ = _level_walls(split, lateral, num, knots, with_slope=True)
+    if per_column:  # frame units -> sides of each column's cell
+        shift = shift / half.cell[..., 0, None]
     o = offsets + shift  # (..., K): the same in every sub-interval
     if center is not None:
         o = o + jnp.sum(normals * center[..., None, :], axis=-1)  # the frame moved to the square's center
-    o = jnp.clip(o, -2 * half, 2 * half)
-    b = cell * slope  # z slope of each level's plane (cells per cell)
+    o = jnp.clip(o, -_cell_reach(half), _cell_reach(half))
+    # z slope of each level's plane (cells per cell; per column already frame units per frame unit)
+    b = slope if per_column else cell * slope
     batch = length.shape
     n_s = jnp.broadcast_to(normals[..., None, :, :], (*batch, num, 2))
     o_s = jnp.broadcast_to(o[..., None, :], (*batch, num))
     num_vertices = 4 + sum(not f for f in is_fill)
-    square = jnp.asarray([[-half, -half], [half, -half], [half, half], [-half, half]], dtype=bp.dtype)
-    square = jnp.concatenate([square, jnp.repeat(square[-1:], num_vertices - 4, axis=0)])
+    square = _cell_corners(half, bp.dtype)
+    if per_column:
+        square = jnp.concatenate([square, jnp.repeat(square[..., -1:, :], num_vertices - 4, axis=-2)], axis=-2)
+    else:
+        square = jnp.concatenate([square, jnp.repeat(square[-1:], num_vertices - 4, axis=0)])
     visible, first, _ = _paint_moments(
         jnp.broadcast_to(square, (*batch, num_vertices, 2)),
         jnp.full(batch, 4, dtype=jnp.int32),
@@ -2355,13 +2702,16 @@ def _interface_parts(
     # wall, c^2 (none where the same tensor is on both sides) and the fade-in of thin parts
     tilt = jnp.sqrt(1.0 + b**2)
     dyads = _dyad(jnp.concatenate([normals, b[..., None]], axis=-1) / tilt[..., None])  # (..., K, 6)
-    side = 2 * half
+    side = 2 * half if not isinstance(half, tuple) else math.sqrt(_cell_area(half))  # side**2: the area
     lengths = _face_lengths(n_s, o_s, present, is_fill, jnp.zeros(2, dtype=bp.dtype), half)  # (..., S, K, K + 1)
-    weight = _face_weights(lengths, visible[..., :-1, None], visible[..., None, :], contrast2[:-1], cell, side)
+    cell_f = half.cell[..., None, None] if per_column else cell  # over the faces
+    weight = _face_weights(lengths, visible[..., :-1, None], visible[..., None, :], contrast2[:-1], cell_f, side)
     weight = jnp.sum(weight, axis=-1) * tilt[..., None, :]  # (..., S, K): per line
     tensor = jnp.einsum("...sk,...kv->...sv", weight, dyads, precision=_HIGHEST)
     # the materials' zeroth and (standardized) first moments per sub-interval
-    standard = math.sqrt(12.0) / side
+    standard = _cell_standard(half, side, bp.dtype)
+    if per_column:  # over the levels
+        standard = standard[..., None, :]
     mom = jnp.concatenate([visible[..., None], standard * first], axis=-1)  # (..., S, K + 1, 3)
     moments = jnp.einsum("...lc,lv->...vc", mom, jnp.asarray(vectors, dtype=bp.dtype), precision=_HIGHEST)
     slopes = jnp.zeros((*batch[:-1], batch[-1] - 1, 2), dtype=bp.dtype)
@@ -2370,7 +2720,7 @@ def _interface_parts(
     return visible, tensor, moments, slopes, b
 
 
-def _vertical_tensor(length: Array, bp: Array, moments: Array, slopes: Array) -> Array:
+def _vertical_tensor(length: Array, bp: Array, moments: Array, slopes: Array, graded: bool = False) -> Array:
     """The vertical part of a voxel's interface direction tensor (..., 6) from its sub-intervals.
 
     ``4 sum_s len_s |m_s - <m>|^2``, the variance along z of the sub-intervals' material moments (zeroth
@@ -2384,14 +2734,21 @@ def _vertical_tensor(length: Array, bp: Array, moments: Array, slopes: Array) ->
         bp: (..., S + 1) their ends.
         moments: (..., S, 6, 3) material moments per sub-interval.
         slopes: (..., S - 1, 2) the surfaces' slopes at the inner ends.
+        graded: the layer is ``bp[0]`` to ``bp[-1]`` high (a graded grid's, frame units): its lengths and
+            heights become shares of it.
 
     Returns:
         (..., 6) the tensor.
     """
+    if graded:
+        height = bp[..., -1:] - bp[..., :1]
+        length = length / height
     mean = jnp.sum(length[..., None, None] * moments, axis=-3)
     weight = 4.0 * jnp.sum(length * jnp.sum((moments - mean[..., None, :, :]) ** 2, axis=(-2, -1)), axis=-1)
     jump = jnp.sum((moments[..., 1:, :, :] - moments[..., :-1, :, :]) ** 2, axis=(-2, -1))  # (..., S - 1)
     t = bp[..., 1:-1] - bp[..., :1]
+    if graded:
+        t = t / height
     wj = jump * 4 * t * (1 - t)
     normal = jnp.concatenate([-slopes, jnp.ones_like(slopes[..., :1])], axis=-1)
     normal = normal / jnp.sqrt(jnp.sum(normal**2, axis=-1, keepdims=True))
@@ -2418,6 +2775,7 @@ def _interface_composite(
     contrast2: np.ndarray,
     surface_slopes: Array | None = None,
     corner: "_CornerInputs | None" = None,
+    zaxis: _SampleAxis | None = None,
 ) -> tuple[Array, Array]:
     """Volume fractions and the interface direction tensor of every voxel.
 
@@ -2443,6 +2801,10 @@ def _interface_composite(
         surface_slopes: (nx, ny, 2K, 2) or None, see :func:`_composite`.
         corner: the corner columns of this sample grid, or None: in them the corner model
             (:func:`_corner_interfaces`) replaces the half-planes, fractions and faces alike.
+        zaxis: see :func:`_composite`. On a graded axis the lateral faces are as high as the layer
+            (frame units), so they weigh against the horizontal ones as in the physical voxel.
+
+    On graded x or y ``half`` is the columns' own cells (dense :class:`_Cells`, see :func:`_composite`).
 
     Returns:
         fractions: (nx, ny, nz, K + 1).
@@ -2451,18 +2813,28 @@ def _interface_composite(
     """
     point_slopes = _point_slopes(lows, surface_slopes)
     num_levels = lows.shape[-1]
-    area = (2 * half * cell) ** 2  # the square's area (cells^2), as the faces' areas
+    per_column = isinstance(half, _Cells)
+    if per_column:  # each column's (frame units^2), over the tensor's entries
+        area = half.cell[..., None] ** 2
+    else:
+        area = (2 * half * cell) ** 2 if not isinstance(half, tuple) else _cell_area(half) * cell**2  # as the faces
+    graded = zaxis is not None and not zaxis.uniform
 
     @jax.checkpoint
     def one_slice(k: Array) -> tuple:
-        split = _split_layer(lows, highs, k)
+        split = _split_layer(lows, highs, *k) if graded else _split_layer(lows, highs, k)
         visible, lateral_tensor, moments, slopes, b = _interface_parts(
             offsets, normals, is_fill, split, lateral, half, knots, cell, vectors, contrast2, point_slopes
         )
         length = split[2]
         fractions = jnp.sum(length[..., None] * visible, axis=-2)
+        if graded:
+            fractions = fractions / (k[1] - k[0])
         direction = jnp.sum(length[..., None] * lateral_tensor, axis=-2)
-        direction = direction + _vertical_tensor(length, split[1], moments, slopes) * area
+        if graded:
+            direction = direction + _vertical_tensor(length, split[1], moments, slopes, graded=True) * area
+        else:
+            direction = direction + _vertical_tensor(length, split[1], moments, slopes) * area
         if corner is None:
             return fractions, direction
         # the corner columns' sub-intervals, for the corner pass, with the offsets at their Gauss heights
@@ -2472,6 +2844,8 @@ def _interface_composite(
             return x.reshape(-1, *x.shape[2:])[cols]
 
         gauss = _gauss_heights([x.reshape(-1, *x.shape[2:])[cols][:, None] for x in split], lateral, num_levels)
+        if per_column:  # frame units -> sides of each corner column's cell
+            gauss = gauss / corner.cells.cell[:, None, None, None, None]
         b_s = jnp.broadcast_to(b[..., None, :], (*length.shape, num_levels))
         columns = (
             take(visible), take(lateral_tensor), take(moments), take(length), take(split[1]), take(split[3]),
@@ -2479,7 +2853,10 @@ def _interface_composite(
         )
         return (fractions, direction), columns
 
-    ks = jnp.arange(nz, dtype=lows.dtype)
+    if graded:
+        ks = (jnp.asarray(zaxis.lo, dtype=lows.dtype), jnp.asarray(zaxis.hi, dtype=lows.dtype))
+    else:
+        ks = jnp.arange(nz, dtype=lows.dtype)
     if corner is None:
         fractions, direction = jax.lax.map(one_slice, ks)
         return jnp.moveaxis(fractions, 0, 2), jnp.moveaxis(direction, 0, 2), jnp.zeros((), dtype=jnp.int32)
@@ -2494,11 +2871,13 @@ def _interface_composite(
         literals=corner.literals,
         is_fill=tuple(is_fill),
         lines=corner.lines,
-        sc=corner.sc,
-        half=half,
-        cell=float(cell),
+        sc=None if per_column else corner.sc,
+        half=half.reach if per_column else half,  # per column: the cells' static reach, the cells traced
+        cell=1.0 if per_column else float(cell),
         vectors=tuple(tuple(float(x) for x in row) for row in vectors),
         contrast2=tuple(tuple(float(x) for x in row) for row in contrast2),
+        **({"graded": True} if graded else {}),
+        **({"cells": (corner.cells.hx, corner.cells.hy, corner.cells.cell)} if per_column else {}),
     )  # (nz, N, K + 1), (nz, N, 6), (nz,)
     fractions = fractions.reshape(nz, -1, num_levels + 1).at[:, corner.cols].set(c_fractions, mode="drop")
     direction = direction.reshape(nz, -1, 6).at[:, corner.cols].set(c_direction, mode="drop")
@@ -2531,6 +2910,8 @@ def _junction_cells(
     planes: tuple[Array, Array] | None = None,
     target: Array | None = None,
     level_material: Sequence[int] = (),
+    top: Array | None = None,
+    half: Any = 0.5,
 ) -> tuple[Array, Array]:
     """The sub-cells of junction voxels for their closure: the voxel's own geometry, cell by cell.
 
@@ -2572,6 +2953,13 @@ def _junction_cells(
             sub-squares are painted with their samples' half-planes, while the voxel's fractions blend the
             corner model in.
         level_material: (K + 1,) with ``target``, the material of every level, then the background's.
+        top: (N,) the voxels' layer tops on a graded grid (``layer`` is then their bottoms, frame units),
+            or None: layer k is [k, k + 1]. The sub-cells are then equal parts of the layer's own height,
+            and their lateral faces as high as they are.
+        half: the voxel's lateral cell (sides of a sample square; ``(hx, hy)`` where x and y differ), whose
+            corner model and half-planes the sub-cells blend like the voxel. On graded x or y every voxel's
+            own (:class:`_Cells`, (N,)); ``sub`` is then the voxels' sub-cells, ``centers`` (N, Q, 2) and
+            ``cell`` unused (the cells' own).
 
     Returns:
         fractions: (N, n, n, m, K + 1) every sub-cell's fractions of the levels, then the background.
@@ -2581,7 +2969,13 @@ def _junction_cells(
     dtype = offsets.dtype
     if nxs != nys:
         raise ValueError(f"The junction sub-squares must be square, got {cells}")
-    split = jax.vmap(_split_layer)(lows, highs, layer)
+    per_column = isinstance(half, _Cells)
+    if per_column:
+        cell = half.cell
+    if top is None:
+        split = jax.vmap(_split_layer)(lows, highs, layer)
+    else:
+        split = jax.vmap(_split_layer)(lows, highs, layer, top)
     count = nxs * nys
 
     def per_square(x: Array) -> Array:
@@ -2594,7 +2988,7 @@ def _junction_cells(
         is_fill,
         tuple(per_square(x) for x in split),
         lateral,
-        sub,
+        _cells_expand(sub, 1) if per_column else sub,  # per column over the sub-squares
         knots,
         cell,
         vectors,
@@ -2608,27 +3002,38 @@ def _junction_cells(
         # then the corner model on the sub-squares, blended like the voxel
         num_levels = len(is_fill)
         t_visible, t_tensor, t_moments, _, b = _interface_parts(
-            planes[0], planes[1], is_fill, split, lateral, 0.5, knots, cell, vectors, contrast2, point_slopes
+            planes[0], planes[1], is_fill, split, lateral, half, knots, cell, vectors, contrast2, point_slopes
         )
         gauss = _gauss_heights(split, lateral, num_levels)  # (N, S, K, 2)
+        if per_column:  # frame units -> sides of each voxel's cell
+            gauss = gauss / cell[:, None, None, None]
         num_v = 4 + sum(not f for f in is_fill)
-        square = jnp.asarray([[-sub, -sub], [sub, -sub], [sub, sub], [-sub, sub]], dtype=dtype)
-        square = jnp.concatenate([square, jnp.repeat(square[-1:], num_v - 4, axis=0)])
+        square = _cell_corners(sub, dtype)
+        if per_column:  # (N, 1, 1, V, 2): over the sub-intervals and sub-squares
+            square = jnp.concatenate([square, jnp.repeat(square[..., -1:, :], num_v - 4, axis=-2)], axis=-2)
+            square = square[:, None, None]
+        else:
+            square = jnp.concatenate([square, jnp.repeat(square[-1:], num_v - 4, axis=0)])
         shape = (*length.shape, count)  # (N, S, Q)
         q_normals = jnp.broadcast_to(planes[1][:, None, None], (*shape, num_levels, 2))
+        def q_centers() -> Array:
+            """The sub-squares' centers over the voxels (per column), sub-intervals and levels (traced where used,
+            so uniform grids trace as before)."""
+            return centers[:, None, :, None, :] if per_column else centers[None, None, :, None, :]
+
         tq_gauss = 0.0
         for g in (0, 1):
             o_g = planes[0][:, None, None, :] + gauss[:, :, None, :, g] + jnp.sum(
-                planes[1][:, None, None] * centers[None, None, :, None, :], axis=-1
+                planes[1][:, None, None] * q_centers(), axis=-1
             )
             tq_gauss = tq_gauss + 0.5 * _paint_levels(
                 jnp.broadcast_to(square, (*shape, num_v, 2)), jnp.full(shape, 4, dtype=jnp.int32),
                 jnp.ones(shape, dtype=dtype), q_normals, o_g, jnp.broadcast_to(present[:, :, None], (*shape, num_levels)),
-                is_fill, sub,
+                is_fill, _cells_expand(sub, 2) if per_column else sub,
             )[0]
         b = jnp.broadcast_to(b[:, None, :], (*length.shape, num_levels))
         out = _corner_interfaces(
-            corner, t_visible, t_tensor, t_moments, length, present, gauss, b, planes, is_fill, 0.5, cell,
+            corner, t_visible, t_tensor, t_moments, length, present, gauss, b, planes, is_fill, half, cell,
             vectors, contrast2,
             squares=(
                 centers, sub, jnp.swapaxes(visible, 1, 2), jnp.swapaxes(tensor, 1, 2), jnp.swapaxes(moments, 1, 2),
@@ -2637,15 +3042,26 @@ def _junction_cells(
         )
         visible, tensor, moments = (jnp.swapaxes(x, 1, 2) for x in out[4:])  # (N, Q, S, ...)
     # the sub-cells along z: equal parts of the voxel layer, overlapping the sub-intervals
-    z0 = layer[:, None] + jnp.arange(nzs, dtype=dtype)[None, :] / nzs  # (N, m)
-    lo = jnp.maximum(bp[:, :-1, None], z0[:, None, :])
-    hi = jnp.minimum(bp[:, 1:, None], z0[:, None, :] + 1.0 / nzs)
-    overlap = jnp.maximum(hi - lo, 0.0) * nzs  # (N, S, m): share of the sub-cell's height
+    if top is None:
+        z0 = layer[:, None] + jnp.arange(nzs, dtype=dtype)[None, :] / nzs  # (N, m)
+        lo = jnp.maximum(bp[:, :-1, None], z0[:, None, :])
+        hi = jnp.minimum(bp[:, 1:, None], z0[:, None, :] + 1.0 / nzs)
+        overlap = jnp.maximum(hi - lo, 0.0) * nzs  # (N, S, m): share of the sub-cell's height
+    else:
+        part = (top - layer)[:, None] / nzs  # (N, 1) the sub-cells' height
+        z0 = layer[:, None] + part * jnp.arange(nzs, dtype=dtype)[None, :]
+        z1 = z0 + part
+        lo = jnp.maximum(bp[:, :-1, None], z0[:, None, :])
+        hi = jnp.minimum(bp[:, 1:, None], z1[:, None, :])
+        overlap = jnp.maximum(hi - lo, 0.0) / part[:, :, None]
     fractions = jnp.einsum("nsm,nqsl->nqml", overlap, visible, precision=_HIGHEST)  # (N, Q, m, K + 1)
     if target is not None:
         fractions = _match_fractions(fractions.reshape(fractions.shape[0], -1, fractions.shape[-1]), target,
                                      level_material).reshape(fractions.shape)
-    lateral_d = jnp.einsum("nsm,nqsv->nqmv", overlap, tensor, precision=_HIGHEST) / nzs
+    if top is None:
+        lateral_d = jnp.einsum("nsm,nqsv->nqmv", overlap, tensor, precision=_HIGHEST) / nzs
+    else:  # the faces per unit height times the sub-cell's height (frame units)
+        lateral_d = jnp.einsum("nsm,nqsv->nqmv", overlap, tensor, precision=_HIGHEST) * part[:, :, None, None]
     # each sub-cell's own vertical variance: its sub-intervals' moments weighted by their share of it
     mean = jnp.einsum("nsm,nqsvc->nqmvc", overlap, moments, precision=_HIGHEST)
     spread = jnp.einsum(
@@ -2653,10 +3069,17 @@ def _junction_cells(
         jnp.sum((moments[:, :, :, None] - mean[:, :, None]) ** 2, axis=(-2, -1)),
         precision=_HIGHEST,
     )  # (N, Q, m): sum_s share_s |m_s - <m>|^2
-    vertical = 4.0 * spread * (2 * sub * cell) ** 2  # times the sub-square's area (cells^2), like the faces
+    # times the sub-cell's area (cells^2), like the faces
+    if per_column:
+        vertical = 4.0 * spread * (_cell_area(sub) * cell**2)[:, None, None]
+    else:
+        vertical = 4.0 * spread * ((2 * sub * cell) ** 2 if not isinstance(sub, tuple) else _cell_area(sub) * cell**2)
     if point_slopes is not None:  # tilted by the surfaces in the sub-cell (their jump-weighted mix)
         ends = bp[:, 1:-1]  # (N, S - 1)
-        inside = (ends[:, :, None] > z0[:, None, :]) & (ends[:, :, None] < z0[:, None, :] + 1.0 / nzs)
+        if top is None:
+            inside = (ends[:, :, None] > z0[:, None, :]) & (ends[:, :, None] < z0[:, None, :] + 1.0 / nzs)
+        else:
+            inside = (ends[:, :, None] > z0[:, None, :]) & (ends[:, :, None] < z1[:, None, :])
         jump = jnp.sum((moments[:, :, 1:] - moments[:, :, :-1]) ** 2, axis=(-2, -1))  # (N, n n, S - 1)
         wj = jump[:, :, :, None] * inside[:, None]  # (N, n n, S - 1, m)
         normal = jnp.concatenate([-slopes, jnp.ones_like(slopes[..., :1])], axis=-1)
@@ -2668,9 +3091,28 @@ def _junction_cells(
         vertical_d = vertical[..., None] * jnp.where(some[..., None], mix, up)
     else:
         vertical_d = vertical[..., None] * jnp.asarray([0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=dtype)
-    direction = lateral_d + vertical_d  # (N, n n, m, 6)
-    normal, _ = principal_direction(from_six(direction))
+    direction = from_six(lateral_d + vertical_d)  # (N, n n, m, 3, 3)
+    normal, _ = principal_direction(direction)
     coefficients = laminate(level_eps, fractions, normal)  # (N, n n, m, 3, 3)
+    # Where a sub-cell's two largest face directions weigh nearly the same (a corner in it with two walls of like
+    # weight), its leading direction is not defined: it would switch between the walls' normals at round-off as
+    # the corner moves, and the laminate with it. There the laminate blends, by a smooth step in the gap between
+    # the two largest eigenvalues, toward one that needs no direction: the laminates along x, y and z weighted by
+    # the direction tensor's diagonal (continuous in it). Elsewhere it is the leading direction's, exactly.
+    lam = jnp.linalg.eigvalsh(direction)  # ascending
+    trace = jnp.sum(lam, axis=-1)
+    some = trace > _NO_FACES
+    gap = jnp.where(some, (lam[..., 2] - lam[..., 1]) / jnp.where(some, trace, 1.0), 1.0)
+    x = jnp.clip((gap - _SUBCELL_GAP[0]) / (_SUBCELL_GAP[1] - _SUBCELL_GAP[0]), 0.0, 1.0)
+    keep = x * x * (3.0 - 2.0 * x)  # 1: the leading direction's laminate
+    share = jnp.diagonal(direction, axis1=-2, axis2=-1) / jnp.where(some, trace, 1.0)[..., None]
+    axes = sum(
+        share[..., a, None, None]
+        * laminate(level_eps, fractions, jnp.broadcast_to(jnp.asarray(np.eye(3)[a], dtype=dtype), normal.shape))
+        for a in range(3)
+    )
+    coefficients = jnp.where((keep < 1.0)[..., None, None], axes + keep[..., None, None] * (coefficients - axes),
+                             coefficients)
     shape = (offsets.shape[0], nxs, nys, nzs)
     return fractions.reshape(*shape, -1), coefficients.reshape(*shape, 3, 3)
 
@@ -2728,7 +3170,12 @@ def _junction_tensor(*args: Any, **kwargs: Any) -> tuple[Array, Array]:
             (:func:`bifrost.subpixel.periodic_cell_tensor`).
         residual: (N,) the solves' normwise backward errors.
     """
-    return periodic_cell_tensor(_junction_cells(*args, **kwargs)[1])
+    coefficients = _junction_cells(*args, **kwargs)[1]
+    if kwargs.get("top") is None:
+        return periodic_cell_tensor(coefficients)
+    height = kwargs["top"] - (args[6] if len(args) > 6 else kwargs["layer"])  # a graded layer: a box
+    ones = jnp.ones_like(height)
+    return periodic_cell_tensor(coefficients, jnp.stack([ones, ones, height], axis=-1))
 
 
 # ---------------------------------------------------------------- corner model
@@ -2785,6 +3232,12 @@ class _JunctionInputs(NamedTuple):
     corner: "_CornerInputs | None" = None
     #: (K + 1,) the material (index in the grid's material names) of every level, then the background's
     level_material: tuple[int, ...] = ()
+    #: the grid's z axis when it is graded (its layers' bounds), or None: layer k is [k, k + 1]
+    zaxis: _SampleAxis | None = None
+    #: the lateral cell a sample is painted on: 0.5 (a square), or (hx, hy) (see StackDevice._lateral_cell)
+    half: Any = 0.5
+    #: (wx, wy) the voxels' lateral widths (frame units); on graded x or y per column, (nx,) and (ny,)
+    widths: tuple[Any, Any] = (1.0, 1.0)
 
 
 class _Interfaces(NamedTuple):
@@ -2860,11 +3313,13 @@ class _CornerInputs(NamedTuple):
     literals: tuple
     #: number of split lines per column
     lines: int
-    #: cells -> sides of the lateral square
-    sc: float
+    #: cells -> sides of the lateral square (static); on graded x or y (N, 1) per column (see ``cells``)
+    sc: Any
     #: (nx * ny,) the candidate columns that found no slot (they keep the
     #: half-planes), or None
     dropped: Array | None = None
+    #: on graded x or y: the columns' own lateral cells, (N,) arrays (:class:`_Cells`); else None
+    cells: "_Cells | None" = None
 
 
 class _Slot(NamedTuple):
@@ -2927,7 +3382,7 @@ def _layer_corner(
         c: (N, 2) the sample points (cells).
         sd: (N,) the layer's signed distance at the points (cells).
         normal: (N, 2) its unit gradient.
-        sc: cells -> sides of the lateral square.
+        sc: cells -> sides of the lateral square; (N,) per column on graded x or y.
 
     Returns:
         The model, in sides of the lateral square relative to the points.
@@ -2992,7 +3447,7 @@ def _layer_corner(
         op_and=op_and,
         linked=linked,
         convex=convex,
-        vertex=sc * (qa - c),
+        vertex=(sc[:, None] if jnp.ndim(sc) else sc) * (qa - c),
         d2s=sc * jnp.minimum(dist[:, 1], _BIG),
         rpair=jnp.where(valid, sc * jnp.minimum(third, far) - 2 * _CORNER_TOL, -_BIG),
         sd=sc * sd,
@@ -3100,9 +3555,9 @@ def _round_tips(
         exact: (N, S, K + 1) the cells' (mitred) fractions per sub-interval.
         present: (N, S, K) whether each level is there.
         is_fill: (K,) static, whether a level fills the whole plane.
-        half: half side of the painted square.
+        half: half side of the painted square (per column: the cells, over the tips).
         center: (2,) center of the painted square in the lateral square's frame (a sub-square of it), or
-            None: the lateral square.
+            None: the lateral square; per column (..., 2) over the tips.
 
     Returns:
         exact: the fractions with the tips moved.
@@ -3114,7 +3569,7 @@ def _round_tips(
     n, s = exact.shape[:2]
     num = len(slots)
     dtype = exact.dtype
-    full_area = (2 * half) ** 2
+    full_area = _cell_area(half)
     layer = np.array([slot.layer for slot in slots])
 
     def per_slot(x: Array) -> Array:
@@ -3136,8 +3591,14 @@ def _round_tips(
     ccw = sg(_area(kite, count)) >= 0
     kite = jnp.where(ccw[..., None, None], kite, kite[..., ::-1, :])
     poly = jnp.concatenate([kite, jnp.repeat(kite[..., -1:, :], 4, axis=-2)], axis=-2)
-    for side in ((1, 0), (-1, 0), (0, 1), (0, -1)):  # the kite in the square
-        bound = half if center is None else half - (side[0] * center[0] + side[1] * center[1])
+    for side in ((1, 0), (-1, 0), (0, 1), (0, -1)):  # the kite in the cell
+        h_side = _half_sides(half)[0 if side[0] else 1]
+        if center is None:
+            bound = h_side
+        elif isinstance(half, _Cells):
+            bound = h_side - (side[0] * center[..., 0] + side[1] * center[..., 1])
+        else:
+            bound = h_side - (side[0] * center[0] + side[1] * center[1])
         side = jnp.broadcast_to(jnp.asarray(side, dtype=dtype), (n, s, num, 2))
         poly, count = _clip(poly, count, side, jnp.broadcast_to(jnp.asarray(bound, dtype=dtype), (n, s, num)))
     zone = (_area(poly, count) - _disk_area(poly, count, m.vertex, g)) / full_area
@@ -3203,7 +3664,7 @@ def _round_tips(
     jax.jit,
     static_argnames=(
         "trees", "literals", "is_fill", "lines", "sc", "half", "level_eps", "kernel", "cell", "per_interval",
-        "offdiag",
+        "offdiag", "graded",
     ),
 )
 def _corner_pass(
@@ -3228,6 +3689,8 @@ def _corner_pass(
     cell: float = 1.0,
     per_interval: bool = False,
     offdiag: bool = False,
+    graded: bool = False,
+    cells: tuple[Array, Array, Array] | None = None,
 ) -> Array | tuple[Array, ...]:
     """The corner columns of every voxel layer, painted with :func:`_corner_fill`.
 
@@ -3274,6 +3737,11 @@ def _corner_pass(
             :func:`_composite_samples`).
         offdiag: the tensor also has the off-diagonal entries (see
             :func:`_normal_tensor`).
+        graded: the layers are a graded grid's (see :func:`_normal_tensor`);
+            the fractions then sum to each layer's height (frame units).
+        cells: on graded x or y, the columns' own lateral cells (hx, hy, cell), (N,) each (traced: one compiled
+            pass for every sample grid of a shape; see :class:`_Cells`); ``half`` is then their static reach
+            and ``sc`` and ``cell`` are unused. None: the static lateral cell.
 
     Returns:
         (nz, N, K + 1) volume fractions of the levels, then the background;
@@ -3284,6 +3752,9 @@ def _corner_pass(
         and, with ``level_eps``, its contrast flux (nz, N, S, C, 3) and rates
         (nz, N, S, C, 2) per sub-interval.
     """
+    if cells is not None:  # each column's own cell, over the sub-intervals (and the components for the tensor)
+        half = _Cells(*cells, reach=half)
+        sc, cell = (1.0 / cells[2])[:, None], cells[2][:, None, None]
     corner = _CornerInputs(  # the columns are already gathered: no indices
         cols=None, taken=taken, layers=layers, trees=trees, literals=literals, lines=lines, sc=sc
     )
@@ -3321,7 +3792,9 @@ def _corner_pass(
         mean = _weigh_levels(visible[..., :-1], level_eps)
         square = _weigh_levels(visible[..., :-1], level_eps, power=2)
         slopes = inputs[8] if len(inputs) > 8 else None
-        return fill, _normal_tensor(inputs[1], inputs[7], flux, mean, square, rate, cell, kmass, slopes, offdiag)
+        return fill, _normal_tensor(
+            inputs[1], inputs[7], flux, mean, square, rate, cell, kmass, slopes, offdiag, graded=graded
+        )
 
     return jax.lax.map(one_slice, (dense, length, present, shift, *(moments or ())))
 
@@ -3449,6 +3922,10 @@ def _corner_fill(
         taken=jnp.concatenate([corner.taken] * 2),
         layers=jax.tree.map(lambda x: jnp.concatenate([x, x], axis=1), corner.layers),
     )
+    per_column = isinstance(half, _Cells)  # graded x or y: (N,) cells, (N, 1) sc
+    if per_column:  # doubled with the columns, over the sub-intervals
+        corner = corner._replace(sc=jnp.concatenate([corner.sc] * 2))
+        half = _cells_expand(_cells_twice(half), 1)
     voxel_length = length
     if with_n:
         # the walls' rates there: the slope, and its lag to the sub-interval's
@@ -3462,15 +3939,18 @@ def _corner_fill(
     length, present = (jnp.concatenate([x, x]) for x in (length, present))
     shift = jnp.concatenate([shift[..., 0], shift[..., 1]])
     n, s = length.shape
-    full_area = (2 * half) ** 2
+    full_area = _cell_area(half)
     gauss_t = None
     if planes is not None:
         # the columns' half-planes at the same two heights: where E equals
         # them, the edge is straight in the square and E becomes T
         po, pn = (jnp.concatenate([x, x]) for x in planes)  # (2N, K), (2N, K, 2)
         num_t = 4 + sum(not f for f in is_fill)
-        square_t = jnp.asarray([[-half, -half], [half, -half], [half, half], [-half, half]], dtype=dtype)
-        square_t = jnp.concatenate([square_t, jnp.repeat(square_t[-1:], num_t - 4, axis=0)])
+        square_t = _cell_corners(half, dtype)  # (4, 2); per column (2N, 1, 4, 2)
+        if per_column:
+            square_t = jnp.concatenate([square_t, jnp.repeat(square_t[..., -1:, :], num_t - 4, axis=-2)], axis=-2)
+        else:
+            square_t = jnp.concatenate([square_t, jnp.repeat(square_t[-1:], num_t - 4, axis=0)])
         gauss_t = _paint_levels(
             jnp.broadcast_to(square_t, (n, s, num_t, 2)),
             jnp.full((n, s), 4, dtype=jnp.int32),
@@ -3488,6 +3968,8 @@ def _corner_fill(
     num_cells = poly.shape[2]
     ok_clip = jnp.all(count <= poly.shape[-2], axis=-1)
     normals, offsets, slopes = cc.normals, cc.offsets, cc.slopes
+    # per column: the cells over the cut cells too
+    half_cells = _cells_expand(half, 1) if per_column else half
     painted = _paint_levels(
         poly,
         count,
@@ -3496,7 +3978,7 @@ def _corner_fill(
         jnp.stack(offsets, axis=-1),
         jnp.broadcast_to(present[:, :, None, :], (n, s, num_cells, len(is_fill))),
         is_fill,
-        half,
+        half_cells,
         *((attr, jnp.stack(slopes, axis=-2), kernel) if with_n else ()),
     )
     visible, overflow = painted[:2]
@@ -3504,7 +3986,7 @@ def _corner_fill(
     # round joins only where some literal of this voxel layer is rounded
     exact, gate = jax.lax.cond(
         jnp.any(jnp.stack([slot.rounded for slot in slots])),
-        lambda e: _round_tips(slots, corner, e, present, is_fill, half),
+        lambda e: _round_tips(slots, corner, e, present, is_fill, half_cells),
         lambda e: (e, jnp.ones((n, s), dtype=bool)),
         exact,
     )
@@ -3671,7 +4153,7 @@ def _corner_cells(
     sg = jax.lax.stop_gradient
     n, s = present.shape[:2]
     dtype = shift.dtype
-    rq = math.sqrt(2.0) * half  # the square's half-diagonal
+    rq = _cell_diagonal(half)  # the cell's half-diagonal
     sc = corner.sc
     with_rates = rates is not None
 
@@ -3683,8 +4165,10 @@ def _corner_cells(
         return jnp.broadcast_to(x[:, None], (n, s, *x.shape[1:]))
 
     def cuts(p: Array) -> Array:
-        """Whether half-planes (..., 3) cut the square (no gradient)."""
+        """Whether half-planes (..., 3) cut the cell (no gradient): their offset within its support."""
         p = sg(p)
+        if isinstance(half, tuple):
+            return jnp.abs(p[..., 2]) < half[0] * jnp.abs(p[..., 0]) + half[1] * jnp.abs(p[..., 1])
         return jnp.abs(p[..., 2]) < half * (jnp.abs(p[..., 0]) + jnp.abs(p[..., 1]))
 
     # every literal: constant, single edge or pair, and how far it is certified
@@ -3748,7 +4232,7 @@ def _corner_cells(
     # distinct live planes: the first of each level is its leftover, the others
     # take the split lines (unused lines are far: their inside is empty)
     num_lines = corner.lines
-    far = jnp.broadcast_to(jnp.asarray([1.0, 0.0, 2 * half], dtype=dtype), (n, s, 3))
+    far = jnp.broadcast_to(jnp.asarray([1.0, 0.0, _cell_reach(half)], dtype=dtype), (n, s, 3))
     lines, used = [far] * num_lines, [jnp.zeros((n, s), dtype=bool)] * num_lines
     left, has = [far] * len(is_fill), [jnp.zeros((n, s), dtype=bool)] * len(is_fill)
     width = rates.shape[-1] if with_rates else 2
@@ -3821,7 +4305,7 @@ def _corner_cells(
         only_in, only_out = inside & ~outside, outside & ~inside
         normals.append(jnp.where(only_in[..., None], lf[..., :2], jnp.where(only_out[..., None], -lf[..., :2], unit)))
         offsets.append(
-            jnp.where(only_in, lf[..., 2], jnp.where(only_out, -lf[..., 2], jnp.where(inside, -2 * half, 2 * half)))
+            jnp.where(only_in, lf[..., 2], jnp.where(only_out, -lf[..., 2], jnp.where(inside, -_cell_reach(half), _cell_reach(half))))
         )
         if with_rates:
             lb = left_b[j][:, :, None]
@@ -3865,15 +4349,19 @@ def _corner_polygons(
     num_poly = sum(not f for f in is_fill)
     num_vertices = 4 + num_lines + num_poly
     h = half if sub is None else sub
-    square = jnp.asarray([[-h, -h], [h, -h], [h, h], [-h, h]], dtype=dtype)
-    square = jnp.concatenate([square, jnp.repeat(square[-1:], num_vertices - 4, axis=0)])
+    square = _cell_corners(h, dtype)
+    if isinstance(h, _Cells):  # per column (2N, 1, 4, 2): over the cells (2N, 1, 1, V, 2)
+        square = jnp.concatenate([square, jnp.repeat(square[..., -1:, :], num_vertices - 4, axis=-2)], axis=-2)
+        square = square[..., None, :, :]
+    else:
+        square = jnp.concatenate([square, jnp.repeat(square[-1:], num_vertices - 4, axis=0)])
     batch = (n, s) if center is None else center.shape[:-1]
     poly = jnp.broadcast_to(square, (*batch, 1, num_vertices, 2))  # (..., C, V, 2)
     count = jnp.full((*batch, 1), 4, dtype=jnp.int32)
     attr = jnp.zeros((*batch, 1, num_vertices, 4), dtype=dtype) if with_attr else None
     for k in range(num_lines):  # the cells outside line k, then those inside
         cells = poly.shape[-3]
-        offset = jnp.clip(lines[k][..., 2], -2 * half, 2 * half)
+        offset = jnp.clip(lines[k][..., 2], -_cell_reach(half), _cell_reach(half))
         if center is not None:  # in the cut square's frame
             offset = offset + jnp.sum(lines[k][..., :2] * center, axis=-1)
         nk = jnp.broadcast_to(lines[k][..., None, :2], (*batch, cells, 2))
@@ -3926,6 +4414,9 @@ def _corner_square(
             square itself.
         sub: half side of the painted square (default: ``half``).
 
+    On graded x or y ``half`` (and ``sub``) are the columns' own cells, (2N, 1) over the sub-intervals,
+    ``cell`` (2N, 1) and ``center`` (2N, 2).
+
     Returns:
         exact: (2N, S, K + 1) fractions of the painted square (round tips moved).
         moments: (2N, S, 6, 3) material moments (zeroth and standardized first, about its center).
@@ -3936,14 +4427,22 @@ def _corner_square(
     dtype = cc.weight.dtype
     num = len(is_fill)
     h = half if sub is None else sub
-    side = 2 * h
+    side = 2 * h if not isinstance(h, tuple) else math.sqrt(_cell_area(h))  # side**2: the area
+    per_column = isinstance(h, _Cells)
+    # per column: the painted cell over the cut cells (and the tips), cell over the faces, center over the
+    # sub-intervals (and the cells and levels)
+    h_c = _cells_expand(h, 1) if per_column else h
+    center_s = center[:, None, :] if per_column and center is not None else center
     normals = jnp.stack(cc.normals, axis=-2)  # (2N, S, C, K, 2)
     offsets = jnp.stack(cc.offsets, axis=-1)  # (2N, S, C, K)
     if center is None:
         poly, count, _ = _corner_polygons(cc, is_fill, half, False)
     else:  # the painted square's own frame
-        poly, count, _ = _corner_polygons(cc, is_fill, half, False, jnp.broadcast_to(center, (n, s, 2)), h)
-        offsets = offsets + jnp.sum(normals * center, axis=-1)
+        poly, count, _ = _corner_polygons(cc, is_fill, half, False, jnp.broadcast_to(center_s, (n, s, 2)), h)
+        if per_column:
+            offsets = offsets + jnp.sum(normals * center[:, None, None, None, :], axis=-1)
+        else:
+            offsets = offsets + jnp.sum(normals * center, axis=-1)
     num_cells = poly.shape[2]
     ok_clip = jnp.all(count <= poly.shape[-2], axis=-1)
     tilts = jnp.stack([x[..., 0] for x in cc.slopes], axis=-1)  # (2N, S, C, K)
@@ -3952,8 +4451,8 @@ def _corner_square(
 
     def moved(line: Array) -> Array:
         """A split line's offset (clipped as painted) in the painted square's frame."""
-        o = jnp.clip(line[..., 2], -2 * half, 2 * half)
-        return o if center is None else o + jnp.sum(line[..., :2] * center, axis=-1)
+        o = jnp.clip(line[..., 2], -_cell_reach(half), _cell_reach(half))
+        return o if center is None else o + jnp.sum(line[..., :2] * center_s, axis=-1)
 
     # the cells: inside split line k where bit k is set (keep -(n . p + o) >= 0), else outside
     bounds = []
@@ -3962,8 +4461,9 @@ def _corner_square(
         bounds.append((sign[:, None] * line[..., None, :2], sign * moved(line)[..., None]))
     zero = jnp.zeros(2, dtype=dtype)
     # faces on the levels' half-planes inside each cell: lengths (2N, S, C, K, K + 1), weighed together
-    lengths = _face_lengths(normals, offsets, present_c, is_fill, zero, h, bounds)
-    weight = _face_weights(lengths, visible[..., :-1, None], visible[..., None, :], contrast2[:-1], cell, side)
+    lengths = _face_lengths(normals, offsets, present_c, is_fill, zero, h_c, bounds)
+    cell_f = cell[..., None, None, None] if per_column else cell  # (2N, 1, 1, 1, 1) over the cells' faces
+    weight = _face_weights(lengths, visible[..., :-1, None], visible[..., None, :], contrast2[:-1], cell_f, side)
     weight = jnp.sum(weight, axis=-1) * jnp.sqrt(1.0 + tilts**2)  # (2N, S, C, K): per line
     dyads = _dyad(jnp.concatenate([normals, tilts[..., None]], axis=-1) / jnp.sqrt(1.0 + tilts**2)[..., None])
     tensor = jnp.einsum("...ck,...ckv->...v", weight, dyads, precision=_HIGHEST)
@@ -3995,19 +4495,23 @@ def _corner_square(
             a1, b1 = (jnp.stack(x, axis=-1)[..., None, :] for x in zip(*inside, strict=True))
             overlap = jnp.maximum(jnp.minimum(b0, b1) - jnp.maximum(a0, a1), 0.0)
             weight = _face_weights(
-                overlap, visible[:, :, c0, :, None], visible[:, :, c1, None, :], contrast2, cell, side
+                overlap, visible[:, :, c0, :, None], visible[:, :, c1, None, :], contrast2,
+                cell[..., None, None] if per_column else cell, side,
             )
             tensor = tensor + (jnp.sum(weight, axis=(-2, -1)) * jnp.sqrt(1.0 + tilt**2))[..., None] * dyad
     exact = jnp.sum(visible, axis=2)  # (2N, S, K + 1)
     # round joins only where some literal of this voxel layer is rounded (area only)
+    center_t = center[:, None, None, :] if per_column and center is not None else center  # over the tips
     exact, gate = jax.lax.cond(
         jnp.any(jnp.stack([slot.rounded for slot in cc.slots])),
-        lambda e: _round_tips(cc.slots, corner, e, present, is_fill, h, center),
+        lambda e: _round_tips(cc.slots, corner, e, present, is_fill, h_c, center_t),
         lambda e: (e, jnp.ones((n, s), dtype=bool)),
         exact,
     )
     ok = ok_clip & ~jnp.any(overflow, axis=-1) & gate
-    standard = math.sqrt(12.0) / side
+    standard = _cell_standard(h, side, dtype)
+    if per_column:  # over the levels
+        standard = standard[..., None, :]
     mom = jnp.concatenate([exact[..., None], standard * jnp.sum(first, axis=2)], axis=-1)  # (2N, S, K + 1, 3)
     moments = jnp.einsum("...lc,lv->...vc", mom, jnp.asarray(vectors, dtype=dtype), precision=_HIGHEST)
     return exact, moments, tensor, ok
@@ -4062,6 +4566,9 @@ def _corner_interfaces(
             tensors (N, S, Q, 6), moments (N, S, Q, 6, 3), and the fractions at the Gauss heights' mean
             (N, S, Q, K + 1)).
 
+    On graded x or y ``half`` is the columns' own cells and ``cell`` their (N,) frame units per side
+    (:class:`_Cells`); the squares' centers are then (N, Q, 2) and their half sides the columns' sub-cells.
+
     Returns:
         The blended fractions (N, S, K + 1), lateral face tensor (N, S, 6) and material moments (N, S, 6, 3)
         per sub-interval, and the certificate w (N, S) they were blended with (below 1: partly the half-plane
@@ -4073,14 +4580,22 @@ def _corner_interfaces(
         taken=jnp.concatenate([corner.taken] * 2),
         layers=jax.tree.map(lambda x: jnp.concatenate([x, x], axis=1), corner.layers),
     )
+    per_column = isinstance(half, _Cells)
+    if per_column:  # doubled with the columns, over the sub-intervals: (2N, 1)
+        corner = corner._replace(sc=jnp.concatenate([corner.sc] * 2))
+        half = _cells_expand(_cells_twice(half), 1)
+        cell = jnp.concatenate([cell, cell])[:, None]
     length2, present2 = (jnp.concatenate([x, x]) for x in (length, present))
     shift2 = jnp.concatenate([shift[..., 0], shift[..., 1]])
     n, s = length2.shape
     # the half-planes at the two heights (T_g, for the straight seams)
     po, pn = (jnp.concatenate([x, x]) for x in planes)
     num_t = 4 + sum(not f for f in is_fill)
-    square_t = jnp.asarray([[-half, -half], [half, -half], [half, half], [-half, half]], dtype=dtype)
-    square_t = jnp.concatenate([square_t, jnp.repeat(square_t[-1:], num_t - 4, axis=0)])
+    square_t = _cell_corners(half, dtype)
+    if per_column:
+        square_t = jnp.concatenate([square_t, jnp.repeat(square_t[..., -1:, :], num_t - 4, axis=-2)], axis=-2)
+    else:
+        square_t = jnp.concatenate([square_t, jnp.repeat(square_t[-1:], num_t - 4, axis=0)])
     gauss_t = _paint_levels(
         jnp.broadcast_to(square_t, (n, s, num_t, 2)),
         jnp.full((n, s), 4, dtype=jnp.int32),
@@ -4116,6 +4631,9 @@ def _corner_interfaces(
     if squares is None:
         return out
     centers, sub, tq_visible, tq_tensor, tq_moments, tq_gauss = squares
+    if per_column:  # each column's own: centers (Q, 2N, 2), sub-cells (2N, 1)
+        centers = jnp.moveaxis(jnp.concatenate([centers, centers]), 1, 0)
+        sub = _cells_expand(_cells_twice(sub), 1)
     # one sub-square at a time (a vmap over them made XLA fuse the whole painting into one kernel that took
     # minutes to compile)
     q_exact, q_moments, q_tensor, _ = jax.lax.map(
@@ -4141,7 +4659,7 @@ def _corner_interfaces(
 @timed("interface_corner_pass")
 @partial(
     jax.jit,
-    static_argnames=("trees", "literals", "is_fill", "lines", "sc", "half", "cell", "vectors", "contrast2"),
+    static_argnames=("trees", "literals", "is_fill", "lines", "sc", "half", "cell", "vectors", "contrast2", "graded"),
 )
 def _interface_corner_pass(
     layers: _LayerCorner,
@@ -4158,6 +4676,8 @@ def _interface_corner_pass(
     cell: float,
     vectors: tuple,
     contrast2: tuple,
+    graded: bool = False,
+    cells: tuple[Array, Array, Array] | None = None,
 ) -> tuple[Array, Array]:
     """The corner columns of every voxel layer with :func:`_corner_interfaces` (a separate jitted pass).
 
@@ -4177,15 +4697,23 @@ def _interface_corner_pass(
         cell: cells per side of the lateral square.
         vectors: (K + 1, 6) static normalized material tensors (nested tuples).
         contrast2: (K + 1, K + 1) static squared contrasts (nested tuples).
+        graded: the layers are a graded grid's (see :func:`_interface_composite`).
+        cells: on graded x or y, the columns' own lateral cells (see :func:`_corner_pass`).
 
     Returns:
         (nz, N, K + 1) the columns' fractions, (nz, N, 6) their direction tensors and (nz,) the number of
         the columns' voxels per layer that the corner model does not certify (blended toward half-planes).
     """
+    if cells is not None:  # each column's own cell (see _corner_pass)
+        half = _Cells(*cells, reach=half)
+        sc, cell = (1.0 / cells[2])[:, None], cells[2]
     corner = _CornerInputs(cols=None, taken=taken, layers=layers, trees=trees, literals=literals, lines=lines, sc=sc)
     polygons = np.logical_not(is_fill)
     vec, con = np.asarray(vectors), np.asarray(contrast2)
-    area = (2 * half * cell) ** 2
+    if cells is not None:  # (N, 1): over the tensor's entries
+        area = (cell**2)[:, None]
+    else:
+        area = (2 * half * cell) ** 2 if not isinstance(half, tuple) else _cell_area(half) * cell**2
 
     @jax.checkpoint  # recomputed in the backward pass: one voxel layer's corner model in memory at a time
     def corner_model(*args: Array) -> tuple[Array, Array, Array, Array]:
@@ -4201,7 +4729,11 @@ def _interface_corner_pass(
             None,
         )
         fractions = jnp.sum(length[..., None] * f, axis=-2)
-        direction = jnp.sum(length[..., None] * d, axis=-2) + _vertical_tensor(length, bp, m, slopes) * area
+        if graded:  # the layer's fractions; its lateral faces as high as it is
+            fractions = fractions / (bp[..., -1:] - bp[..., :1])
+            direction = jnp.sum(length[..., None] * d, axis=-2) + _vertical_tensor(length, bp, m, slopes, True) * area
+        else:
+            direction = jnp.sum(length[..., None] * d, axis=-2) + _vertical_tensor(length, bp, m, slopes) * area
         # the columns' voxels whose polygon levels the corner model does not certify (partly half-planes)
         drawn = jnp.any(present[..., polygons], axis=-1) & (length > 0)
         uncertified = jnp.sum(taken & jnp.any(drawn & (w < 1.0 - _CERTIFIED), axis=-1), dtype=jnp.int32)
@@ -4234,8 +4766,8 @@ def _blend(w: Array, exact: Array, dense: Array, length: Array, *moments: Array)
     return fill, vis, w * flux + (1 - w) * flux_t, w * rate + (1 - w) * rate_t
 
 
-def _lateral_range(level: _Level, wall: tuple[Array, Array, Array], lo: Array, hi: Array, nz: int,
-                   res_um: float) -> tuple[Array, Array]:
+def _lateral_range(level: _Level, wall: tuple[Array, Array, Array], lo: Array, hi: Array,
+                   z_span: tuple[Any, Any], res_um: float) -> tuple[Array, Array]:
     """Smallest and largest sidewall offset (cells) of a level in the box (no gradient).
 
     The offset is piecewise linear in z (kinks at the z_to_bias knots), so its
@@ -4246,7 +4778,8 @@ def _lateral_range(level: _Level, wall: tuple[Array, Array, Array], lo: Array, h
         wall: its (zmin, thickness, sidewall angle) as in :func:`_sidewall_shift`.
         lo: (nx, ny) its bottom surface (cells).
         hi: (nx, ny) its top surface (cells).
-        nz: number of voxel layers.
+        z_span: (bottom, top) of the sampled voxel layers, in the surfaces' frame
+            (0 and the number of layers on a uniform grid).
         res_um: grid resolution in um.
 
     Returns:
@@ -4254,8 +4787,8 @@ def _lateral_range(level: _Level, wall: tuple[Array, Array, Array], lo: Array, h
     """
     sg = jax.lax.stop_gradient
     zb, t, angle = (sg(jnp.asarray(x, dtype=lo.dtype)) for x in wall)
-    z_lo = jnp.clip(jnp.min(sg(lo)), 0.0, nz)
-    z_hi = jnp.clip(jnp.max(sg(hi)), 0.0, nz)
+    z_lo = jnp.clip(jnp.min(sg(lo)), *z_span)
+    z_hi = jnp.clip(jnp.max(sg(hi)), *z_span)
     z = [z_lo, z_hi]
     if level.z_to_bias is not None:
         z += [jnp.clip(zb + f * t, z_lo, z_hi) for f in level.z_to_bias[0]]
@@ -5083,18 +5616,25 @@ class TopRoughness(TreeClass):
     #: levels whose bottom sits on this surface follow it (no voids, no overlaps)
     fill_above: bool = frozen_field(default=True)
 
-    def sample(self, shape: tuple[int, int], res_um: float, key: Array) -> Array:
+    def sample(
+        self, shape: tuple[int, int], res_um: float, key: Array, widths: tuple[float, float] | None = None
+    ) -> Array:
         """Samples one rough surface.
 
         Args:
             shape: (nx, ny) of the device grid.
-            res_um: grid resolution in um.
+            res_um: grid resolution in um (the frame unit).
             key: PRNG key.
+            widths: (wx, wy) the cells' widths in frame units where they differ along x and y, or None.
 
         Returns:
-            (nx, ny) height offsets in cells.
+            (nx, ny) height offsets in cells (frame units).
         """
-        f = gaussian_random_field(shape, self.correlation_length / res_um, key)
+        if widths is None:
+            f = gaussian_random_field(shape, self.correlation_length / res_um, key)
+        else:
+            length = self.correlation_length / res_um
+            f = gaussian_random_field(shape, (length / widths[0], length / widths[1]), key)
         return (self.rms / res_um) * f
 
 
@@ -5329,6 +5869,11 @@ class StackDevice(StaticMultiMaterialObject):
     #: precision of the simulation, jnp.float32 or jnp.float64 (see the class docstring); any
     #: spelling of the two is accepted and stored as jnp.float32 / jnp.float64
     dtype: jnp.dtype = frozen_field(default=jnp.float32)
+    #: (name, nominal bottom, top in um) of the levels from_layer_stack left out as outside the box
+    #: (beyond level_margin and a small slack); place_on_grid warns when the grid samples one of them
+    dropped_levels: tuple[tuple[str, float, float], ...] = frozen_field(default=())
+    #: the static grid frame (:class:`_Frame`), set by place_on_grid from the resolved grid
+    grid_frame: _Frame | None = frozen_field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "dtype", _simulation_dtype(self.dtype))
@@ -5515,9 +6060,12 @@ class StackDevice(StaticMultiMaterialObject):
         nonempty = {index for index, polys in polygons.items() if polys} | set(rectangles)
         compiled = []
         empty: dict[int, list[tuple[str, float, float]]] = {}
+        dropped: list[tuple[str, float, float]] = []
         for name, level, expr in candidates:
             lo, hi = _span(level)
             if hi <= z0 - margin or lo >= z1 + margin:
+                if _expr_can_draw(expr, nonempty):
+                    dropped.append((name, float(lo), float(hi)))  # place_on_grid checks it is not sampled
                 continue  # outside the box
             for index in sorted(_expr_layers(expr) - nonempty):
                 empty.setdefault(index, []).append((name, float(lo), float(hi)))
@@ -5601,6 +6149,7 @@ class StackDevice(StaticMultiMaterialObject):
             source_extensions=tuple(exts),
             extended_ports=tuple(extended),
             empty_layers=tuple((index, tuple(levels)) for index, levels in sorted(empty.items())),
+            dropped_levels=tuple(dropped),
             background=background,
             partial_real_shape=((x1 - x0) * 1e-6, (y1 - y0) * 1e-6, (z1 - z0) * 1e-6),
             center=(0.5 * (x0 + x1), 0.5 * (y0 + y1)),
@@ -6211,12 +6760,19 @@ class StackDevice(StaticMultiMaterialObject):
         if resolution is None:
             if not placed:
                 raise ValueError(f"StackDevice {self.name!r} is not placed; pass the grid resolution (um)")
-            resolution = self._res_um()
+            # the larger lateral cell where x and y differ (the largest, graded): what the coarser one resolves
+            if self._lateral_graded():
+                e = self.grid_frame.edges
+                resolution = self._res_um() * float(max(np.max(np.diff(e[0])), np.max(np.diff(e[1]))))
+            else:
+                resolution = self._res_um() * max(self._lateral_widths())
         cell = float(resolution)
         if not cell > 0:
             raise ValueError(f"resolution must be a positive length (um), got {resolution}")
         if placed:
             size = tuple(n * self._res_um() for n in self.grid_shape)
+            if self.grid_frame is not None and not all(self.grid_frame.uniform):  # the box from its edges
+                size = tuple(float(e[-1]) * self._res_um() for e in self.grid_frame.edges)
         elif self.partial_real_shape is None or None in tuple(self.partial_real_shape):
             raise ValueError(f"StackDevice {self.name!r} has no box (partial_real_shape)")
         else:
@@ -6422,8 +6978,130 @@ class StackDevice(StaticMultiMaterialObject):
     # ------------------------------------------------------------ geometry
 
     def _res_um(self) -> float:
-        """Grid resolution in um."""
+        """The frame unit in um (:class:`_Frame`): the grid resolution on a uniform grid."""
+        if self.grid_frame is not None:
+            return self.grid_frame.h_um
         return self._config.uniform_spacing() * 1e6
+
+    def _lateral_widths(self) -> tuple[float, float]:
+        """(wx, wy): the width (frame units) of the device's cells along x and y (1 and 1 on a uniform grid)."""
+        if self.grid_frame is None:
+            return 1.0, 1.0
+        wx, wy = self.grid_frame.widths[:2]
+        if wx is None or wy is None:
+            raise NotImplementedError(f"StackDevice {self.name!r}: graded x or y cells are painted per column")
+        return wx, wy
+
+    def _lateral_graded(self) -> bool:
+        """Whether the device's x or y cells are graded (painted per column, see :class:`_Cells`)."""
+        return self.grid_frame is not None and None in self.grid_frame.widths[:2]
+
+    def _sample_axes(self, shift: tuple[float, float]) -> tuple[_SampleAxis, _SampleAxis]:
+        """The x and y sample axes of the grid whose points are ``shift`` cells (0 or -0.5) from the centers."""
+        return self.grid_frame.sample_axis(0, shift[0]), self.grid_frame.sample_axis(1, shift[1])
+
+    def _sample_cells(self, shift: tuple[float, float]) -> _Cells:
+        """The lateral cells (dense (nx, ny), the device's dtype) of the sample grid at the Yee shift (sx, sy).
+
+        On a grid with graded x or y cells: each column's sample box (the cell, or the dual cell between
+        neighbouring cell centers along a shifted axis), ``wx`` by ``wy`` frame units, as the rectangle of area 1
+        with half sides ``(sqrt(wx / wy), sqrt(wy / wx)) / 2`` in a frame of ``sqrt(wx wy) edge_width /
+        xy_subsamples`` frame units per side (see :meth:`_lateral_cell`).
+        """
+        xa, ya = self._sample_axes(shift)
+        wx, wy = (xa.hi - xa.lo)[:, None], (ya.hi - ya.lo)[None, :]
+        r = np.sqrt(wx / wy)
+        hx, hy = 0.5 * r, 0.5 / r
+        cell = np.sqrt(wx * wy) * self.edge_width / self.xy_subsamples
+        dtype = self._config.dtype
+        return _Cells(
+            jnp.asarray(hx, dtype=dtype), jnp.asarray(hy, dtype=dtype), jnp.asarray(cell, dtype=dtype),
+            2.0 * float(max(np.max(hx), np.max(hy))),
+        )
+
+    def _lateral_cell(self) -> tuple[Any, float]:
+        """(half, cell): the lateral cell a sample is painted on, and frame units per side of it.
+
+        Where the x and y cells are one size: the square of half side 0.5, ``cell = edge_width / xy_subsamples``
+        (as always). Where they differ (``wx``, ``wy`` frame units): the rectangle of the same aspect and area 1,
+        half sides ``(sqrt(wx / wy), sqrt(wy / wx)) / 2``, in an isotropic frame of ``cell = sqrt(wx wy)
+        edge_width / xy_subsamples`` frame units per unit, so that distances, normals and round joins stay
+        Euclidean (see :func:`_cell_corners`).
+        """
+        wx, wy = self._lateral_widths()
+        if wx == wy:
+            return 0.5, self.edge_width / self.xy_subsamples
+        r = math.sqrt(wx / wy)
+        return (0.5 * r, 0.5 / r), math.sqrt(wx * wy) * self.edge_width / self.xy_subsamples
+
+    def _column_centers(self) -> tuple[np.ndarray, np.ndarray]:
+        """The x and y centers (frame units) of the device's columns."""
+        e = self.grid_frame.edges
+        return 0.5 * (e[0][:-1] + e[0][1:]), 0.5 * (e[1][:-1] + e[1][1:])
+
+    def _surface_slopes(self, z: Array) -> Array:
+        """(nx, ny, 2) lateral gradient of a surface z (frame units per frame unit); 0 along an axis of one cell."""
+        if self._lateral_graded():  # over the columns' centers
+            centers = self._column_centers()
+            return jnp.stack(
+                [jnp.gradient(z, jnp.asarray(centers[a], dtype=z.dtype), axis=a) if z.shape[a] > 1
+                 else jnp.zeros_like(z) for a in (0, 1)],
+                axis=-1,
+            )
+        wx, wy = self._lateral_widths()
+        if wx == wy:
+            return jnp.stack(
+                [jnp.gradient(z, axis=a) if z.shape[a] > 1 else jnp.zeros_like(z) for a in (0, 1)], axis=-1
+            )
+        return jnp.stack(
+            [jnp.gradient(z, axis=a) / w if z.shape[a] > 1 else jnp.zeros_like(z) for a, w in ((0, wx), (1, wy))],
+            axis=-1,
+        )
+
+    def _fd_spacing(self, shift: tuple[float, float, float]) -> tuple[np.ndarray | None, ...] | None:
+        """Distances between neighbouring sample centers for :func:`_normal_squared` (None: one cell everywhere).
+
+        Args:
+            shift: the shift (cells) of the sample grid (its Yee position).
+
+        Returns:
+            Per axis None (one cell) or the (n + 1,) distances in frame units; None where all are one cell.
+        """
+        nx, ny, _ = self.grid_shape
+        zaxis = self._z_axis(shift[2])
+        z = None if zaxis.uniform else _center_distances(zaxis)
+        if self._lateral_graded():
+            return (*(_center_distances(a) for a in self._sample_axes((shift[0], shift[1]))), z)
+        wx, wy = self._lateral_widths()
+        if wx == wy and zaxis.uniform:
+            return None
+        return (
+            None if wx == wy else np.full(nx + 1, wx),
+            None if wx == wy else np.full(ny + 1, wy),
+            z,
+        )
+
+    def _to_square(self) -> float:
+        """Frame units -> sides of a sample's lateral cell (1 / cell of :meth:`_lateral_cell`)."""
+        wx, wy = self._lateral_widths()
+        if wx == wy:
+            return self.xy_subsamples / self.edge_width
+        return 1.0 / self._lateral_cell()[1]
+
+    def _z_axis(self, z_shift: float) -> _SampleAxis:
+        """The z axis of the sample grid whose points are ``z_shift`` cells from the voxel centers.
+
+        Args:
+            z_shift: 0 (voxel centers) or -0.5 (Ex, Ey Yee positions).
+
+        Returns:
+            The sample axis (:meth:`_Frame.sample_axis`); without a frame, the
+            uniform voxel layers.
+        """
+        if self.grid_frame is None:
+            lo = np.arange(self.grid_shape[2], dtype=float)
+            return _SampleAxis(float(z_shift), lo, lo + 1.0, True)
+        return self.grid_frame.sample_axis(2, z_shift)
 
     def interface_offsets(self, key: Array | None) -> list[Array]:
         """Samples every roughness entry.
@@ -6437,10 +7115,41 @@ class StackDevice(StaticMultiMaterialObject):
         nx, ny, _ = self.grid_shape
         if key is None:
             key = jax.random.PRNGKey(self.noise_seed)
+        if not self.roughness:
+            return []
+        if self._lateral_graded():
+            return [self._graded_offsets(r, jax.random.fold_in(key, i)) for i, r in enumerate(self.roughness)]
+        wx, wy = self._lateral_widths()
+        widths = {} if wx == wy else {"widths": (wx, wy)}
         return [
-            r.sample((nx, ny), self._res_um(), jax.random.fold_in(key, i))
+            r.sample((nx, ny), self._res_um(), jax.random.fold_in(key, i), **widths)
             for i, r in enumerate(self.roughness)
         ]
+
+    def _graded_offsets(self, roughness: "TopRoughness", key: Array) -> Array:
+        """One rough surface on graded x or y cells: (nx, ny) height offsets (frame units) at the columns.
+
+        The field is drawn on an auxiliary lattice of one frame unit (the finest lateral cell) over the box and
+        interpolated bilinearly to the columns' centers (which smooths it a little in coarse cells); without a
+        correlation length it is white noise per column, as on a uniform grid.
+        """
+        nx, ny, _ = self.grid_shape
+        if not roughness.correlation_length > 0:
+            return roughness.sample((nx, ny), self._res_um(), key)
+        e = self.grid_frame.edges
+        lattice = (max(2, math.ceil(e[0][-1] - 1e-9)), max(2, math.ceil(e[1][-1] - 1e-9)))
+        f = roughness.sample(lattice, self._res_um(), key)  # lattice point (i, j) at (i + 0.5, j + 0.5)
+        index, weight = [], []
+        for c, n in zip(self._column_centers(), lattice, strict=True):
+            i = np.clip(np.floor(c - 0.5).astype(int), 0, n - 2)
+            index.append(i)
+            weight.append(jnp.asarray(np.clip(c - 0.5 - i, 0.0, 1.0), dtype=f.dtype))
+        (ix, iy), (tx, ty) = index, weight
+        tx, ty = tx[:, None], ty[None, :]
+        return (
+            (1 - tx) * (1 - ty) * f[ix[:, None], iy[None, :]] + tx * (1 - ty) * f[ix[:, None] + 1, iy[None, :]]
+            + (1 - tx) * ty * f[ix[:, None], iy[None, :] + 1] + tx * ty * f[ix[:, None] + 1, iy[None, :] + 1]
+        )
 
     @timed("layer_geometry")
     def _layer_geometry(self, params: dict[str, Array]) -> list[_LayerGeometry]:
@@ -6465,7 +7174,11 @@ class StackDevice(StaticMultiMaterialObject):
         """
         nx, ny, _ = self.grid_shape
         res_um = self._res_um()
-        offset = np.array([nx / 2, ny / 2])
+        if self._lateral_graded():  # the box's middle from its edges (frame units)
+            offset = np.array([self.grid_frame.edges[0][-1] / 2, self.grid_frame.edges[1][-1] / 2])
+        else:
+            wx, wy = self._lateral_widths()
+            offset = np.array([nx / 2, ny / 2]) if wx == wy else np.array([nx * wx / 2, ny * wy / 2])
         center = np.asarray(self.center, dtype=float)
         out = []
         keys = {index: k for k, index in self.source_layers}
@@ -6503,8 +7216,25 @@ class StackDevice(StaticMultiMaterialObject):
         return out + derived
 
     def _sample_points(self, shift: tuple[float, float] = (0.0, 0.0)) -> Array:
-        """Lateral sample points (nx * ny, 2) in cells: the voxel centers moved by ``shift``, i-major."""
+        """Lateral sample points (nx * ny, 2) in frame units: the voxel centers moved by ``shift`` cells, i-major.
+
+        With graded x or y cells ``shift`` is (sx, sy, a, b): the Yee shift (0 or -0.5) of the sample grid, whose
+        points are its sample boxes' centers, then a sub-sample's offset in widths of its box.
+        """
         nx, ny, _ = self.grid_shape
+        if self._lateral_graded():
+            sx, sy, a, b = shift if len(shift) == 4 else (*shift, 0.0, 0.0)
+            xa, ya = self._sample_axes((sx, sy))
+            cx = 0.5 * (xa.lo + xa.hi) + xa.shift + a * (xa.hi - xa.lo)
+            cy = 0.5 * (ya.lo + ya.hi) + ya.shift + b * (ya.hi - ya.lo)
+            xx, yy = jnp.meshgrid(jnp.asarray(cx), jnp.asarray(cy), indexing="ij")
+            return jnp.stack([xx.ravel(), yy.ravel()], axis=1)
+        wx, wy = self._lateral_widths()
+        if wx != wy:  # cells of wx and wy frame units
+            xx, yy = jnp.meshgrid(
+                (jnp.arange(nx) + 0.5 + shift[0]) * wx, (jnp.arange(ny) + 0.5 + shift[1]) * wy, indexing="ij"
+            )
+            return jnp.stack([xx.ravel(), yy.ravel()], axis=1)
         xx, yy = jnp.meshgrid(
             jnp.arange(nx) + 0.5 + shift[0], jnp.arange(ny) + 0.5 + shift[1], indexing="ij"
         )
@@ -6562,7 +7292,9 @@ class StackDevice(StaticMultiMaterialObject):
             p: all device parameters.
             noise_key: PRNG key for the roughness.
             apply_roughness: if False, the nominal geometry.
-            z_shift: offset (cells) of the sampled voxels from the grid's voxels along z.
+            z_shift: offset (cells) of the sampled voxels from the grid's voxels along z
+                (the ``shift`` of :meth:`_z_axis`: 0 on a graded axis, whose
+                sample voxels are the layers' bounds instead).
 
         Returns:
             active: (level, its (zmin, thickness, angle) for
@@ -6573,7 +7305,11 @@ class StackDevice(StaticMultiMaterialObject):
         """
         nx, ny, nz = self.grid_shape
         res_um = self._res_um()
-        z0 = self.z_center - 0.5 * nz * res_um  # stack z at the device bottom
+        frame = self.grid_frame
+        if frame is None or frame.uniform[2]:
+            z0 = self.z_center - 0.5 * nz * res_um  # stack z at the device bottom
+        else:  # the box's height from the graded cells
+            z0 = self.z_center - 0.5 * float(frame.edges[2][-1]) * res_um
         offsets_z = self.interface_offsets(noise_key) if apply_roughness and self.roughness else []
         dtype = self._config.dtype
         order = sorted(range(len(self.levels)), key=lambda i: (self.levels[i].mesh_order, i))
@@ -6611,7 +7347,11 @@ class StackDevice(StaticMultiMaterialObject):
 
     @timed("corner_plan")
     def _corner_plan(
-        self, active: Sequence[tuple[_Level, Any]], lows: Sequence[Array], highs: Sequence[Array]
+        self,
+        active: Sequence[tuple[_Level, Any]],
+        lows: Sequence[Array],
+        highs: Sequence[Array],
+        zaxis: _SampleAxis | None = None,
     ) -> tuple[_CornerPlan | None, list[list[Array]]]:
         """The levels' literals for the corner model, and how far from a column each matters.
 
@@ -6619,6 +7359,8 @@ class StackDevice(StaticMultiMaterialObject):
             active: the levels by priority (:meth:`_level_surfaces`).
             lows: (nx, ny) bottom surface of each level (cells).
             highs: (nx, ny) top surface of each level (cells).
+            zaxis: the z axis of the sample grid (:meth:`_z_axis`); None: the
+                voxel layers [k, k + 1].
 
         Returns:
             plan: the literals, or None without ``corner_lines`` or when no level
@@ -6626,16 +7368,25 @@ class StackDevice(StaticMultiMaterialObject):
             radii: per level, per literal: the distance (cells, no gradient)
                 within which its boundary can cut the lateral square somewhere
                 in the box: the square's half-diagonal plus the largest offset
-                of the literal over the heights the level covers.
+                of the literal over the heights the level covers. On graded x
+                or y without the half-diagonal, which is each column's own
+                (:meth:`_graded_radii` adds it per sample grid).
         """
         if self.corner_lines <= 0:
             return None, []
         nz = self.grid_shape[2]
+        z_span = (0.0, nz) if zaxis is None or zaxis.uniform else (float(zaxis.lo[0]), float(zaxis.hi[-1]))
         res_um = self._res_um()
-        # with sub-samples, _VOXEL_RAMP more: a sample's certificate for its voxel
-        # is 1 where its columns end (see _composite_samples)
-        reach = math.sqrt(2.0) * 0.5 + _CORNER_TOL + (_VOXEL_RAMP if self.xy_subsamples > 1 else 0.0)
-        half_diagonal = reach * self.edge_width / self.xy_subsamples
+        if self._lateral_graded():
+            half_diagonal = 0.0
+        else:
+            # with sub-samples, _VOXEL_RAMP more: a sample's certificate for its voxel
+            # is 1 where its columns end (see _composite_samples)
+            half, cell = self._lateral_cell()
+            reach = _cell_diagonal(half) + _CORNER_TOL + (_VOXEL_RAMP if self.xy_subsamples > 1 else 0.0)
+            half_diagonal = (
+                reach * self.edge_width / self.xy_subsamples if not isinstance(half, tuple) else reach * cell
+            )
         position = {index: i for i, (_, index) in enumerate(self._slots())}
         trees, literals, radii, layers = [], [], [], []
         for (lv, wall), lo, hi in zip(active, lows, highs, strict=True):
@@ -6645,7 +7396,7 @@ class StackDevice(StaticMultiMaterialObject):
                 radii.append([])
                 continue
             tree, lits = _literals(self._drawn_expr(lv), res_um, position)
-            s_lo, s_hi = _lateral_range(lv, wall, lo, hi, nz, res_um)
+            s_lo, s_hi = _lateral_range(lv, wall, lo, hi, z_span, res_um)
             slots, rad = [], []
             for index, a, b in lits:
                 if position[index] not in layers:
@@ -6658,6 +7409,17 @@ class StackDevice(StaticMultiMaterialObject):
         if not layers:
             return None, []
         return _CornerPlan(trees=tuple(trees), literals=tuple(literals), layers=tuple(layers)), radii
+
+    def _graded_radii(self, radii: Sequence[Sequence[Array]], cells: _Cells) -> list[list[Array]]:
+        """:meth:`_corner_plan`'s radii on graded x or y, with each column's half-diagonal: (nx * ny,) each.
+
+        Args:
+            radii: per level, per literal, the radius without the half-diagonal (cells).
+            cells: the sample grid's lateral cells (:meth:`_sample_cells`).
+        """
+        reach = _cell_diagonal(cells) + _CORNER_TOL + (_VOXEL_RAMP if self.xy_subsamples > 1 else 0.0)
+        half_diagonal = jnp.reshape(reach * cells.cell, (-1,))  # frame units
+        return [[r + half_diagonal for r in rad] for rad in radii]
 
     @timed("corner_capacity")
     def _corner_capacity(self, plan: _CornerPlan, geometry: Sequence[_LayerGeometry]) -> int:
@@ -6689,8 +7451,16 @@ class StackDevice(StaticMultiMaterialObject):
             wall = (1 + abs(lv.width_to_z)) * t * abs(math.tan(math.radians(lv.sidewall_angle)))
             for layer, _, b in literals:
                 offsets[layer] = max(offsets[layer], abs(b) + wall + max(biases) / res_um)
-        reach = math.sqrt(2.0) * 0.5 + (_VOXEL_RAMP if self.xy_subsamples > 1 else 0.0)
-        half_diagonal = reach * self.edge_width / self.xy_subsamples
+        if self._lateral_graded():  # the largest cell's
+            cells = self._sample_cells((0.0, 0.0))
+            reach = _cell_diagonal(cells) + (_VOXEL_RAMP if self.xy_subsamples > 1 else 0.0)
+            half_diagonal = float(jnp.max(reach * cells.cell))
+        else:
+            half, cell = self._lateral_cell()
+            reach = _cell_diagonal(half) + (_VOXEL_RAMP if self.xy_subsamples > 1 else 0.0)
+            half_diagonal = (
+                reach * self.edge_width / self.xy_subsamples if not isinstance(half, tuple) else reach * cell
+            )
         bound = 64
         for layer, offset in zip(plan.layers, offsets, strict=True):
             vertices = int(np.count_nonzero(geometry[layer].boundary))
@@ -6714,7 +7484,8 @@ class StackDevice(StaticMultiMaterialObject):
             radii: per level, per literal, the radius of :meth:`_corner_plan`.
             geometry: the source layers (:meth:`_layer_geometry`).
             sdf: the source layers' distances on this grid (:meth:`_source_sdfs`).
-            shift: offset (cells) of the grid's points from the voxel centers.
+            shift: offset (cells) of the grid's points from the voxel centers; on graded x or y the Yee
+                shift and the sub-sample's offset, (sx, sy, a, b) (see :meth:`_sample_points`).
             capacity: number of corner columns (static).
 
         Returns:
@@ -6722,7 +7493,13 @@ class StackDevice(StaticMultiMaterialObject):
         """
         nx, ny, _ = self.grid_shape
         num = nx * ny
-        sc = self.xy_subsamples / self.edge_width
+        graded_xy = self._lateral_graded()
+        if graded_xy:  # each column's own cell
+            cells = self._sample_cells((shift[0], shift[1]))
+            radii = self._graded_radii(radii, cells)
+            sc = None
+        else:
+            sc = self._to_square()
         near = []
         for layer in plan.layers:
             v, _, _, boundary, src, dst, _ = geometry[layer]
@@ -6733,14 +7510,18 @@ class StackDevice(StaticMultiMaterialObject):
         cols = jnp.nonzero(candidate, size=capacity, fill_value=num)[0]
         dropped = candidate & (jnp.cumsum(candidate) > capacity)
         cs = jnp.minimum(cols, num - 1)
+        taken_cells = _cells_take(cells, cs) if graded_xy else None
         models = []
         for layer, (dist, ids) in zip(plan.layers, near, strict=True):
             v, _, pid, _, src, dst, succ = geometry[layer]
             sd, gx, gy = sdf[self._slots()[layer][1]]
             points = self._sample_points(shift).astype(v.dtype)
             normal = _unit_normal(gx, gy).reshape(num, 2)[cs]
+            to_square = 1.0 / taken_cells.cell if graded_xy else sc
             models.append(
-                _layer_corner(v, src, dst, succ, pid, ids[cs], dist[cs], points[cs], sd.reshape(num)[cs], normal, sc)
+                _layer_corner(
+                    v, src, dst, succ, pid, ids[cs], dist[cs], points[cs], sd.reshape(num)[cs], normal, to_square
+                )
             )
         dtype = self._config.dtype  # like the half-plane painting (the distances may be wider)
         layers = jax.tree.map(
@@ -6755,6 +7536,7 @@ class StackDevice(StaticMultiMaterialObject):
             lines=self.corner_lines,
             sc=sc,
             dropped=dropped,
+            cells=taken_cells,
         )
 
     def _corner_candidate_count(self) -> int:
@@ -6770,6 +7552,8 @@ class StackDevice(StaticMultiMaterialObject):
         n_sub = self.xy_subsamples
         sub = [(k + 0.5) / n_sub - 0.5 for k in range(n_sub)]
         shifts = [(0.0, 0.0, 0.0), *(_YEE_E_SHIFTS if self.yee_staggered else ())]
+        if self.grid_frame is not None and (not self.grid_frame.uniform[2] or self._lateral_graded()):
+            return self._graded_candidate_count(shifts, sub)
 
         @jax.jit
         def count(p: dict[str, Array], shift: Array) -> Array:
@@ -6787,6 +7571,56 @@ class StackDevice(StaticMultiMaterialObject):
 
         p = self.init_params()
         return max(int(count(p, jnp.asarray([x + a, y + b, z]))) for x, y, z in shifts for a in sub for b in sub)
+
+    def _graded_candidate_count(self, shifts: Sequence[tuple[float, float, float]], sub: Sequence[float]) -> int:
+        """:meth:`_corner_candidate_count` on a graded grid: one compiled count per z sample axis (and on graded
+        x or y per lateral Yee shift, whose cells are static).
+
+        Args:
+            shifts: the sample grids' shifts (cells) from the voxel centers.
+            sub: the lateral sub-sample offsets (cells).
+
+        Returns:
+            The number of candidate columns.
+        """
+        graded_xy = self._lateral_graded()
+
+        def counter(zaxis: _SampleAxis, yee: tuple[float, float] | None) -> Callable[[dict[str, Array], Array], Array]:
+            """The compiled count for the grids on this z axis (static: its layers' bounds) and, on graded x or y,
+            at this lateral Yee shift (static: its cells)."""
+
+            @jax.jit
+            def count(p: dict[str, Array], xy: Array) -> Array:
+                """Candidates of the grid whose points are moved by xy (2,) from the voxel centers (graded x or
+                y: from the Yee positions, the sub-sample's offset)."""
+                plan, radii = self._corner_plan(*self._level_surfaces(p, None, True, zaxis.shift), zaxis)
+                if plan is None:
+                    return jnp.zeros((), dtype=jnp.int32)
+                grid = (xy[0], xy[1]) if yee is None else (*yee, xy[0], xy[1])
+                if yee is not None:
+                    radii = self._graded_radii(radii, self._sample_cells(yee))
+                geometry = self._layer_geometry(p)
+                dist = []
+                for layer in plan.layers:
+                    v, _, _, boundary, src, dst, _ = geometry[layer]
+                    points = self._sample_points(grid).astype(v.dtype)
+                    dist.append(nearest_edges(points, v[src], v[dst], boundary, self.edge_chunk)[0])
+                return jnp.sum(_corner_candidates(plan, radii, dist), dtype=jnp.int32)
+
+            return count
+
+        p = self.init_params()
+        most = 0
+        for z in sorted({s[2] for s in shifts}):
+            grids = [(x, y) for x, y, zz in shifts if zz == z]
+            if graded_xy:
+                for x, y in grids:
+                    count = counter(self._z_axis(z), (x, y))
+                    most = max(most, *(int(count(p, jnp.asarray([a, b]))) for a in sub for b in sub))
+                continue
+            count = counter(self._z_axis(z), None)
+            most = max(most, *(int(count(p, jnp.asarray([x + a, y + b]))) for x, y in grids for a in sub for b in sub))
+        return most
 
     def material_weights(
         self,
@@ -6852,7 +7686,8 @@ class StackDevice(StaticMultiMaterialObject):
         res_um = self._res_um()
         names = compute_ordered_names(self.materials)
         dtype = self._config.dtype
-        active, lows, highs = self._level_surfaces(p, noise_key, apply_roughness, shift[2])
+        zaxis = self._z_axis(shift[2])
+        active, lows, highs = self._level_surfaces(p, noise_key, apply_roughness, zaxis.shift)
         if not active:
             w = jnp.zeros((len(names), nx, ny, nz), dtype=dtype)
             channels = 7 if offdiag else 4
@@ -6862,10 +7697,20 @@ class StackDevice(StaticMultiMaterialObject):
         level_materials = [lv.material for lv, *_ in active]
 
         n_sub = self.xy_subsamples
-        to_square = n_sub / self.edge_width  # cells -> sides of the lateral square
+        graded_xy = self._lateral_graded()
+        if graded_xy:  # each column's own cell: its offsets scaled here, its walls in _paint_layer
+            cells = self._sample_cells((shift[0], shift[1]))
+            to_square = 1.0 / cells.cell
+        else:
+            to_square = self._to_square()  # frame units -> sides of the lateral cell
 
         def lateral(z: Array) -> Array:
-            """(..., K) offsets (scaled cells) of the levels' boundaries at heights z (cells)."""
+            """(..., K) offsets (scaled cells; frame units per column) of the levels' boundaries at heights z."""
+            if graded_xy:
+                return jnp.stack(
+                    [jnp.zeros_like(z) if wall is None else _sidewall_shift(lv, z, *wall, res_um) for lv, wall in active],
+                    axis=-1,
+                )
             return jnp.stack(
                 [
                     jnp.zeros_like(z) if wall is None else to_square * _sidewall_shift(lv, z, *wall, res_um)
@@ -6887,7 +7732,8 @@ class StackDevice(StaticMultiMaterialObject):
             knots = jnp.stack([jnp.stack([jnp.asarray(x, dtype=dtype) for x in r + r[-1:] * (width - len(r))])
                                for r in rows])  # (K, M)
 
-        cell = self.edge_width / n_sub  # cells per side of a sub-sample's square
+        # the sample's lateral cell, frame units per side of it (per column on graded x or y)
+        lat_half, cell = (cells, cells.cell) if graded_xy else self._lateral_cell()
         normal_args = {}
         if eps_cols is not None:
             # each level's eps minus the background's, over the range of both (per component)
@@ -6899,14 +7745,9 @@ class StackDevice(StaticMultiMaterialObject):
             normal_args["cell"] = cell
             normal_args["offdiag"] = offdiag
             if apply_roughness and self.roughness:  # the surfaces' lateral slopes (cells per cell)
-
-                def slopes(z: Array) -> Array:
-                    """(nx, ny, 2) gradient of a surface; 0 along an axis of one cell."""
-                    return jnp.stack(
-                        [jnp.gradient(z, axis=a) if z.shape[a] > 1 else jnp.zeros_like(z) for a in (0, 1)], axis=-1
-                    )
-
-                normal_args["surface_slopes"] = jnp.stack([slopes(z) for z in (*lows, *highs)], axis=-2)
+                normal_args["surface_slopes"] = jnp.stack(
+                    [self._surface_slopes(z) for z in (*lows, *highs)], axis=-2
+                )
 
         def half_planes(sdf: dict[int, Field]) -> tuple[Array, Array]:
             """(nx, ny, K) offsets (sides of the square) and (nx, ny, K, 2) normals of the levels, by priority."""
@@ -6924,14 +7765,18 @@ class StackDevice(StaticMultiMaterialObject):
 
         surfaces = (jnp.stack(lows, axis=-1), jnp.stack(highs, axis=-1))  # (nx, ny, K) each
         geometry = self._layer_geometry(p)
-        plan, radii = self._corner_plan(active, lows, highs)
+        plan, radii = self._corner_plan(active, lows, highs, zaxis)
         capacity = 0 if plan is None else self._corner_capacity(plan, geometry)
+        graded = {} if zaxis.uniform else {"zaxis": zaxis}
+        if isinstance(lat_half, tuple):  # a rectangle: the composites paint on it
+            graded["half"] = lat_half
         # several sub-samples are added up per sub-interval (_composite_samples) with the tensor,
         # and with corner columns (their corner model is blended by the voxel's certificate)
         together = n_sub > 1 and (bool(normal_args) or capacity > 0)
         weights, tensor, samples = 0.0, None, []
         for a, b, kernel in _lateral_samples(n_sub, self.edge_width):
-            grid = (shift[0] + a, shift[1] + b)
+            # graded x or y: the Yee shift and the sub-sample's offset apart (see _sample_points)
+            grid = (shift[0], shift[1], a, b) if graded_xy else (shift[0] + a, shift[1] + b)
             sdf = self._source_sdfs(p, grid, geometry)
             corner = None
             if capacity:
@@ -6941,7 +7786,7 @@ class StackDevice(StaticMultiMaterialObject):
                 continue
             out = _composite(
                 *half_planes(sdf), is_fill, *surfaces, lateral, nz, corner=corner, kernel=kernel, knots=knots,
-                **normal_args,
+                **normal_args, **graded,
             )
             if normal_args:  # one sub-sample
                 out, tensor = out
@@ -6962,6 +7807,7 @@ class StackDevice(StaticMultiMaterialObject):
                 normal_args.get("surface_slopes"),
                 knots=knots,
                 offdiag=offdiag,
+                **graded,
             )
         weights = weights / n_sub**2
         out = []
@@ -6986,12 +7832,19 @@ class StackDevice(StaticMultiMaterialObject):
     ) -> tuple[Callable[[Array], Array], Array | None]:
         """The levels' sidewall offsets at heights (sides of a sample square) and their z_to_bias knots (cells).
 
-        As in :meth:`_weights_and_normals` (see :func:`_composite`).
+        As in :meth:`_weights_and_normals` (see :func:`_composite`); on graded x or y the offsets are in frame
+        units (each column's cell scales them).
         """
         res_um = self._res_um()
-        to_square = self.xy_subsamples / self.edge_width
+        graded_xy = self._lateral_graded()
+        to_square = 1.0 if graded_xy else self._to_square()
 
         def lateral(z: Array) -> Array:
+            if graded_xy:
+                return jnp.stack(
+                    [jnp.zeros_like(z) if wall is None else _sidewall_shift(lv, z, *wall, res_um) for lv, wall in active],
+                    axis=-1,
+                )
             return jnp.stack(
                 [
                     jnp.zeros_like(z) if wall is None else to_square * _sidewall_shift(lv, z, *wall, res_um)
@@ -7039,7 +7892,9 @@ class StackDevice(StaticMultiMaterialObject):
         res_um = self._res_um()
         names, eps = self._material_table()
         dtype = self._config.dtype
-        active, lows, highs = self._level_surfaces(p, noise_key, apply_roughness, shift[2])
+        zaxis = self._z_axis(shift[2])
+        graded = {} if zaxis.uniform else {"zaxis": zaxis}
+        active, lows, highs = self._level_surfaces(p, noise_key, apply_roughness, zaxis.shift)
         if not active:
             w = jnp.zeros((len(names), nx, ny, nz), dtype=dtype).at[names.index(self.background)].set(1.0)
             return _Interfaces(names=names, weights=w, direction=jnp.zeros((nx, ny, nz, 6), dtype=dtype), voxel=None)
@@ -7055,19 +7910,17 @@ class StackDevice(StaticMultiMaterialObject):
         contrast2 = np.sum((level_eps[:, None] - level_eps[None, :]) ** 2, axis=(-2, -1)) / scale**2
 
         n_sub = self.xy_subsamples
-        to_square = n_sub / self.edge_width  # cells -> sides of a sample square
-        cell = self.edge_width / n_sub
+        graded_xy = self._lateral_graded()
+        if graded_xy:  # each column's own cell (see _weights_and_normals)
+            lat_half = self._sample_cells((shift[0], shift[1]))
+            to_square, cell = 1.0 / lat_half.cell, lat_half.cell
+        else:
+            to_square = self._to_square()  # frame units -> sides of a sample's cell
+            lat_half, cell = self._lateral_cell()
         lateral, knots = self._lateral_model(active, dtype)
         surface_slopes = None
         if apply_roughness and self.roughness:
-
-            def slopes(z: Array) -> Array:
-                """(nx, ny, 2) gradient of a surface; 0 along an axis of one cell."""
-                return jnp.stack(
-                    [jnp.gradient(z, axis=a) if z.shape[a] > 1 else jnp.zeros_like(z) for a in (0, 1)], axis=-1
-                )
-
-            surface_slopes = jnp.stack([slopes(z) for z in (*lows, *highs)], axis=-2)
+            surface_slopes = jnp.stack([self._surface_slopes(z) for z in (*lows, *highs)], axis=-2)
 
         def half_planes(sdf: dict[int, Field]) -> tuple[Array, Array]:
             """(nx, ny, K) offsets (sides of the square) and (nx, ny, K, 2) normals of the levels, by priority."""
@@ -7084,7 +7937,7 @@ class StackDevice(StaticMultiMaterialObject):
 
         surfaces = (jnp.stack(lows, axis=-1), jnp.stack(highs, axis=-1))
         geometry = self._layer_geometry(p)
-        plan, radii = self._corner_plan(active, lows, highs)
+        plan, radii = self._corner_plan(active, lows, highs, zaxis)
         capacity = 0 if plan is None else self._corner_capacity(plan, geometry)
         direction = 0.0
         fractions = 0.0
@@ -7092,7 +7945,8 @@ class StackDevice(StaticMultiMaterialObject):
         uncertified = jnp.zeros((), dtype=jnp.int32)
         planes = []
         for a, b, _kernel in _lateral_samples(n_sub, self.edge_width):
-            grid = (shift[0] + a, shift[1] + b)
+            # graded x or y: the Yee shift and the sub-sample's offset apart (see _sample_points)
+            grid = (shift[0], shift[1], a, b) if graded_xy else (shift[0] + a, shift[1] + b)
             sdf = self._source_sdfs(p, grid, geometry)
             corner = self._corner_inputs(plan, radii, geometry, sdf, grid, capacity) if capacity else None
             if corner is not None and corner.dropped is not None:
@@ -7100,8 +7954,8 @@ class StackDevice(StaticMultiMaterialObject):
             offsets, normals = half_planes(sdf)
             planes.append((offsets, normals))
             f, d, u = _interface_composite(
-                offsets, normals, is_fill, *surfaces, lateral, nz, 0.5, knots, cell, vectors, contrast2,
-                surface_slopes, corner=corner,
+                offsets, normals, is_fill, *surfaces, lateral, nz, lat_half, knots, cell, vectors, contrast2,
+                surface_slopes, corner=corner, **graded,
             )
             fractions = fractions + f
             direction = direction + d
@@ -7133,6 +7987,12 @@ class StackDevice(StaticMultiMaterialObject):
             cell=cell,
             corner=corner if n_sub == 1 else None,
             level_material=tuple(names.index(m) for m in (*level_materials, self.background)),
+            zaxis=graded.get("zaxis"),
+            half=lat_half,
+            widths=(
+                tuple(a.hi - a.lo for a in self._sample_axes((shift[0], shift[1])))
+                if graded_xy else self._lateral_widths()
+            ),
         )
         return _Interfaces(
             names=names, weights=w.astype(dtype), direction=direction, voxel=voxel, corner_dropped=dropped,
@@ -7177,15 +8037,26 @@ class StackDevice(StaticMultiMaterialObject):
         if cells[0] % n_sub:
             raise ValueError(f"junction_cells {cells} must split each of the {n_sub} sample squares per axis evenly")
         per = cells[0] // n_sub  # sub-squares per sample square and axis
-        sub = 0.5 / per  # their half side (sides of a sample square)
+        per_column = isinstance(v.half, _Cells)  # graded x or y: every voxel's own cell (set per voxel below)
+        rectangle = isinstance(v.half, tuple) and not per_column
+        if rectangle:  # sub-rectangles of the sample's rectangle
+            hx, hy = v.half
+            sub = (hx / per, hy / per)
+        else:
+            sub = 0.5 / per  # their half side (sides of a sample square)
         # every sub-square (x-major): the sample square holding it and its center in that square's frame
-        sample_of, centers = [], []
+        sample_of, centers, unit = [], [], []
         for i in range(cells[0]):
             for j in range(cells[1]):
                 sample_of.append((i // per) * n_sub + j // per)
-                centers.append((-0.5 + (i % per + 0.5) * 2 * sub, -0.5 + (j % per + 0.5) * 2 * sub))
+                # per column: in units of the voxel's half sides (hx, hy)
+                unit.append((-1.0 + (i % per + 0.5) * 2 / per, -1.0 + (j % per + 0.5) * 2 / per))
+                if rectangle:
+                    centers.append((-hx + (i % per + 0.5) * 2 * sub[0], -hy + (j % per + 0.5) * 2 * sub[1]))
+                elif not per_column:
+                    centers.append((-0.5 + (i % per + 0.5) * 2 * sub, -0.5 + (j % per + 0.5) * 2 * sub))
         sample_of = np.asarray(sample_of)
-        centers = jnp.asarray(centers, dtype=dtype)
+        centers = None if per_column else jnp.asarray(centers, dtype=dtype)
 
         def gather(x: Array) -> Array:
             return x.reshape(nx * ny, *x.shape[2:])[col]
@@ -7199,6 +8070,15 @@ class StackDevice(StaticMultiMaterialObject):
             # the voxels' material fractions, which their sub-cells are made to add up to
             "target": jnp.moveaxis(g.weights, 0, -1).reshape(-1, g.weights.shape[0])[voxels],
         }
+        if v.zaxis is not None:  # a graded layer: its bottom and top (frame units) instead of k, k + 1
+            k = voxels % nz
+            inputs["layer"] = jnp.asarray(v.zaxis.lo, dtype=dtype)[k]
+            inputs["top"] = jnp.asarray(v.zaxis.hi, dtype=dtype)[k]
+        if per_column:  # every voxel's own cell and lateral widths (frame units)
+            for name, x in (("hx", v.half.hx), ("hy", v.half.hy), ("cell", v.half.cell)):
+                inputs[name] = jnp.reshape(x, (-1,))[col]
+            inputs["wx"] = jnp.asarray(v.widths[0], dtype=dtype)[col // ny]
+            inputs["wy"] = jnp.asarray(v.widths[1], dtype=dtype)[col % ny]
         if v.point_slopes is not None:
             inputs["point_slopes"] = gather(v.point_slopes)
         corner = v.corner
@@ -7214,16 +8094,24 @@ class StackDevice(StaticMultiMaterialObject):
             inputs["planes"] = (gather(v.offsets[0]), gather(v.normals[0]))
 
         def cells_of(args: dict[str, Any]) -> tuple[Array, Array]:
+            half, sub_j, centers_j, sc = v.half, sub, centers, None if corner is None else corner.sc
+            if per_column:  # the voxels' own cells, their sub-cells and the sub-cells' centers
+                half = _Cells(args["hx"], args["hy"], args["cell"], v.half.reach)
+                sub_j = _Cells(args["hx"] / per, args["hy"] / per, args["cell"], v.half.reach / per, 1.0 / per**2)
+                centers_j = jnp.asarray(unit, dtype=dtype)[None] * jnp.stack([args["hx"], args["hy"]], axis=-1)[:, None]
+                sc = (1.0 / args["cell"])[:, None]
             corner_j = None
             if corner is not None:  # the voxels' corner models: the layer axis first again
                 corner_j = _CornerInputs(
                     cols=None, taken=args["taken"], layers=jax.tree.map(lambda x: jnp.moveaxis(x, 0, 1), args["layers"]),
-                    trees=corner.trees, literals=corner.literals, lines=corner.lines, sc=corner.sc,
+                    trees=corner.trees, literals=corner.literals, lines=corner.lines, sc=sc,
                 )
             return _junction_cells(
-                args["offsets"], args["normals"], centers, v.is_fill, args["lows"], args["highs"], args["layer"],
-                v.lateral, sub, v.knots, v.cell, v.vectors, v.contrast2, v.level_eps, cells,
+                args["offsets"], args["normals"], centers_j, v.is_fill, args["lows"], args["highs"], args["layer"],
+                v.lateral, sub_j, v.knots, v.cell, v.vectors, v.contrast2, v.level_eps, cells,
                 args.get("point_slopes"), corner_j, args.get("planes"), args["target"], v.level_material,
+                **({"top": args["top"]} if "top" in args else {}),
+                **({"half": half} if rectangle or per_column else {}),
             )
 
         return inputs, cells_of
@@ -7291,8 +8179,18 @@ class StackDevice(StaticMultiMaterialObject):
             x = jnp.concatenate([x, jnp.repeat(x[-1:], pad, axis=0)]) if pad else x
             return x.reshape(-1, chunk, *x.shape[1:])
 
+        wx, wy = g.voxel.widths
+
         def closure(args: dict[str, Any]) -> tuple[Array, Array]:
-            return periodic_cell_tensor(cells_of(args)[1])
+            if "wx" in args:  # graded x or y: every voxel's own box (frame units)
+                height = args["top"] - args["layer"] if "top" in args else jnp.ones_like(args["layer"])
+                return periodic_cell_tensor(cells_of(args)[1], jnp.stack([args["wx"], args["wy"], height], axis=-1))
+            if "top" not in args and wx == wy:
+                return periodic_cell_tensor(cells_of(args)[1])
+            # the voxel is a box (frame units): its lateral widths, as high as its layer (a graded z) or 1
+            ones = jnp.ones_like(args["layer"])
+            height = args["top"] - args["layer"] if "top" in args else ones
+            return periodic_cell_tensor(cells_of(args)[1], jnp.stack([wx * ones, wy * ones, height], axis=-1))
 
         tensor, residual = jax.lax.map(jax.checkpoint(closure), jax.tree.map(batched, inputs))
         tensor = tensor.reshape(-1, 3, 3)[:capacity]
@@ -7332,6 +8230,20 @@ class StackDevice(StaticMultiMaterialObject):
             RuntimeError: if a float64 device is placed with JAX's 64-bit mode off.
         """
         self._check_precision(config)
+        frame = _grid_frame(config, grid_slice_tuple)
+        if frame.widths[0] is None or frame.widths[1] is None:  # graded x or y: painted per column
+            wx, wy = np.diff(frame.edges[0]), np.diff(frame.edges[1])
+            aspect = float(max(np.max(wx) / np.min(wy), np.max(wy) / np.min(wx)))
+        else:
+            aspect = max(frame.widths[0] / frame.widths[1], frame.widths[1] / frame.widths[0])
+        if aspect > _MAX_ASPECT:
+            warnings.warn(
+                f"StackDevice {self.name!r}: the grid's cells are {aspect:.3g} times longer in one lateral direction "
+                f"than in the other (above {_MAX_ASPECT:g}); the subpixel model and its closure lose accuracy there",
+                StackDiagnosticWarning,
+                stacklevel=2,
+            )
+        self = self.aset("grid_frame", frame)
         self = self._keep_reachable_levels(grid_slice_tuple, config)
         # aligned pole slots also for devices built without from_layer_stack;
         # fdtdx allocates the slots from the placed objects' materials
@@ -7419,11 +8331,13 @@ class StackDevice(StaticMultiMaterialObject):
         Returns:
             The device with the reachable levels only.
         """
-        res_um = config.uniform_spacing() * 1e6
-        start, stop = grid_slice_tuple[2]
-        half = 0.5 * (stop - start) * res_um
-        bottom = self.z_center - half - 0.5 * res_um - self.level_margin
+        frame = self.grid_frame if self.grid_frame is not None else _grid_frame(config, grid_slice_tuple)
+        res_um = frame.h_um
+        # on a uniform grid: half the box's cells, and half a cell below it
+        half = 0.5 * float(frame.edges[2][-1]) * res_um
+        bottom = self.z_center - half - 0.5 * frame.below[2] * res_um - self.level_margin
         top = self.z_center + half + self.level_margin
+        self._warn_dropped_levels(bottom, top)
         levels = tuple(lv for lv in self.levels if _span(lv)[1] > bottom and _span(lv)[0] < top)
         # empty layers matter only to levels that reach the box
         empty = tuple(
@@ -7451,6 +8365,30 @@ class StackDevice(StaticMultiMaterialObject):
             for d in self.derived_layers if any(n in names for n in d.levels)
         )
         return out.aset("derived_layers", shapes)
+
+    def _warn_dropped_levels(self, bottom: float, top: float) -> None:
+        """Warns about levels left out when the device was built that the placed grid samples.
+
+        ``from_layer_stack`` keeps the levels within ``level_margin`` plus a slack of the box; a
+        coarse cell at the box's bottom face samples below that, so a level there is missing.
+
+        Args:
+            bottom: lowest stack height (um) the grid samples, ``level_margin`` included.
+            top: highest one.
+        """
+        z_lo = self.z_center - 0.5 * self.partial_real_shape[2] * 1e6
+        z_hi = self.z_center + 0.5 * self.partial_real_shape[2] * 1e6
+        for name, lo, hi in self.dropped_levels:
+            if hi > bottom and lo < top:
+                gap = max(z_lo - hi, lo - z_hi)
+                warnings.warn(
+                    f"StackDevice {self.name!r}: level {name!r} (z {lo:g} to {hi:g} um) was left out when the "
+                    f"device was built, {gap:.3g} um outside the box, but this grid samples from {bottom:g} to "
+                    f"{top:g} um, so it is missing; build the device with level_margin >= "
+                    f"{max(gap - _SELECT_SLACK, 0.0) + 1e-3:.3g}",
+                    StackDiagnosticWarning,
+                    stacklevel=4,
+                )
 
     def get_voxel_mask_for_shape(self) -> Array:
         """fdtdx hook: the device fills its whole box.
@@ -7579,7 +8517,7 @@ class StackDevice(StaticMultiMaterialObject):
                 # with subpixel_normal="gradient"
                 mean_eps = jnp.sum(w * e, axis=0)
                 a = _anisotropy(w, eps_np[:, c], sentinel)
-                fd = _normal_squared(mean_eps)[c]
+                fd = _normal_squared(mean_eps, self._fd_spacing(shifts[min(c, len(shifts) - 1)]))[c]
                 n2 = fd
                 if voxel_normal:
                     tensor = tensors[0 if len(shifts) == rows else c]  # (4 or 7, nx, ny, nz)
@@ -7611,7 +8549,7 @@ class StackDevice(StaticMultiMaterialObject):
                     jnp.sum(w_cell * sigma[:, k, None, None, None], axis=0)
                     for k in range(sigma.shape[1])
                 ]
-            cond = jnp.stack(cond) * self._config.uniform_spacing()
+            cond = jnp.stack(cond) * _conductivity_scale(self._config)
             gradient_config = self._config.gradient_config
             if gradient_config is not None and gradient_config.method == "reversible":
                 # fdtdx's reversible backward pass closes over the conductivity:
@@ -7731,7 +8669,7 @@ class StackDevice(StaticMultiMaterialObject):
         if sigma is not None:
             if not cond:
                 cond = [jnp.sum(w_cell * sigma[:, k, None, None, None], axis=0) for k in range(sigma.shape[1])]
-            cond = jnp.stack(cond) * self._config.uniform_spacing()
+            cond = jnp.stack(cond) * _conductivity_scale(self._config)
             gradient_config = self._config.gradient_config
             if gradient_config is not None and gradient_config.method == "reversible":
                 cond = jax.lax.stop_gradient(cond)
@@ -7856,12 +8794,88 @@ class StackDevice(StaticMultiMaterialObject):
         )
         return volume, [self.place_at_center(volume)]
 
+    def rectilinear_grid(
+        self,
+        spacing_um: float,
+        x_um: Sequence[float] | None = None,
+        y_um: Sequence[float] | None = None,
+        z_um: Sequence[float] | None = None,
+    ) -> fdtdx.core.grid.RectilinearGrid:
+        """An fdtdx ``RectilinearGrid`` over this device's box (the simulation volume of
+        :meth:`get_simulation_volume`), from cell edges in stack coordinates::
+
+            z = bf.graded_edges(z0, z1, 0.06, fine=[(-0.05, 0.3, 0.02)], snap=[0.0, 0.22])
+            config = stack.get_simulation_config(time=..., grid=stack.rectilinear_grid(0.06, z_um=z))
+
+        Any axis may be graded. Its edges are in stack coordinates, from the box's lower face to
+        its upper one (the box after ``boundary_offset``, which need not be symmetric).
+
+        Args:
+            spacing_um: cell size (um) along the axes whose edges are not given; the box must be
+                a whole number of them there.
+            x_um: x edges (um, gds coordinates) from the box's lower face to its upper one, or None.
+            y_um: y edges, or None.
+            z_um: z edges (um, stack heights), or None.
+
+        Returns:
+            The grid, its edges in metres from the box's center (fdtdx's frame), in the device's dtype.
+
+        Raises:
+            ValueError: if the box is not whole cells along an axis without edges, or given edges
+                are not strictly increasing or do not end on the box's faces (within 1 pm).
+        """
+        if self.partial_real_shape is None or None in tuple(self.partial_real_shape):
+            raise ValueError(f"StackDevice {self.name!r} has no box (partial_real_shape)")
+        sizes = [float(s) * 1e6 for s in self.partial_real_shape]
+        middles = (float(self.center[0]), float(self.center[1]), float(self.z_center))
+        out = []
+        for axis, given in enumerate((x_um, y_um, z_um)):
+            mid, size = middles[axis], sizes[axis]
+            lo, hi = mid - 0.5 * size, mid + 0.5 * size
+            if given is None:
+                n = round(size / spacing_um)
+                if n < 1 or abs(n * spacing_um - size) > 1e-6:
+                    raise ValueError(
+                        f"StackDevice {self.name!r}: the box is {size:g} um along {'xyz'[axis]}, not a whole "
+                        f"number of {spacing_um:g} um cells; pass its edges ({'xyz'[axis]}_um)"
+                    )
+                edges = spacing_um * (np.arange(n + 1) - 0.5 * n)
+            else:
+                e = np.array(given, dtype=np.float64)
+                if e.ndim != 1 or len(e) < 2 or np.any(np.diff(e) <= 0):
+                    raise ValueError(f"{'xyz'[axis]}_um must be strictly increasing edges, got {given!r}")
+                if abs(e[0] - lo) > 1e-6 or abs(e[-1] - hi) > 1e-6:
+                    raise ValueError(
+                        f"StackDevice {self.name!r}: {'xyz'[axis]}_um must run from the box's face {lo:g} to "
+                        f"{hi:g} um, not {e[0]:g} to {e[-1]:g}"
+                    )
+                e[0], e[-1] = lo, hi
+                edges = e - mid
+            out.append(jnp.asarray(edges * 1e-6, dtype=self.dtype))
+        return fdtdx.core.grid.RectilinearGrid(x_edges=out[0], y_edges=out[1], z_edges=out[2])
+
+    def _grid_in_dtype(self, grid: Any) -> Any:
+        """A ``RectilinearGrid`` with its edges in the device's dtype (other grids as they are).
+
+        fdtdx's curl on a non-uniform grid scales the fields by the cells' widths, in the edges' dtype: float64
+        edges (numpy edges under JAX's 64-bit mode, which importing bifrost turns on) would turn a float32
+        simulation's fields into float64 in the time loop, which fails.
+        """
+        if not isinstance(grid, fdtdx.core.grid.RectilinearGrid):
+            return grid
+        edges = [grid.edges(a) for a in range(3)]
+        if all(_same_dtype(e.dtype, self.dtype) for e in edges):
+            return grid
+        return fdtdx.core.grid.RectilinearGrid(
+            **{f"{name}_edges": jnp.asarray(e, dtype=self.dtype) for name, e in zip("xyz", edges, strict=True)}
+        )
+
     def get_simulation_config(self, **kwargs: Any) -> SimulationConfig:
         """The ``fdtdx.SimulationConfig`` for this device, in the device's precision.
 
         Sets ``dtype`` from :attr:`dtype` and passes everything else on to
         ``fdtdx.SimulationConfig``, so the precision is chosen once, on the
-        device::
+        device (a ``RectilinearGrid``'s edges are converted to it too)::
 
             stack = bf.StackDevice.from_layer_stack(..., dtype=jnp.float64)
             config = stack.get_simulation_config(time=100e-15, grid=UniformGrid(spacing=50e-9))
@@ -7881,6 +8895,8 @@ class StackDevice(StaticMultiMaterialObject):
                 "get_simulation_config takes its dtype from the StackDevice: "
                 "build the device with StackDevice(dtype=...) instead of passing dtype here"
             )
+        if "grid" in kwargs:
+            kwargs["grid"] = self._grid_in_dtype(kwargs["grid"])
         return SimulationConfig(dtype=self.dtype, **kwargs)
 
     def _check_precision(self, config: SimulationConfig) -> None:
@@ -7890,7 +8906,8 @@ class StackDevice(StaticMultiMaterialObject):
             config: the simulation config the device is placed with.
 
         Raises:
-            ValueError: if ``config.dtype`` is not the device's dtype.
+            ValueError: if ``config.dtype`` is not the device's dtype, or a non-uniform grid's edges are in
+                another dtype (fdtdx would run the fields in theirs).
             RuntimeError: if a float64 device is placed with JAX's 64-bit mode off.
         """
         if not _same_dtype(config.dtype, self.dtype):
@@ -7899,6 +8916,16 @@ class StackDevice(StaticMultiMaterialObject):
                 f"dtype {np.dtype(config.dtype)}; build the config with "
                 "device.get_simulation_config(...), which takes the device's dtype"
             )
+        grid = config.resolved_grid
+        if config.has_nonuniform_grid and isinstance(grid, fdtdx.core.grid.RectilinearGrid):
+            dtypes = {np.dtype(grid.edges(a).dtype).name for a in range(3)}
+            if dtypes != {np.dtype(self.dtype).name}:
+                raise ValueError(
+                    f"StackDevice {self.name!r} has dtype {np.dtype(self.dtype)} but the grid's edges are "
+                    f"{', '.join(sorted(dtypes))}: fdtdx would turn the fields into those in its time loop. Build "
+                    "the config with device.get_simulation_config(grid=...) (or the grid with "
+                    "device.rectilinear_grid), which converts them"
+                )
         if _same_dtype(self.dtype, np.float64) and not jax.config.jax_enable_x64:
             raise RuntimeError(
                 f"StackDevice {self.name!r} has dtype float64, but JAX's 64-bit mode is off, which would "
@@ -8074,6 +9101,7 @@ class StackDevice(StaticMultiMaterialObject):
         level: str | None,
         port_offset: float,
         name: str | None,
+        grid: Any = None,
         **fields: Any,
     ) -> tuple[Any, list[PositionConstraint]]:
         """Builds a plane source / detector on a port.
@@ -8089,6 +9117,12 @@ class StackDevice(StaticMultiMaterialObject):
             level: see :meth:`_port_frame`.
             port_offset: see :meth:`_port_frame`.
             name: object name.
+            grid: the simulation's config or ``RectilinearGrid``, or None. Along
+                an in-plane axis where its cells differ, the plane is given in whole
+                cells: its faces snap to the nearest edges at its own position, since
+                fdtdx counts a physical size's cells from the domain's lower face. The
+                device must fill the simulation volume (:meth:`get_simulation_volume`,
+                any ``boundary_offset``): the grid's middle is the box's center.
             **fields: other fields of ``cls``.
 
         Returns:
@@ -8099,11 +9133,17 @@ class StackDevice(StaticMultiMaterialObject):
             raise ValueError(f"Port {port!r} has no width")
         width_um, height_um = plane_extents(p.width, height, port_padding, wavelengths_um)
         real: list[float | None] = [None, None, None]
-        grid: list[int | None] = [None, None, None]
-        grid[axis] = 1  # one cell thick, normal to the plane
+        cells: list[int | None] = [None, None, None]
+        cells[axis] = 1  # one cell thick, normal to the plane
         u_axis, v_axis = _IN_PLANE[axis]
         real[u_axis] = width_um * 1e-6
         real[v_axis] = height_um * 1e-6
+        if grid is not None:
+            for a, extent in ((u_axis, width_um), (v_axis, height_um)):
+                snapped = self._snap_extent(grid, a, center[a], extent)
+                if snapped is not None:
+                    cells[a], center[a] = snapped
+                    real[a] = None
         if direction is not None:
             fields["direction"] = _axis_direction(direction, sign)
         if "dtype" not in fields:
@@ -8116,11 +9156,52 @@ class StackDevice(StaticMultiMaterialObject):
         obj = cls(
             name=name or f"{port}_{suffix}",
             partial_real_shape=tuple(real),
-            partial_grid_shape=tuple(grid),
+            partial_grid_shape=tuple(cells),
             **fields,
         )
         own = detector_plane_own_positions(axis) if isinstance(obj, fdtdx.Detector) else (0, 0, 0)
         return obj, self._place_at(obj, center, own)
+
+    def _snap_extent(self, grid: Any, axis: int, center_um: float, extent_um: float) -> tuple[int, float] | None:
+        """Whole cells for an extent along a non-uniform axis of the grid the device fills.
+
+        Args:
+            grid: a ``SimulationConfig`` or a ``RectilinearGrid`` spanning this device's box.
+            axis: 0, 1 or 2.
+            center_um: the extent's center (stack coordinates, um).
+            extent_um: its length (um).
+
+        Returns:
+            (cells, snapped center in um): the extent's faces moved to the nearest edges, at
+            least one cell; None where the grid's cells along ``axis`` are all one size (or
+            the grid is not resolved), which fdtdx places exactly.
+
+        Raises:
+            ValueError: if the grid does not span the device's box along ``axis``: the device
+                must fill the simulation volume, whose middle is then the box's center.
+        """
+        resolved = grid.resolved_grid if isinstance(grid, SimulationConfig) else grid
+        if not isinstance(resolved, fdtdx.core.grid.RectilinearGrid):
+            return None
+        edges = np.asarray(resolved.edges(axis), dtype=np.float64) * 1e6
+        widths = np.diff(edges)
+        if np.max(np.abs(widths - widths[0])) <= _FRAME_RTOL * widths[0]:
+            return None
+        size = float(self.partial_real_shape[axis]) * 1e6
+        if abs((edges[-1] - edges[0]) - size) > 0.01 * float(np.min(widths)):
+            raise ValueError(
+                f"StackDevice {self.name!r}: grid= needs the grid of the device's own simulation volume "
+                f"(get_simulation_volume): along {'xyz'[axis]} it spans {edges[-1] - edges[0]:g} um, the box "
+                f"{size:g} um. In a larger volume, leave grid= out and give the plane's cells yourself."
+            )
+        middle = (self.center[0], self.center[1], self.z_center)[axis]
+        offset = 0.5 * (edges[0] + edges[-1]) - middle  # stack -> grid coordinates (the box's center)
+        lo = int(np.argmin(np.abs(edges - (center_um + offset - 0.5 * extent_um))))
+        hi = int(np.argmin(np.abs(edges - (center_um + offset + 0.5 * extent_um))))
+        if hi <= lo:
+            hi = min(lo + 1, len(edges) - 1)
+            lo = hi - 1
+        return hi - lo, 0.5 * (edges[lo] + edges[hi]) - offset
 
     # ------------------------------------------------------------ sources on ports
 
@@ -8686,7 +9767,21 @@ def _anisotropy(w: Array, e: np.ndarray, ignore: np.ndarray) -> Array:
     return a
 
 
-def _normal_squared(q: Array) -> Array:
+def _center_distances(axis: _SampleAxis) -> np.ndarray | None:
+    """(n + 1,) distances between the centers of neighbouring sample voxels, for :func:`_normal_squared`.
+
+    None on a uniform axis (a distance of one cell). The two outer entries face the edge-padded
+    neighbours, whose difference is zero, and only need to be nonzero.
+    """
+    if axis.uniform:
+        return None
+    centers = 0.5 * (axis.lo + axis.hi)
+    inner = np.diff(centers)
+    edge = [float(axis.hi[0] - axis.lo[0])] if len(inner) == 0 else [float(inner[0])]
+    return np.concatenate([edge, inner, [float(inner[-1]) if len(inner) else edge[0]]])
+
+
+def _normal_squared(q: Array, spacing: Sequence[np.ndarray | None] | None = None) -> Array:
     """Squared components (3, nx, ny, nz) of the interface normal of ``q``.
 
     Uses the mean of the squared forward and backward differences, which (unlike
@@ -8698,6 +9793,8 @@ def _normal_squared(q: Array) -> Array:
 
     Args:
         q: (nx, ny, nz) mean permittivity.
+        spacing: per axis, None (neighbours one cell apart) or the distances of
+            :func:`_center_distances` (frame units), which divide the differences.
 
     Returns:
         (3, nx, ny, nz) squared normal components, summing to one (or zero
@@ -8707,6 +9804,10 @@ def _normal_squared(q: Array) -> Array:
     for axis in range(3):
         pad = [(1, 1) if a == axis else (0, 0) for a in range(3)]
         d = jnp.diff(jnp.pad(q, pad, mode="edge"), axis=axis)  # n + 1 differences
+        if spacing is not None and spacing[axis] is not None:
+            shape = [1, 1, 1]
+            shape[axis] = -1
+            d = d / jnp.asarray(spacing[axis], dtype=d.dtype).reshape(shape)
         n = q.shape[axis]
         forward = jax.lax.slice_in_dim(d, 1, n + 1, axis=axis)
         backward = jax.lax.slice_in_dim(d, 0, n, axis=axis)

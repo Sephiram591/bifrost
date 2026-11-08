@@ -1,0 +1,30 @@
+{
+ "grid": "uniform-40",
+ "cells": [
+  309,
+  309,
+  120
+ ],
+ "total_cells": 11457720,
+ "min_cell_nm": [
+  40.0,
+  40.0,
+  40.0
+ ],
+ "max_cell_nm": [
+  40.0,
+  40.0,
+  40.0
+ ],
+ "dt_fs": 0.07626299478124023,
+ "steps": 6556,
+ "corner_columns": 448,
+ "place_s": 12.7,
+ "transmission": 0.5585575946076433,
+ "forward_first_s": 35.26,
+ "forward_s": 23.76,
+ "forward_compile_s": 9.91,
+ "forward_compiles": 1,
+ "ns_per_cell_step": 0.3163342023864468,
+ "peak_gb_forward": 2.49
+}

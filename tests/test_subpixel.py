@@ -300,10 +300,56 @@ def test_laminate_float32_and_gradients() -> None:
 # ---------------------------------------------------------------- periodic cell problem
 
 
-def _cell64(coefficients) -> tuple[np.ndarray, float]:
+def _cell64(coefficients, sides=None) -> tuple[np.ndarray, float]:
     with enable_x64():
-        t, r = bf.subpixel.periodic_cell_tensor(jnp.asarray(coefficients, dtype=jnp.float64))
+        s = None if sides is None else jnp.asarray(sides, dtype=jnp.float64)
+        t, r = bf.subpixel.periodic_cell_tensor(jnp.asarray(coefficients, dtype=jnp.float64), s)
         return np.asarray(t), float(np.max(r))
+
+
+@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("aspect", [0.25, 4.0])
+def test_periodic_box_of_aligned_layers_is_the_laminate(axis: int, aspect: float) -> None:
+    """A box (a voxel of a graded grid) of layers normal to an axis: still Kottke's laminate along it, whatever
+    the box's sides, also for anisotropic materials with off-diagonal coupling (which a wrong scaling of the
+    tensors to the unit cube would change).
+    """
+    rng = np.random.default_rng(17 + axis)
+    eps = np.stack([random_spd(rng) for _ in range(3)])
+    layers = np.array([0, 2, 1, 1, 0, 2])
+    shape = [2, 3, 2]
+    shape[axis] = len(layers)
+    coefficients = eps[np.broadcast_to(layers.reshape([-1 if a == axis else 1 for a in range(3)]), shape)]
+    f = np.bincount(layers, minlength=3) / len(layers)
+    for stretched in range(3):
+        sides = np.ones(3)
+        sides[stretched] = aspect
+        out, residual = _cell64(coefficients, sides)
+        assert rel(out, _laminate64(eps, f, np.eye(3)[axis])) < RTOL64, (axis, stretched)
+        assert residual < 1e-10
+
+
+def test_periodic_box_scale_symmetry_and_bounds() -> None:
+    """The box's sides: only their ratios count, a cube is the unit cell, the result permutes with the axes,
+    and stays within the Wiener bounds.
+    """
+    rng = np.random.default_rng(23)
+    coefficients = np.stack([random_spd(rng, 1.0, 15.0) for _ in range(4 * 3 * 2)]).reshape(4, 3, 2, 3, 3)
+    sides = np.array([1.0, 0.5, 3.0])
+    out, residual = _cell64(coefficients, sides)
+    assert residual < 1e-10
+    assert rel(_cell64(coefficients, 7.0 * sides)[0], out) < RTOL64
+    assert rel(_cell64(coefficients, np.ones(3))[0], _cell64(coefficients)[0]) < RTOL64
+    assert np.abs(out - out.T).max() < 1e-12
+    flat = coefficients.reshape(-1, 3, 3)
+    assert np.linalg.eigvalsh(flat.mean(axis=0) - out).min() > -1e-12
+    assert np.linalg.eigvalsh(out - np.linalg.inv(np.linalg.inv(flat).mean(axis=0))).min() > -1e-12
+    # swap the x and y axes of the grid, the tensors and the sides
+    p = np.array([[0, 1.0, 0], [1.0, 0, 0], [0, 0, 1.0]])
+    swapped = np.einsum("ij,abcjk,lk->bacil", p, coefficients, p)
+    assert rel(_cell64(swapped, sides[[1, 0, 2]])[0], p @ out @ p.T) < RTOL64
+    # stretching the box changes the result (the sides are used)
+    assert rel(out, _cell64(coefficients)[0]) > 1e-3
 
 
 def test_periodic_cell_of_one_material_is_that_material() -> None:

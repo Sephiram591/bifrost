@@ -326,8 +326,8 @@ def _periodic_assembly(shape: tuple[int, int, int]) -> tuple[np.ndarray, np.ndar
     return nodes, np.arange(n1 * n2 * n3)
 
 
-def periodic_cell_tensor(coefficients: Array) -> tuple[Array, Array]:
-    """Effective tensor of a periodic unit cell made of constant-tensor sub-cells.
+def periodic_cell_tensor(coefficients: Array, sides: Array | None = None) -> tuple[Array, Array]:
+    """Effective tensor of a periodic cell made of constant-tensor sub-cells.
 
     Solves, for the three unit fields e_i, the cell problem ``div(A (e_i +
     grad phi_i)) = 0`` with periodic phi, by trilinear (Q1) finite elements on
@@ -345,16 +345,27 @@ def periodic_cell_tensor(coefficients: Array) -> tuple[Array, Array]:
     and arithmetic means of A in the matrix sense. Its derivative is the one
     of the linear solve (implicit), not of an iteration.
 
+    A box with sides ``D = diag(sides)`` (a voxel of a graded grid) is the unit
+    cube for ``D^-1 A D^-1`` (the coordinates scaled by D), whose effective
+    tensor gives the box's as ``D A_eff D``; the scale of D cancels.
+
     Args:
         coefficients: (..., n1, n2, n3, 3, 3) symmetric positive-definite
             tensor of every sub-cell; the cell is the unit cube, sub-cells
             1/n1 x 1/n2 x 1/n3 (an axis of one sub-cell is constant along it).
+        sides: (..., 3) the cell's sides (any common scale), or None: a cube.
 
     Returns:
         tensor: (..., 3, 3) the effective tensor.
         residual: (...,) the solve's normwise backward error ``|K phi + F| / (|K| |phi| + |F|)`` (Frobenius
             norms; NaN where the factorization failed).
     """
+    if sides is not None:
+        s = jnp.asarray(sides, dtype=coefficients.dtype)
+        s = s / jnp.exp(jnp.mean(jnp.log(s), axis=-1, keepdims=True))  # geometric mean 1 (conditioning)
+        inv = 1.0 / s[..., None, None, None, :]
+        tensor, residual = periodic_cell_tensor(coefficients * inv[..., :, None] * inv[..., None, :])
+        return tensor * s[..., :, None] * s[..., None, :], residual
     *batch, n1, n2, n3, _, _ = coefficients.shape
     dtype = coefficients.dtype
     num = n1 * n2 * n3

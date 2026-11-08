@@ -1,0 +1,67 @@
+{
+ "grid": "graded-60",
+ "cells": [
+  197,
+  197,
+  56
+ ],
+ "total_cells": 2173304,
+ "min_cell_nm": [
+  59.94,
+  59.94,
+  58.89
+ ],
+ "max_cell_nm": [
+  120.0,
+  120.0,
+  120.0
+ ],
+ "dt_fs": 0.11360105702704532,
+ "steps": 4401,
+ "corner_columns": 448,
+ "place_s": 12.3,
+ "transmission": 0.5687419878785197,
+ "forward_first_s": 15.26,
+ "forward_s": 2.01,
+ "forward_compile_s": 11.07,
+ "forward_compiles": 1,
+ "ns_per_cell_step": 0.20973721455001065,
+ "peak_gb_forward": 0.46,
+ "optimization": [
+  {
+   "step": 0,
+   "z_dtype": "float64",
+   "z_weak": false,
+   "z_committed": true,
+   "T": 0.5687419878785197,
+   "seconds": 74.06,
+   "backend_compiles": 1,
+   "compile_s": 33.08,
+   "grad_norm": 0.287377906737843
+  },
+  {
+   "step": 1,
+   "z_dtype": "float64",
+   "z_weak": false,
+   "z_committed": true,
+   "T": 0.6370832398232329,
+   "seconds": 32.39,
+   "backend_compiles": 0,
+   "compile_s": 0,
+   "grad_norm": 0.2754894652894947
+  },
+  {
+   "step": 2,
+   "z_dtype": "float64",
+   "z_weak": false,
+   "z_committed": true,
+   "T": 0.7028672728806902,
+   "seconds": 32.44,
+   "backend_compiles": 0,
+   "compile_s": 0,
+   "grad_norm": 0.2615979473463921
+  }
+ ],
+ "jit_cache_size": 1,
+ "peak_gb": 12.86
+}

@@ -1,0 +1,29 @@
+{
+ "rows": [
+  {
+   "grid": "uniform-40",
+   "cells": [
+    150,
+    80,
+    80
+   ],
+   "total_cells": 960000,
+   "min_cell_nm": [
+    40.0,
+    40.0,
+    40.0
+   ],
+   "dt_fs": 0.07626299478124023,
+   "steps": 2623,
+   "neff_mode": 2.381356954574585,
+   "neff_fdtd": 2.3948963560764556,
+   "amplitude_ripple": 3.201524668838829e-05,
+   "place_s": 10.0,
+   "apply_stack_s": 10.99,
+   "run_first_s": 1.73,
+   "run_s": 0.38,
+   "ns_per_cell_step": 0.15005559553695214,
+   "peak_gb": 0.28
+  }
+ ]
+}

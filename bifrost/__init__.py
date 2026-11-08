@@ -13,7 +13,8 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from . import geometry, jitting, stack, subpixel, timing
+from . import geometry, grids, jitting, stack, subpixel, timing
+from .grids import graded_edges
 from .jitting import COMPILER_OPTIONS, compiler_options, jit
 from .stack import (
     StackDevice,
@@ -37,6 +38,8 @@ __all__ = [
     "apply_stack",
     "compiler_options",
     "geometry",
+    "graded_edges",
+    "grids",
     "init_stack_params",
     "jit",
     "jitting",
