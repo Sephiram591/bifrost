@@ -298,7 +298,8 @@ def _even_axes(result: Any, name: str, stack_axes: list[int]) -> list[tuple[np.n
             continue
         shift = _SAMPLE_SHIFT[a]
         old = e[:-1] if shift == -0.5 else 0.5 * (e[:-1] + e[1:])
-        n = int(min(_MAX_RESAMPLED, max(len(w), math.ceil((e[-1] - e[0]) / np.min(w) - 1e-9))))
+        # the finest cell, up to the float32 round-off of the grid's edges (1e-4: as for "even" above)
+        n = int(min(_MAX_RESAMPLED, max(len(w), math.ceil((e[-1] - e[0]) / np.min(w) * (1 - 1e-4)))))
         new = e[0] + (np.arange(n) + 0.5 + shift) * ((e[-1] - e[0]) / n)
         out.append((old, new))
     return out
