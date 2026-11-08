@@ -392,6 +392,47 @@ def test_port_planes_take_whole_graded_cells():
     assert (e[k0], e[k1]) == pytest.approx((0.0, 0.12))  # the slab, 0 to 0.13 um, on the nearest edges
 
 
+def test_port_planes_snap_on_an_asymmetric_box():
+    """A box far from symmetric about the port (boundary_offset 0.55 / 0.45 um in y around the port, 0.2 / 0.37 um
+    in z around the slab), graded along y and z: the plane's faces land on the edges nearest the port's own
+    extent; a grid that does not span the box (a larger volume) is refused."""
+    width = 0.4
+    c = gf.Component()
+    c.add_polygon([(-0.5, -0.5), (1.5, -0.5), (1.5, 1.0), (-0.5, 1.0)], layer=L.SLAB150)
+    c.add_polygon([(0.3, 0.05), (1.2, 0.05), (1.2, 0.45), (0.3, 0.45)], layer=L.WG)
+    c.add_port(name="o1", center=(0.3, 0.25), width=width, orientation=180, layer=L.WG)
+    ls = LayerStack(layers={
+        "slab": LayerLevel(layer=L.WG, zmin=SLAB[0], thickness=SLAB[1] - SLAB[0], material="si", mesh_order=1),
+        "frame": LayerLevel(layer=L.SLAB150, zmin=-0.2, thickness=0.7, material="air", mesh_order=9),
+    })
+    # box: x [-0.3, 1.3], y [-0.3, 0.7] (port y 0.05 to 0.45), z [-0.2, 0.5] (slab 0 to 0.13)
+    d = bf.StackDevice.from_layer_stack(
+        c, ls, MATERIALS, background="air", name="s", zrange_layers=["slab"],
+        boundary_offset=(-0.2, 0.2, -0.3, 0.2, 0.37, -0.2), diagnostics=False, corner_lines=0,
+    )
+    assert d.center[1] == pytest.approx(0.2) and d.z_center == pytest.approx(0.15)  # neither the port's nor the slab's
+    ey = bf.graded_edges(-0.3, 0.7, 0.05, fine=[(0.0, 0.5, 0.0175)], growth=1.25)
+    ez = bf.graded_edges(-0.2, 0.5, 0.05, fine=[(-0.03, 0.16, 0.02)], growth=1.25)
+    g = d.rectilinear_grid(0.05, y_um=ey, z_um=ez)
+    det, constraints = d.create_field_detector_at("o1", (0.0, 0.0), port_offset=-0.1, grid=g)
+    assert det.partial_real_shape[1:] == (None, None)  # y and z: graded, whole cells
+    volume, placing = d.get_simulation_volume()
+    objects, *_ = fdtdx.place_objects(
+        object_list=[volume, d, det], config=config(g), constraints=placing + constraints, key=jax.random.PRNGKey(0)
+    )
+    (j0, j1), (k0, k1) = objects["o1_field_detector"].grid_slice_tuple[1:]
+
+    def nearest(e: np.ndarray, x: float) -> float:
+        return float(e[np.argmin(np.abs(e - x))])
+
+    assert (ey[j0], ey[j1]) == pytest.approx((nearest(ey, 0.05), nearest(ey, 0.45)), abs=1e-6)
+    assert (ez[k0], ez[k1]) == pytest.approx((nearest(ez, 0.0), nearest(ez, 0.13)), abs=1e-6)
+    wider = grid(np.asarray(g.edges(0)) * 1e6, np.concatenate([np.asarray(g.edges(1)) * 1e6, [0.6]]),
+                 np.asarray(g.edges(2)) * 1e6)  # y 0.1 um past the box: a larger volume
+    with pytest.raises(ValueError, match="own simulation volume"):
+        d.create_field_detector_at("o1", (0.0, 0.0), grid=wider)
+
+
 def place_all(d: bf.StackDevice, g) -> tuple:
     volume, constraints = d.get_simulation_volume()
     objects, arrays, params, _, _ = fdtdx.place_objects(

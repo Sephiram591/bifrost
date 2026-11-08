@@ -8781,7 +8781,8 @@ class StackDevice(StaticMultiMaterialObject):
             z = bf.graded_edges(z0, z1, 0.06, fine=[(-0.05, 0.3, 0.02)], snap=[0.0, 0.22])
             config = stack.get_simulation_config(time=..., grid=stack.rectilinear_grid(0.06, z_um=z))
 
-        Only z may be graded so far: x and y each have one cell size (they may differ).
+        Any axis may be graded. Its edges are in stack coordinates, from the box's lower face to
+        its upper one (the box after ``boundary_offset``, which need not be symmetric).
 
         Args:
             spacing_um: cell size (um) along the axes whose edges are not given; the box must be
@@ -9061,11 +9062,12 @@ class StackDevice(StaticMultiMaterialObject):
             level: see :meth:`_port_frame`.
             port_offset: see :meth:`_port_frame`.
             name: object name.
-            grid: the simulation's config or ``RectilinearGrid`` (the device
-                filling the simulation volume), or None. Along an in-plane axis
-                where its cells differ, the plane is given in whole cells: its
-                faces snap to the nearest edges at its own position, since fdtdx
-                counts a physical size's cells from the domain's lower face.
+            grid: the simulation's config or ``RectilinearGrid``, or None. Along
+                an in-plane axis where its cells differ, the plane is given in whole
+                cells: its faces snap to the nearest edges at its own position, since
+                fdtdx counts a physical size's cells from the domain's lower face. The
+                device must fill the simulation volume (:meth:`get_simulation_volume`,
+                any ``boundary_offset``): the grid's middle is the box's center.
             **fields: other fields of ``cls``.
 
         Returns:
@@ -9118,6 +9120,10 @@ class StackDevice(StaticMultiMaterialObject):
             (cells, snapped center in um): the extent's faces moved to the nearest edges, at
             least one cell; None where the grid's cells along ``axis`` are all one size (or
             the grid is not resolved), which fdtdx places exactly.
+
+        Raises:
+            ValueError: if the grid does not span the device's box along ``axis``: the device
+                must fill the simulation volume, whose middle is then the box's center.
         """
         resolved = grid.resolved_grid if isinstance(grid, SimulationConfig) else grid
         if not isinstance(resolved, fdtdx.core.grid.RectilinearGrid):
@@ -9126,6 +9132,13 @@ class StackDevice(StaticMultiMaterialObject):
         widths = np.diff(edges)
         if np.max(np.abs(widths - widths[0])) <= _FRAME_RTOL * widths[0]:
             return None
+        size = float(self.partial_real_shape[axis]) * 1e6
+        if abs((edges[-1] - edges[0]) - size) > 0.01 * float(np.min(widths)):
+            raise ValueError(
+                f"StackDevice {self.name!r}: grid= needs the grid of the device's own simulation volume "
+                f"(get_simulation_volume): along {'xyz'[axis]} it spans {edges[-1] - edges[0]:g} um, the box "
+                f"{size:g} um. In a larger volume, leave grid= out and give the plane's cells yourself."
+            )
         middle = (self.center[0], self.center[1], self.z_center)[axis]
         offset = 0.5 * (edges[0] + edges[-1]) - middle  # stack -> grid coordinates (the box's center)
         lo = int(np.argmin(np.abs(edges - (center_um + offset - 0.5 * extent_um))))
