@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterator
 
 import fdtdx
@@ -14,7 +15,15 @@ from fdtdx.core.grid import RectilinearGrid, UniformGrid
 from gdsfactory.technology import LayerLevel, LayerStack
 
 import bifrost as bf
-from bifrost.stack import StackDiagnosticWarning, _conductivity_scale, _Frame, _grid_frame, _split_layer
+from bifrost.geometry import gaussian_random_field
+from bifrost.stack import (
+    StackDiagnosticWarning,
+    _conductivity_scale,
+    _Frame,
+    _grid_frame,
+    _normal_squared,
+    _split_layer,
+)
 
 L = gf.gpdk.LAYER
 MATERIALS = {"air": fdtdx.Material(), "si": fdtdx.Material(permittivity=12.0), "sio2": fdtdx.Material(permittivity=2.1)}
@@ -163,7 +172,7 @@ def test_graded_xy_is_not_supported_yet():
     sx, sy, sz = (s * 1e6 for s in d.partial_real_shape)
     x = np.concatenate([np.linspace(-sx / 2, 0.0, 8), np.linspace(0.0, sx / 2, 15)[1:]])  # two sizes
     g = grid(x, np.linspace(-sy / 2, sy / 2, 10), np.linspace(-sz / 2, sz / 2, 7))
-    with pytest.raises(NotImplementedError, match="x and y"):
+    with pytest.raises(NotImplementedError, match="one size"):
         place(d, g)
 
 
@@ -398,3 +407,145 @@ def place_all(d: bf.StackDevice, g) -> tuple:
         object_list=[volume, d], config=config(g), constraints=constraints, key=jax.random.PRNGKey(0)
     )
     return objects, arrays, {**params, **bf.init_stack_params(objects)}
+
+
+# ---------------------------------------------------------------- x and y cells of different sizes
+
+BOX_XY = (-0.2, 1.4, -0.2, 1.1)  # um: 1.6 x 1.3, whole cells of 0.02 and 0.04 um (also transposed)
+CORE_LAYER = 10  # the voxel layer 0.10 to 0.12 um, inside the core (0 to 0.22 um) of lateral_device
+
+
+def rotated(points: list, degrees: float, about: tuple[float, float]) -> np.ndarray:
+    a = math.radians(degrees)
+    r = np.array([[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]])
+    c = np.asarray(about, dtype=float)
+    return (np.asarray(points, dtype=float) - c) @ r.T + c
+
+
+# non-convex, 17 deg off the grid, inside BOX_XY
+L_SHAPE = rotated(
+    [(0.0, 0.0), (1.0, 0.0), (1.0, 0.6), (0.5, 0.6), (0.5, 0.3), (0.2, 0.3), (0.2, 0.75), (0.0, 0.75)], 17.0,
+    (0.5, 0.4),
+)
+
+
+def lateral_device(polygon, angle: float = 0.0, transpose: bool = False, shrink=(0.0, 0.0), **kwargs) -> bf.StackDevice:
+    """A silicon core (0 to 0.22 um) of ``polygon`` in air; the box BOX_XY (x and y swapped with ``transpose``)
+    and -0.1 to 0.32 um. ``shrink`` (um per x, y face) takes the box back in from polygons that run past it."""
+    x0, x1, y0, y1 = BOX_XY
+    p = np.asarray(polygon, dtype=float)
+    if transpose:  # x and y swapped, still counter-clockwise
+        x0, x1, y0, y1 = y0, y1, x0, x1
+        p = p[::-1, ::-1]
+    c = gf.Component()
+    c.add_polygon([tuple(q) for q in p], layer=L.WG)
+    c.add_polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], layer=L.SLAB150)  # the box
+    ls = LayerStack(layers={
+        "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1, sidewall_angle=angle),
+        "frame": LayerLevel(layer=L.SLAB150, zmin=-0.1, thickness=0.42, material="air", mesh_order=9),
+    })
+    sx, sy = shrink
+    return bf.StackDevice.from_layer_stack(
+        c, ls, MATERIALS, background="air", name="s", zrange_layers=["core"],
+        boundary_offset=(-sx, sx, -sy, sy, 0.1, -0.1), diagnostics=False, **kwargs,
+    )
+
+
+def lateral_grid(d: bf.StackDevice, dx: float, dy: float, dz: float = 0.02) -> RectilinearGrid:
+    """Cells of dx x dy x dz um over the device's box."""
+    sx, sy, sz = (s * 1e6 for s in d.partial_real_shape)
+    return grid(*(np.linspace(-s / 2, s / 2, round(s / w) + 1) for s, w in ((sx, dx), (sy, dy), (sz, dz))))
+
+
+def exact_fractions(polygon, dx: float, dy: float) -> np.ndarray:
+    """(nx, ny) fraction of every dx x dy cell of BOX_XY inside the polygon."""
+    shapely = pytest.importorskip("shapely")
+    x0, x1, y0, y1 = BOX_XY
+    nx, ny = round((x1 - x0) / dx), round((y1 - y0) / dy)
+    i, j = np.meshgrid(np.arange(nx), np.arange(ny), indexing="ij")
+    cells = shapely.box(x0 + i * dx, y0 + j * dy, x0 + (i + 1) * dx, y0 + (j + 1) * dy)
+    return shapely.area(shapely.intersection(shapely.Polygon(polygon), cells)) / (dx * dy)
+
+
+def test_lateral_frame_widths():
+    cfg = config(grid(np.linspace(-0.8, 0.8, 41), np.linspace(-0.65, 0.65, 66), np.linspace(-0.21, 0.21, 22)))
+    frame = _grid_frame(cfg, ((0, 40), (0, 65), (0, 21)))
+    assert frame.h_um == 0.02  # rounded like fdtdx's uniform spacing: no float32 round-off of the edges
+    assert frame.widths[0] == 2.0 and frame.widths[1] == 1.0
+    assert frame.uniform == (False, True, True)
+    np.testing.assert_allclose(frame.edges[0], frame.widths[0] * np.arange(41), rtol=1e-12)
+
+
+@pytest.mark.parametrize("subsamples", [1, 2])
+def test_rectangular_cells_get_exact_areas(subsamples: int):
+    """dx = 2 dy: every voxel of a rotated non-convex polygon, at its corners too, gets its exact area."""
+    d = lateral_device(L_SHAPE, xy_subsamples=subsamples)
+    placed = place(d, lateral_grid(d, 0.04, 0.02))["s"]
+    assert placed.grid_frame.widths[:2] == (2.0, 1.0)
+    names, w = placed.material_weights()
+    exact = exact_fractions(L_SHAPE, 0.04, 0.02)
+    assert ((exact > 0) & (exact < 1)).sum() > 100
+    tol = 1e-4 if subsamples == 1 else 1e-3  # sub-samples blend the corner model by the voxel's certificate
+    np.testing.assert_allclose(np.asarray(w[names.index("si")])[:, :, CORE_LAYER], exact, atol=tol)
+
+
+@pytest.mark.parametrize(("along", "angle"), [("x", 0.0), ("x", 20.0), ("y", 0.0), ("y", 20.0)])
+def test_rectangular_cells_add_up_to_their_squares(along: str, angle: float):
+    """dx = 2 dy against dx = dy on a strip that runs through the box (no corner inside): along x the two grids
+    share the y cells, so every voxel is the same, sloped walls too; along y a rectangle is its two squares
+    (with sloped walls only summed along the edge, as the half-planes paint each voxel at its wall's mean)."""
+    x0, x1, y0, y1 = BOX_XY
+    if along == "x":
+        strip, shrink = [(x0 - 0.5, 0.13), (x1 + 0.5, 0.13), (x1 + 0.5, 0.42), (x0 - 0.5, 0.42)], (0.5, 0.0)
+    else:
+        strip, shrink = [(0.33, y0 - 0.5), (0.87, y0 - 0.5), (0.87, y1 + 0.5), (0.33, y1 + 0.5)], (0.0, 0.5)
+    d = lateral_device(strip, angle=angle, shrink=shrink)
+    _, wa = place(d, lateral_grid(d, 0.04, 0.02))["s"].material_weights()
+    _, wb = place(d, lateral_grid(d, 0.02, 0.02))["s"].material_weights()
+    wa, wb = np.asarray(wa), np.asarray(wb)
+    pairs = 0.5 * (wb[:, 0::2] + wb[:, 1::2])
+    if along == "x" or angle == 0.0:
+        np.testing.assert_allclose(wa, pairs, atol=2e-5)
+    else:
+        np.testing.assert_allclose(wa.sum(axis=1), pairs.sum(axis=1), atol=1e-4)
+
+
+def test_swapping_x_and_y_transposes_the_weights():
+    d = lateral_device(L_SHAPE, angle=15.0)
+    _, w = place(d, lateral_grid(d, 0.04, 0.02))["s"].material_weights()
+    t = lateral_device(L_SHAPE, angle=15.0, transpose=True)
+    _, wt = place(t, lateral_grid(t, 0.02, 0.04))["s"].material_weights()
+    np.testing.assert_allclose(np.asarray(wt), np.asarray(w).transpose(0, 2, 1, 3), atol=1e-4)
+
+
+def test_rectangular_cells_full_averaging_is_bounded():
+    """averaging="subpixel_full" on dx = 2 dy: the closure of the junction voxels on their boxes solves and stays
+    between the materials."""
+    d = lateral_device(L_SHAPE, angle=15.0, averaging="subpixel_full")
+    objects, arrays, params = place_all(d, lateral_grid(d, 0.04, 0.02))
+    placed = objects["s"]
+    out, status = placed.write_with_status(arrays, params["s"])
+    assert int(status["junctions"]) > 0 and int(status["junction_overflow"]) == 0
+    assert float(status["closure_residual"]) < 1e-3
+    inv = np.asarray(out.inv_permittivities[:, *placed.grid_slice]).reshape(3, 3, -1)
+    assert np.all(np.isfinite(inv))
+    diagonal = inv[[0, 1, 2], [0, 1, 2]]
+    assert diagonal.min() > 1.0 / 12.0 - 1e-5 and diagonal.max() < 1.0 + 1e-5
+    assert np.abs(inv[[0, 0, 1, 1, 2, 2], [1, 2, 0, 2, 0, 1]]).max() < 0.5 * (1.0 - 1.0 / 12.0)
+
+
+def test_normal_squared_uses_the_cell_sizes():
+    """A 45 degree planar field on cells twice as wide along x: the normal is at 45 degrees with the distances."""
+    i, j = np.meshgrid(np.arange(6), np.arange(8), indexing="ij")
+    q = jnp.asarray(np.broadcast_to(((i + 0.5) * 2.0 + (j + 0.5))[:, :, None], (6, 8, 3)))
+    n2 = np.asarray(_normal_squared(q, (np.full(7, 2.0), np.full(9, 1.0), None)))
+    np.testing.assert_allclose(n2[:2, 1:-1, 1:-1], 0.5, atol=1e-6)
+    np.testing.assert_allclose(n2[2], 0.0, atol=1e-6)
+    assert float(np.asarray(_normal_squared(q))[0, 2, 3, 1]) == pytest.approx(0.8)  # undivided: biased
+
+
+def test_random_field_with_two_lengths():
+    key = jax.random.PRNGKey(1)
+    a = gaussian_random_field((20, 30), 3.0, key)
+    b = gaussian_random_field((20, 30), (3.0, 3.0), key)
+    np.testing.assert_allclose(np.asarray(a), np.asarray(b), atol=1e-5)
