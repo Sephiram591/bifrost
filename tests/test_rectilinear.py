@@ -392,6 +392,39 @@ def test_port_planes_take_whole_graded_cells():
     assert (e[k0], e[k1]) == pytest.approx((0.0, 0.12))  # the slab, 0 to 0.13 um, on the nearest edges
 
 
+def test_graded_grids_follow_the_device_dtype():
+    """fdtdx scales the fields by the cell widths in the edges' dtype: a float32 run on a graded grid needs float32
+    edges, also under JAX's 64-bit mode. rectilinear_grid and get_simulation_config give them; a config built by
+    hand with float64 edges is refused at placement instead of failing in the time loop."""
+    assert jax.config.jax_enable_x64  # importing bifrost turns it on
+    d = slab_device(width=0.4)
+    g = d.rectilinear_grid(H, z_um=Z_EDGES - 0.2)
+    assert all(g.edges(a).dtype == jnp.float32 for a in range(3))
+    g64 = RectilinearGrid(**{f"{n}_edges": jnp.asarray(np.asarray(g.edges(a)), dtype=jnp.float64)
+                             for a, n in enumerate("xyz")})
+    cfg = d.get_simulation_config(time=3e-15, grid=g64)
+    assert all(cfg.grid.edges(a).dtype == jnp.float32 for a in range(3))
+    volume, placing = d.get_simulation_volume()
+    with pytest.raises(ValueError, match="grid's edges"):
+        fdtdx.place_objects(object_list=[volume, d], config=fdtdx.SimulationConfig(time=3e-15, grid=g64,
+                            dtype=jnp.float32), constraints=placing, key=jax.random.PRNGKey(0))
+    wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
+    dipole, at = d.create_point_dipole_source_at(
+        "o1", wave_character=wave, polarization=1, port_offset=0.3,
+        temporal_profile=fdtdx.GaussianPulseProfile(center_wave=wave, spectral_width=fdtdx.WaveCharacter(
+            frequency=0.5 * wave.get_frequency())),
+    )
+    objects, arrays, params, cfg, _ = fdtdx.place_objects(
+        object_list=[volume, d, dipole], config=cfg, constraints=placing + at, key=jax.random.PRNGKey(0)
+    )
+    arrays, objects, _ = bf.apply_stack(arrays, objects, {**params, **bf.init_stack_params(objects)},
+                                        jax.random.PRNGKey(0))
+    _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=cfg, key=jax.random.PRNGKey(0),
+                               show_progress=False)
+    assert arrays.fields.E.dtype == jnp.float32 and bool(jnp.all(jnp.isfinite(arrays.fields.E)))
+    assert float(jnp.max(jnp.abs(arrays.fields.E))) > 0.0
+
+
 def test_port_planes_snap_on_an_asymmetric_box():
     """A box far from symmetric about the port (boundary_offset 0.55 / 0.45 um in y around the port, 0.2 / 0.37 um
     in z around the slab), graded along y and z: the plane's faces land on the edges nearest the port's own

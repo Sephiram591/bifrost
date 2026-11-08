@@ -8794,7 +8794,7 @@ class StackDevice(StaticMultiMaterialObject):
             z_um: z edges (um, stack heights), or None.
 
         Returns:
-            The grid, its edges in metres from the box's center (fdtdx's frame).
+            The grid, its edges in metres from the box's center (fdtdx's frame), in the device's dtype.
 
         Raises:
             ValueError: if the box is not whole cells along an axis without edges, or given edges
@@ -8827,15 +8827,31 @@ class StackDevice(StaticMultiMaterialObject):
                     )
                 e[0], e[-1] = lo, hi
                 edges = e - mid
-            out.append(jnp.asarray(edges * 1e-6))
+            out.append(jnp.asarray(edges * 1e-6, dtype=self.dtype))
         return fdtdx.core.grid.RectilinearGrid(x_edges=out[0], y_edges=out[1], z_edges=out[2])
+
+    def _grid_in_dtype(self, grid: Any) -> Any:
+        """A ``RectilinearGrid`` with its edges in the device's dtype (other grids as they are).
+
+        fdtdx's curl on a non-uniform grid scales the fields by the cells' widths, in the edges' dtype: float64
+        edges (numpy edges under JAX's 64-bit mode, which importing bifrost turns on) would turn a float32
+        simulation's fields into float64 in the time loop, which fails.
+        """
+        if not isinstance(grid, fdtdx.core.grid.RectilinearGrid):
+            return grid
+        edges = [grid.edges(a) for a in range(3)]
+        if all(_same_dtype(e.dtype, self.dtype) for e in edges):
+            return grid
+        return fdtdx.core.grid.RectilinearGrid(
+            **{f"{name}_edges": jnp.asarray(e, dtype=self.dtype) for name, e in zip("xyz", edges, strict=True)}
+        )
 
     def get_simulation_config(self, **kwargs: Any) -> SimulationConfig:
         """The ``fdtdx.SimulationConfig`` for this device, in the device's precision.
 
         Sets ``dtype`` from :attr:`dtype` and passes everything else on to
         ``fdtdx.SimulationConfig``, so the precision is chosen once, on the
-        device::
+        device (a ``RectilinearGrid``'s edges are converted to it too)::
 
             stack = bf.StackDevice.from_layer_stack(..., dtype=jnp.float64)
             config = stack.get_simulation_config(time=100e-15, grid=UniformGrid(spacing=50e-9))
@@ -8855,6 +8871,8 @@ class StackDevice(StaticMultiMaterialObject):
                 "get_simulation_config takes its dtype from the StackDevice: "
                 "build the device with StackDevice(dtype=...) instead of passing dtype here"
             )
+        if "grid" in kwargs:
+            kwargs["grid"] = self._grid_in_dtype(kwargs["grid"])
         return SimulationConfig(dtype=self.dtype, **kwargs)
 
     def _check_precision(self, config: SimulationConfig) -> None:
@@ -8864,7 +8882,8 @@ class StackDevice(StaticMultiMaterialObject):
             config: the simulation config the device is placed with.
 
         Raises:
-            ValueError: if ``config.dtype`` is not the device's dtype.
+            ValueError: if ``config.dtype`` is not the device's dtype, or a non-uniform grid's edges are in
+                another dtype (fdtdx would run the fields in theirs).
             RuntimeError: if a float64 device is placed with JAX's 64-bit mode off.
         """
         if not _same_dtype(config.dtype, self.dtype):
@@ -8873,6 +8892,16 @@ class StackDevice(StaticMultiMaterialObject):
                 f"dtype {np.dtype(config.dtype)}; build the config with "
                 "device.get_simulation_config(...), which takes the device's dtype"
             )
+        grid = config.resolved_grid
+        if config.has_nonuniform_grid and isinstance(grid, fdtdx.core.grid.RectilinearGrid):
+            dtypes = {np.dtype(grid.edges(a).dtype).name for a in range(3)}
+            if dtypes != {np.dtype(self.dtype).name}:
+                raise ValueError(
+                    f"StackDevice {self.name!r} has dtype {np.dtype(self.dtype)} but the grid's edges are "
+                    f"{', '.join(sorted(dtypes))}: fdtdx would turn the fields into those in its time loop. Build "
+                    "the config with device.get_simulation_config(grid=...) (or the grid with "
+                    "device.rectilinear_grid), which converts them"
+                )
         if _same_dtype(self.dtype, np.float64) and not jax.config.jax_enable_x64:
             raise RuntimeError(
                 f"StackDevice {self.name!r} has dtype float64, but JAX's 64-bit mode is off, which would "
