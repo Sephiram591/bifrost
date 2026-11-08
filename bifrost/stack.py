@@ -1892,8 +1892,10 @@ def _composite(
     at its own height, and a straight edge gets its exact volume summed along
     the edge, also with z_to_bias (per voxel, the area at s_j differs from its
     mean over z where the edge crosses a corner of the square within the
-    voxel, by up to about 5e-3 of the voxel at 20 deg, but these errors cancel
-    along the edge; corner columns use two heights, see below): level j gets
+    voxel, by up to about 5e-3 of the voxel for axis-aligned edges and 2e-2
+    for edges at 17 deg to the grid, at a 20 deg wall on cubic voxels (as
+    measured), but these errors cancel along the edge; corner columns use two
+    heights, see below): level j gets
     the area of the voxel square
     inside it but outside every earlier present level, computed exactly by
     clipping the square with the complements in priority order. Levels that
