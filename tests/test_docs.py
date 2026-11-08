@@ -240,6 +240,37 @@ def test_the_widget_demo_page_embeds_the_exported_notebook() -> None:
     assert "-o docs/demo/notebook" in (ROOT / "Makefile").read_text()
 
 
+def test_the_widget_demo_page_holds_only_the_iframe_and_the_notebook_holds_the_text() -> None:
+    """The page's text lives in the notebook, under the viewer, so the page itself is a title and the iframe."""
+    body = (DOCS / "live-demo.md").read_text().split("---", 2)[2]
+    assert re.sub(r"<div.*</div>", "", body, flags=re.S).strip() == ""
+    source = NOTEBOOK.read_text()
+    for heading in ("What the demo can and cannot do", "How it was made"):
+        assert f"## {heading}" in source
+
+
+def test_the_notebooks_site_links_point_at_real_pages_and_headings() -> None:
+    """The notebook's links are not in a Markdown page, so the link check above never reads them.
+
+    They are written from docs/demo/notebook/ (where the notebook is exported), so `../../x/` is the page docs/x.md.
+    """
+    hrefs = re.findall(r'href="\.\./\.\./([^"]+)"', NOTEBOOK.read_text())
+    assert hrefs, "the notebook links to no page of the site"
+    for href in hrefs:
+        path, _, anchor = href.partition("#")
+        page = DOCS / f"{path.rstrip('/')}.md"
+        assert page.is_file(), f"the notebook links to ../../{href}, which is not a page"
+        if anchor:
+            headings = {slug(h) for h in HEADING.findall(FENCE.sub("", page.read_text()))}
+            assert anchor in headings, f"the notebook links to ../../{href}: no such heading"
+
+
+def test_the_notebook_opens_in_dark_mode() -> None:
+    """`marimo export` reads the display theme from the script's PEP 723 header."""
+    header = NOTEBOOK.read_text().split('"""', 1)[0]
+    assert re.search(r"^# \[tool\.marimo\.display\]\n# theme = \"dark\"$", header, re.M)
+
+
 def test_the_notebook_never_imports_bifrost_and_the_bundle_still_offers_what_it_calls() -> None:
     """A browser kernel has no jax, fdtdx or gdsfactory, so the notebook only replays the exported files."""
     source = NOTEBOOK.read_text()

@@ -234,7 +234,7 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
       void recordAll(fps);
     },
     onGroupDownsample: (stride) => setGroupStride(stride),
-  }, (model.get("state") as StatePayload | undefined)?.active_tab);
+  }, (model.get("state") as StatePayload | undefined)?.active_tab, model.get("start_collapsed") === true);
 
   // -- viewport -------------------------------------------------------------
   const viewport = document.createElement("div");

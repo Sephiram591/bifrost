@@ -88,6 +88,8 @@ markdown_extensions:
       generic: true
 
 extra_css:
+  - https://fonts.googleapis.com/css2?family=Eczar:wght@700&display=swap
+  - stylesheets/site-title.css
   - stylesheets/live-demo.css
 
 extra_javascript:

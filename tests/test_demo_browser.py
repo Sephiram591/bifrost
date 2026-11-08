@@ -118,6 +118,14 @@ def luminance(rgb: str) -> float:
     return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
 
 
+def _rgb(css: str) -> str:
+    """`rgb(r, g, b)` for a computed color that Chromium may report as `color(srgb r g b)` (0 to 1 each)."""
+    if css.startswith("color(srgb"):
+        r, g, b = (round(float(v) * 255) for v in css.removeprefix("color(srgb").rstrip(")").split()[:3])
+        return f"rgb({r}, {g}, {b})"
+    return css
+
+
 def contrast(a: str, b: str) -> float:
     la, lb = sorted((luminance(a), luminance(b)), reverse=True)
     return (la + 0.05) / (lb + 0.05)
@@ -159,6 +167,24 @@ def test_every_result_card_but_the_phasor_field_starts_checked_and_filled_in(dem
     assert {c["name"] for c in cards} == names
     assert {c["name"]: c["checked"] for c in cards} == {name: name != "field" for name in names}, cards
     assert all(c["component"] == "|E|" for c in cards), cards  # filled in, not the blank default
+
+
+def test_every_card_starts_collapsed_and_opens_on_its_arrow(demo):
+    """Sources, monitors and the Result tab's monitor cards open with only their headers; the arrow opens one."""
+    names = {entry["name"] for entry in MANIFEST["fields"].values()}
+    demo.page.wait_for_function(f"document.querySelectorAll('.gfx-field-group').length === {len(names)}", timeout=60000)
+    cards = demo.page.evaluate(
+        "() => [...document.querySelectorAll('.gfx-spec')].map(c => c.classList.contains('gfx-collapsed'))"
+    )
+    assert len(cards) >= len(names) + 2, cards  # the Result cards, and the sources and monitors of the editor
+    assert all(cards), "a card opened expanded"
+    card = demo.page.locator(".gfx-field-group").first
+    assert card.locator(".gfx-spec-header").is_visible() and card.locator(".gfx-spec-fields").is_hidden()
+    card.locator(".gfx-twisty").click()
+    assert card.locator(".gfx-spec-fields").is_visible()
+    assert card.locator(".gfx-twisty").get_attribute("aria-expanded") == "true"
+    others = demo.page.locator(".gfx-field-group:not(:first-child) .gfx-spec-fields")
+    assert all(f.is_hidden() for f in others.all()), "opening one card opened the others"
 
 
 def test_every_monitors_field_is_shown_when_it_opens(demo):
@@ -408,6 +434,47 @@ def test_the_notebook_runs_python_in_the_browser_and_shows_the_viewer(browser, b
         assert page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 1
         # marimo asks the server for an optional /wasm/controller.js; a static host answers 404, which is fine
         assert not [e for e in errors if "controller.js" not in e and "404" not in e], errors
+    finally:
+        context.close()
+
+
+@needs_notebook
+def test_the_notebook_is_dark_even_in_a_light_browser_and_holds_all_the_page_text(browser, base_url):
+    """The page around the viewer is the notebook: it opens dark whatever the browser prefers, with the page's text under the viewer."""
+    context = browser.new_context(viewport={"width": 1200, "height": 800}, color_scheme="light")
+    try:
+        page = context.new_page()
+        page.goto(f"{base_url}/demo/notebook/index.html")
+        page.get_by_role("heading", name="What the demo can and cannot do").wait_for(timeout=120000)
+        page.get_by_role("heading", name="How it was made").wait_for(timeout=10000)
+        page.get_by_text("The demo plays back a precomputed result").wait_for(timeout=10000)
+        assert luminance(_rgb(page.evaluate("getComputedStyle(document.body).backgroundColor"))) < 0.1
+        assert luminance(_rgb(page.evaluate("getComputedStyle(document.querySelector('h2')).color"))) > 0.5  # light text on it
+        # the viewer inside it opens collapsed too
+        page.locator(".gfx-field-group").nth(len(MANIFEST["fields"]) - 1).wait_for(timeout=60000)
+        assert all(page.evaluate("() => [...document.querySelectorAll('.gfx-spec')].map(c => c.classList.contains('gfx-collapsed'))"))
+    finally:
+        context.close()
+
+
+@needs_notebook
+def test_the_notebooks_links_reach_the_site_pages_and_leave_the_iframe(browser, base_url):
+    """Written from docs/demo/notebook/: links to site pages open in the whole window (`_top`), the demo links in a new tab."""
+    context = browser.new_context(viewport={"width": 1200, "height": 800})
+    try:
+        page = context.new_page()
+        page.goto(f"{base_url}/demo/notebook/index.html")
+        page.get_by_role("heading", name="How it was made").wait_for(timeout=120000)
+        site = {"bend tutorial": "getting-started/", "Contributing and tests": "development/#the-live-demo", "Viewer guide": "guide/viewer/"}
+        for name, path in site.items():
+            link = page.get_by_role("link", name=name)
+            assert link.get_attribute("target") == "_top", name
+            assert link.evaluate("(a) => a.href") == f"{base_url}/{path}", name
+        for name, path in {"Open the demo full screen": "demo/notebook/index.html", "the same viewer without the notebook": "demo/index.html"}.items():
+            link = page.get_by_role("link", name=name)
+            assert link.get_attribute("target") == "_blank", name
+            assert link.evaluate("(a) => a.href") == f"{base_url}/{path}", name
+            assert page.request.get(f"{base_url}/{path}").ok, name
     finally:
         context.close()
 

@@ -1,0 +1,7 @@
+/* The site name in the header, next to the logo that links home, is set in Eczar. The font itself is loaded by
+   the Google Fonts stylesheet listed before this file in `extra_css` (docs/zensical.yml), which is how the theme's
+   own fonts (Inter, JetBrains Mono) arrive; a serif is the fallback while it loads or if it is blocked. The weight
+   stays the theme's bold, so the stylesheet asks for 700 only. */
+.md-header__topic:first-child {
+  font-family: "Eczar", serif;
+}

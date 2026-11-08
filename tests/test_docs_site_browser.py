@@ -157,8 +157,9 @@ def test_the_embedded_demo_loads_with_run_disabled(browser, base_url):
     try:
         page.goto(f"{base_url}/live-demo/")
         frame = page.frame_locator("iframe[title*='bifrost viewer']")
-        frame.locator(".gfx-shell .gfx-menubar").wait_for(timeout=90000)
-        assert any(f.url == f"{base_url}/demo/index.html" for f in page.frames), [f.url for f in page.frames]
+        frame.locator(".gfx-shell .gfx-menubar").wait_for(timeout=120000)
+        # the iframe holds the notebook around the viewer, exported next to the plain demo page
+        assert any(f.url == f"{base_url}/demo/notebook/index.html" for f in page.frames), [f.url for f in page.frames]
         assert frame.locator("button[title*='Precomputed demo']").is_disabled()
         assert errors == []
     finally:
@@ -169,9 +170,11 @@ def test_the_full_screen_link_and_the_poster_are_served(browser, base_url):
     page = browser.new_page()
     try:
         page.goto(f"{base_url}/live-demo/")
-        link = page.get_by_role("link", name="Open the demo full screen")
+        # the page's text, this link included, is in the notebook the iframe shows
+        link = page.frame_locator("iframe[title*='bifrost viewer']").get_by_role("link", name="Open the demo full screen")
+        link.wait_for(timeout=120000)
         target = link.evaluate("(a) => a.href")  # as the browser resolves it
-        assert target == f"{base_url}/demo/index.html"
+        assert target == f"{base_url}/demo/notebook/index.html"
         assert page.request.get(target).ok
         poster = page.request.get(f"{base_url}/images/viewer-demo.png")
         assert poster.ok and len(poster.body()) > 10_000
@@ -198,6 +201,36 @@ def test_the_live_demo_is_its_own_tab_and_fills_the_page(browser, base_url):
         box = page.locator(".bf-live-demo").bounding_box()
         assert box["x"] <= 1 and abs(box["width"] - 1600) <= 20, box  # edge to edge (less a scrollbar)
         assert box["height"] >= 420, box
+    finally:
+        page.close()
+
+
+def test_the_widget_demo_page_is_only_the_notebook_and_its_header_keeps_the_site_name(browser, base_url):
+    """All the page's text is in the notebook; the header keeps "bifrost" there instead of swapping in the page title."""
+    page = browser.new_page(viewport={"width": 1600, "height": 900})
+    try:
+        page.goto(f"{base_url}/live-demo/")
+        assert page.locator(".md-content__inner").inner_text().strip() == "Widget Demo"  # the hidden title, nothing else
+        topics = page.locator(".md-header__topic")
+        assert topics.nth(0).inner_text().strip() == "bifrost" and topics.nth(1).inner_text().strip() == "Widget Demo"
+        page.wait_for_timeout(800)  # past the theme's 0.4 s slide between the two
+        opacity = [float(topics.nth(i).evaluate("(e) => getComputedStyle(e).opacity")) for i in (0, 1)]
+        assert opacity == [1.0, 0.0], f"the header shows the page title instead of the site name: {opacity}"
+    finally:
+        page.close()
+
+
+@pytest.mark.parametrize("path", ["", "installation/", "live-demo/"])
+def test_the_site_name_in_the_header_is_set_in_eczar(browser, base_url, path):
+    page = browser.new_page(viewport={"width": 1600, "height": 900})
+    try:
+        page.goto(f"{base_url}/{path}")
+        family = page.locator(".md-header__topic").first.evaluate("(e) => getComputedStyle(e).fontFamily")
+        assert family.replace('"', "").split(",")[0].strip() == "Eczar", family
+        # the page asks Google Fonts for it, as it does for the theme's own fonts
+        assert any("fonts.googleapis.com/css2?family=Eczar" in href for href in page.evaluate(
+            "() => [...document.querySelectorAll('link[rel=stylesheet]')].map(l => l.href)"
+        ))
     finally:
         page.close()
 
@@ -233,7 +266,14 @@ def test_no_page_makes_a_failing_request(browser, base_url, path):
     failed = []
     origin = base_url.removesuffix(PREFIX)  # our own server: the theme's GitHub repository widget asks
     # api.github.com for the latest release, which 404s while the repository has none (not ours to serve)
-    page.on("response", lambda r: failed.append(f"{r.status} {r.url}") if r.status >= 400 and r.url.startswith(origin) else None)
+    # The notebook in the Widget Demo iframe (marimo) also asks for an optional /wasm/controller.js, which a static
+    # host answers with 404 and the notebook does without (tests/test_demo_browser.py makes the same exception).
+    page.on(
+        "response",
+        lambda r: failed.append(f"{r.status} {r.url}")
+        if r.status >= 400 and r.url.startswith(origin) and "/wasm/controller.js" not in r.url
+        else None,
+    )
     try:
         page.goto(f"{base_url}/{path}")
         page.wait_for_load_state("networkidle")

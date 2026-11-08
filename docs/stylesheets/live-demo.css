@@ -34,6 +34,21 @@ body .md-content__inner:has(.bf-live-demo) > .md-content__button {
   display: none;
 }
 
+/* the header swaps the site name for the page title once the page's <h1> has scrolled out of view. This page's
+   <h1> is hidden above, so the theme counts it as out of view at once and would swap "bifrost" for the title as
+   soon as the page opens. Keep the site name and hide the title: both states get the same look, so nothing moves. */
+body:has(.bf-live-demo) .md-header__title--active .md-header__topic {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+  z-index: 0;
+}
+body:has(.bf-live-demo) .md-header__title--active .md-header__topic + .md-header__topic {
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
 /* no "on this page" list; and no navigation sidebar where the tabs replace it (below that width the
    sidebar is the menu drawer, which stays so a phone can still leave the page) */
 .md-main__inner:has(.bf-live-demo) .md-sidebar--secondary {
@@ -58,11 +73,4 @@ body .md-content__inner:has(.bf-live-demo) > .md-content__button {
   width: 100%;
   height: 100%;
   border: 0;
-}
-
-/* the notes under the demo keep a readable line length */
-.bf-live-demo-notes {
-  max-width: 61rem;
-  margin: 1.2rem auto 1.8rem;
-  padding: 0 1rem;
 }

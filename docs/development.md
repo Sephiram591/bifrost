@@ -58,7 +58,7 @@ Its pieces:
 | the regeneration script | `scripts/build_demo.py` |
 | the browser adapter that stands in for the kernel | `js/viewer/static.ts`, entry `js/viewer/demo.ts` |
 | the page, bundle and data that are published | `docs/demo/` (`index.html`, `viewer-demo.js`, `viewer.css`, `data/`) |
-| the notebook around it (the Widget Demo page embeds it) | `docs/notebooks/widget_demo.py`, exported to `docs/demo/notebook/` by `make demo-notebook`; the export is generated, not committed |
+| the notebook around it (the Widget Demo page embeds it, and all that page's text is in it) | `docs/notebooks/widget_demo.py`, exported to `docs/demo/notebook/` by `make demo-notebook`; the export is generated, not committed. It opens in dark mode (the PEP 723 header at the top of the file) and the viewer opens with its cards collapsed (`js/viewer/demo.ts`). Its links to other pages are written from `docs/demo/notebook/` (`../../guide/viewer/`) with `target="_top"`, and `tests/test_docs.py` checks them |
 
 To regenerate it after changing the example, the viewer or the export format, run on a GPU node, then commit `docs/demo/`:
 

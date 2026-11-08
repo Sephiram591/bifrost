@@ -31,6 +31,8 @@ export async function mountReplay(host: HTMLElement, base: string, say: Say): Pr
     return;
   }
   model.set("initial_view", { direction: INITIAL_VIEW });
+  // the explorer's cards (sources, monitors, the Result tab's one per monitor) open with only their headers
+  model.set("start_collapsed", true);
   viewer.render({ model, el: host });
   say("");
 

@@ -29657,9 +29657,10 @@ function portHint(name) {
 }
 var FIELD_TRANSFORMS = ["real", "imag", "abs", "phase", "logabs"];
 var Explorer = class {
-  constructor(meta, callbacks, initialTab = "layout") {
+  constructor(meta, callbacks, initialTab = "layout", startCollapsed = false) {
     this.meta = meta;
     this.callbacks = callbacks;
+    this.startCollapsed = startCollapsed;
     this.tabButtons = [];
     this.levelRows = /* @__PURE__ */ new Map();
     this.portRows = /* @__PURE__ */ new Map();
@@ -30008,7 +30009,7 @@ var Explorer = class {
       if (!type) continue;
       let row2 = rows.get(spec.id);
       if (!row2) {
-        row2 = this.buildSpecRow(spec, type, kind);
+        row2 = this.buildSpecRow(spec, type, kind, this.startCollapsed);
         rows.set(spec.id, row2);
         list.appendChild(row2.root);
       } else if (row2.type !== spec.type || row2.port !== spec.port) {
@@ -30406,6 +30407,7 @@ var Explorer = class {
     }
     for (const id of ids) {
       if (this.resultControls.has(id)) continue;
+      if (this.startCollapsed) this.resultCollapsed.add(id);
       const section = this.buildResultSection(id);
       this.resultSections.appendChild(section);
     }
@@ -36365,7 +36367,7 @@ function render({ model, el }) {
       void recordAll(fps);
     },
     onGroupDownsample: (stride) => setGroupStride(stride)
-  }, model.get("state")?.active_tab);
+  }, model.get("state")?.active_tab, model.get("start_collapsed") === true);
   const viewport = document.createElement("div");
   viewport.className = "gfx-viewport";
   const sceneRoot = document.createElement("div");

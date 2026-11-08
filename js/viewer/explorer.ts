@@ -284,6 +284,9 @@ export class Explorer {
     private readonly callbacks: ExplorerCallbacks,
     //: the tab to open on: the state's own, so a precomputed demo opens on the Result tab
     initialTab: StatePayload["active_tab"] = "layout",
+    //: open every source, detector and Result card with its fields hidden (the header stays); a card
+    //: the user later opens or closes keeps its state, and a card added afterwards also opens collapsed
+    private readonly startCollapsed = false,
   ) {
     this.root = document.createElement("div");
     this.root.className = "gfx-explorer";
@@ -651,7 +654,7 @@ export class Explorer {
       if (!type) continue;
       let row = rows.get(spec.id);
       if (!row) {
-        row = this.buildSpecRow(spec, type, kind);
+        row = this.buildSpecRow(spec, type, kind, this.startCollapsed);
         rows.set(spec.id, row);
         list.appendChild(row.root);
       } else if (row.type !== spec.type || row.port !== spec.port) {
@@ -1080,6 +1083,7 @@ export class Explorer {
     }
     for (const id of ids) {
       if (this.resultControls.has(id)) continue;
+      if (this.startCollapsed) this.resultCollapsed.add(id);
       const section = this.buildResultSection(id);
       this.resultSections.appendChild(section);
     }
