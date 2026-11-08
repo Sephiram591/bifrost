@@ -1,0 +1,29 @@
+{
+ "rows": [
+  {
+   "grid": "graded-snap",
+   "cells": [
+    300,
+    88,
+    79
+   ],
+   "total_cells": 2085600,
+   "min_cell_nm": [
+    20.0,
+    20.0,
+    19.33
+   ],
+   "dt_fs": 0.03769416150506014,
+   "steps": 5306,
+   "neff_mode": 2.3779854774475098,
+   "neff_fdtd": 2.3813198269050515,
+   "amplitude_ripple": 2.537661202950403e-05,
+   "place_s": 9.9,
+   "apply_stack_s": 11.04,
+   "run_first_s": 3.56,
+   "run_s": 2.26,
+   "ns_per_cell_step": 0.20401851391917486,
+   "peak_gb": 0.54
+  }
+ ]
+}

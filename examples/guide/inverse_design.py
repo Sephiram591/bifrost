@@ -176,8 +176,9 @@ def optimize(placed, iterations, learning_rate=0.03):
     # (see bifrost.jitting)
     value_and_grad = bf.jit(jax.value_and_grad(objective))
     optimizer = optax.adam(learning_rate)
-    # start from the uniform bend; float64 like the optimizer's updates (a weakly typed start would compile twice)
-    z = jnp.asarray(parameters_of(UNIFORM), dtype=jnp.float64)
+    # start from the uniform bend, float64 and committed to the device like the optimizer's updates (a weakly typed
+    # or uncommitted start would compile the step twice)
+    z = jax.device_put(jnp.asarray(parameters_of(UNIFORM), dtype=jnp.float64), jax.devices()[0])
     state = optimizer.init(z)
     history, best = [], (-1.0, None)
     for step in range(iterations):

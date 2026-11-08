@@ -149,10 +149,20 @@ source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid
   make slivers: a `snap` coordinate within half a cell of another edge is dropped, with a warning.
 - **Pass `grid=` to the `create_*_at` methods** (the config or the grid). fdtdx converts a plane's physical size to
   cells from the bottom of the domain, which is wrong where the cells differ; with `grid=` the plane's faces snap to the
-  nearest edges at its own height.
+  nearest edges at its own height. The device must fill the simulation volume (`get_simulation_volume`, any
+  `boundary_offset`); a grid that spans more than its box is refused.
+- **Build the config with `get_simulation_config`.** fdtdx scales the fields by the cell widths in the dtype of the
+  grid's edges, so a float32 simulation needs float32 edges; `rectilinear_grid` makes them in the device's dtype and
+  `get_simulation_config(grid=...)` converts those of a `RectilinearGrid` built otherwise. Placing a device with a
+  config whose graded edges are in another dtype raises a `ValueError`.
 - **Fill fractions stay exact.** A level's part of a cell is its overlap with the cell, and each field component
   averages over the cells between neighbouring cell centers (the dual cells) along the axes fdtdx staggers it on: Ex
   along y and z, Ey along x and z, Ez along x and y.
+- **Optimizations compile once** on a fixed graded grid, like on a uniform one; a graded grid's step costs what its
+  cells cost. In `benchmarks/rectilinear` a sloped silicon strip graded in y and z gives the uniform 20 nm grid's
+  effective index within 7e-5 with 27 % of its cells, and the inverse-design bend graded to 80 nm away from the
+  guide gives the uniform 40 nm grid's transmission within 4.4e-4 with 63 %. Keep the fine cells over the mode's
+  evanescent tail, not only over the core: cells that grow too early (120 nm in the bend's silica) cost accuracy.
 
 ## Precision
 

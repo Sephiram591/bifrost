@@ -1,0 +1,29 @@
+{
+ "rows": [
+  {
+   "grid": "graded",
+   "cells": [
+    300,
+    87,
+    78
+   ],
+   "total_cells": 2035800,
+   "min_cell_nm": [
+    20.0,
+    19.89,
+    19.75
+   ],
+   "dt_fs": 0.03790560203009301,
+   "steps": 5276,
+   "neff_mode": 2.3808701038360596,
+   "neff_fdtd": 2.3842130428931485,
+   "amplitude_ripple": 2.527293690945953e-05,
+   "place_s": 10.6,
+   "apply_stack_s": 16.4,
+   "run_first_s": 3.7,
+   "run_s": 2.25,
+   "ns_per_cell_step": 0.20972739647033126,
+   "peak_gb": 0.53
+  }
+ ]
+}
