@@ -14,7 +14,7 @@ import importlib
 from typing import Any
 
 from . import geometry, grids, jitting, stack, subpixel, timing
-from .grids import graded_edges
+from .grids import AxisEdges, graded_edges, lattice_edges
 from .jitting import COMPILER_OPTIONS, compiler_options, jit
 from .stack import (
     StackDevice,
@@ -30,6 +30,7 @@ __version__ = "0.2.0"
 
 __all__ = [
     "COMPILER_OPTIONS",
+    "AxisEdges",
     "StackDevice",
     "StackDiagnosticWarning",
     "StackOptions",
@@ -43,6 +44,7 @@ __all__ = [
     "init_stack_params",
     "jit",
     "jitting",
+    "lattice_edges",
     "record_timings",
     "stack",
     "subpixel",
