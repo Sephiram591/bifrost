@@ -1,0 +1,114 @@
+{
+ "rows": [
+  {
+   "grid": "uniform-20",
+   "cells": [
+    300,
+    160,
+    160
+   ],
+   "neff_mode": 2.3780577182769775,
+   "apply_stack_s": 10.69
+  },
+  {
+   "grid": "graded-snap",
+   "cells": [
+    300,
+    88,
+    79
+   ],
+   "neff_mode": 2.3779854774475098,
+   "apply_stack_s": 8.45
+  },
+  {
+   "grid": "graded-wide",
+   "cells": [
+    300,
+    116,
+    105
+   ],
+   "neff_mode": 2.3780570030212402,
+   "apply_stack_s": 10.29
+  },
+  {
+   "grid": "tail-0",
+   "cells": [
+    300,
+    76,
+    65
+   ],
+   "neff_mode": 2.3747310638427734,
+   "apply_stack_s": 9.51
+  },
+  {
+   "grid": "tail-0.1",
+   "cells": [
+    300,
+    82,
+    72
+   ],
+   "neff_mode": 2.377514600753784,
+   "apply_stack_s": 9.46
+  },
+  {
+   "grid": "tail-0.2",
+   "cells": [
+    300,
+    88,
+    79
+   ],
+   "neff_mode": 2.377963066101074,
+   "apply_stack_s": 7.1
+  },
+  {
+   "grid": "tail-0.4",
+   "cells": [
+    300,
+    102,
+    92
+   ],
+   "neff_mode": 2.378053665161133,
+   "apply_stack_s": 8.58
+  },
+  {
+   "grid": "mesh-1",
+   "cells": [
+    300,
+    82,
+    72
+   ],
+   "neff_mode": 2.3775038719177246,
+   "apply_stack_s": 5.41
+  },
+  {
+   "grid": "mesh-2",
+   "cells": [
+    300,
+    94,
+    77
+   ],
+   "neff_mode": 2.3779256343841553,
+   "apply_stack_s": 9.88
+  },
+  {
+   "grid": "mesh-3",
+   "cells": [
+    300,
+    124,
+    83
+   ],
+   "neff_mode": 2.378028392791748,
+   "apply_stack_s": 8.07
+  },
+  {
+   "grid": "mesh-5",
+   "cells": [
+    300,
+    160,
+    142
+   ],
+   "neff_mode": 2.378056764602661,
+   "apply_stack_s": 7.66
+  }
+ ]
+}

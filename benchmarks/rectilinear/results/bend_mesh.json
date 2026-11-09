@@ -1,0 +1,30 @@
+{
+ "grid": "mesh",
+ "cells": [
+  299,
+  299,
+  85
+ ],
+ "total_cells": 7599085,
+ "min_cell_nm": [
+  40.0,
+  40.0,
+  40.0
+ ],
+ "max_cell_nm": [
+  63.0,
+  63.0,
+  79.0
+ ],
+ "dt_fs": 0.07626244114487803,
+ "steps": 6556,
+ "corner_columns": 448,
+ "place_s": 15.1,
+ "transmission": 0.5585295963412577,
+ "forward_first_s": 26.53,
+ "forward_s": 14.78,
+ "forward_compile_s": 9.72,
+ "forward_compiles": 1,
+ "ns_per_cell_step": 0.29662161790541636,
+ "peak_gb_forward": 1.63
+}

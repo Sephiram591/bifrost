@@ -708,7 +708,7 @@ def mesh(
     stack: Any,
     wavelength: float | tuple[float, float],
     *,
-    ppw: float = 14.0,
+    ppw: float = 20.0,
     refine: Refine | None = None,
     boundaries: str | Sequence[str] = "pml",
     pml: float | Sequence[float] = 1.0,
@@ -737,7 +737,11 @@ def mesh(
     Args:
         stack: the device (placed or not); its box is meshed.
         wavelength: wavelength (um), or the band (min, max).
-        ppw: cells per wavelength in each material.
+        ppw: cells per wavelength in each material. 20 (the default) gives the inverse-design bend's
+            transmission within 4e-4 of a uniform grid of the core's cells (benchmarks/rectilinear); a cladding or
+            a substrate that spans every plane caps the lateral cells everywhere, so coarsen it with
+            ``Refine.material_cells`` (13 to 14 cells per wavelength suffice there). 14 everywhere is about a
+            uniform grid of half again the core's cells: for fast optimizations.
         refine: where the geometry may move, and the tails (:class:`Refine`); default ``Refine()``.
         boundaries: the kind of each face ("pml", "periodic", "pec", "pmc" or "bloch"), one for all or six
             in :data:`FACES` order.

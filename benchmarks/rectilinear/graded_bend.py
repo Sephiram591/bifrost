@@ -7,7 +7,10 @@ The silicon nitride bend of examples/guide/inverse_design.py (its geometry, mate
 * ``graded``: 40 nm cells over the guide and its mode's reach in x and y (where the optimized edges can go) and
   around the core in z, growing to 80 nm in the margins, the silica and the air; every PML about 1 um, on 40 nm
   cells where a port's straight lead runs through it and 80 nm elsewhere;
-* ``graded-60``: the same with 60 and 120 nm cells (to optimize on instead of uniform-60).
+* ``graded-60``: the same with 60 and 120 nm cells (to optimize on instead of uniform-60);
+* ``mesh``: :func:`bifrost.mesh` with graded's choices (40 nm in the core, 80 nm in the air and, through
+  ``material_cells``, in the silica), the edges' reach as ``dilation={"WG": 0.45}`` and the default tail;
+* ``mesh-auto``, ``mesh-auto-<ppw>``: :func:`bifrost.mesh` with only a ppw (14 by default) and the dilation.
 
 Per grid (one process each, for clean peak memory): the TE0 transmission of the uniform-width bend (``bf.jit`` of the
 objective, compile and run timed apart), and with ``--steps`` that many Adam steps of the example's
@@ -72,7 +75,16 @@ def place(kind: str, checkpoints: int = 60):
     middle = (*stack.center, stack.z_center)
     size = [s * 1e6 for s in stack.partial_real_shape]
     box = [(m - s / 2, m + s / 2) for m, s in zip(middle, size, strict=True)]
-    if kind in GRADED:
+    if kind.startswith("mesh"):
+        if kind == "mesh":  # graded's choices: 40 nm in the core, 80 nm in the air and the silica
+            m = bf.mesh(stack, ex.WAVELENGTH, ppw=ex.WAVELENGTH / (ex.CORE_INDEX * 0.0400001), pml=PML,
+                        refine=bf.Refine(dilation={"WG": 0.45}, material_cells={"silica": 0.08}))
+        else:  # mesh-auto or mesh-auto-<ppw>
+            ppw = float(kind.split("-")[2]) if kind.count("-") == 2 else 14.0
+            m = bf.mesh(stack, ex.WAVELENGTH, ppw=ppw, pml=PML, refine=bf.Refine(dilation={"WG": 0.45}))
+        print(m.summary(time=ex.DURATION), flush=True)
+        grid, bound = m.grid, m.boundary
+    elif kind in GRADED:
         fine, coarse = GRADED[kind]
         regions = (FINE_X, FINE_Y, FINE_Z)
         axes = [graded_axis(lo, hi, r, fine, coarse) for (lo, hi), r in zip(box, regions, strict=True)]
@@ -93,7 +105,7 @@ def place(kind: str, checkpoints: int = 60):
         center_wave=wave, spectral_width=fdtdx.WaveCharacter(frequency=0.05 * wave.get_frequency())
     )
     te0 = {"mode_index": 0, "filter_pol": "te"}
-    on_grid = {"grid": config} if kind in GRADED else {}
+    on_grid = {"grid": config} if kind in GRADED or kind.startswith("mesh") else {}
     volume, constraints = stack.get_simulation_volume()
     objects = [volume, stack]
     for obj, placing in (
@@ -116,7 +128,8 @@ def place(kind: str, checkpoints: int = 60):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("out")
-    parser.add_argument("--grid", choices=["uniform-60", "uniform-40", *GRADED], required=True)
+    parser.add_argument("--grid", required=True,
+                        help=f"uniform-60, uniform-40, {', '.join(GRADED)}, mesh, mesh-auto or mesh-auto-<ppw>")
     parser.add_argument("--checkpoints", type=int, default=60, help="checkpoints of the backward pass")
     parser.add_argument("--steps", type=int, default=0, help="Adam steps of the jitted value_and_grad")
     parser.add_argument("--commit", action="store_true",

@@ -105,6 +105,18 @@ def test_lattice_alignment_dropped_with_a_warning_when_it_cannot_be_met():
     assert widths_q(axis).max() <= 20
 
 
+def test_lattice_alignment_takes_narrower_pml_cells_when_it_must():
+    # the fine block ends close to the PML: wide PML cells cannot reach the 20 nm lattice within the growth limit
+    fine = [(-0.39, 0.61, 0.02)]
+    axis = bf.lattice_edges(-1.48, 1.72, 0.03, fine, pml=(1.0, 1.0))
+    assert axis.aligned
+    check_axis(axis, -1.48, 1.72, 0.03, fine, 1.25)
+    w = widths_q(axis)
+    starts = np.concatenate([[0], np.cumsum(w)])[:-1]
+    inner = slice(axis.pml_cells[0], len(w) - axis.pml_cells[1])
+    assert np.all(starts[inner][w[inner] == 20] % 20 == 0)
+
+
 def test_lattice_is_deterministic():
     fine = [(0.3, 0.45, 0.017), (1.1, 1.13, 0.009)]
     a = bf.lattice_edges(0.0, 2.0, 0.07, fine, pml=(0.3, 0.2))
@@ -375,7 +387,7 @@ def cells_where(m, axis: int, size: float) -> tuple[float, float]:
 
 def test_mesh_one_index_is_uniform(pdk):
     same = {**MATS, "si": MATS["sio2"]}
-    m = bf.mesh(device(mats=same), 1.55, pml=0.3)
+    m = bf.mesh(device(mats=same), 1.55, ppw=14, pml=0.3)
     t = 1.55 / (N_OX * 14)
     for axis in m.axes:
         w = widths_q(axis)
@@ -384,7 +396,7 @@ def test_mesh_one_index_is_uniform(pdk):
 
 def test_mesh_strip_end_to_end(pdk):
     d = device()
-    m = bf.mesh(d, 1.55, refine=bf.Refine(dilation={"WG": 0.1}), pml=0.3)
+    m = bf.mesh(d, 1.55, ppw=14, refine=bf.Refine(dilation={"WG": 0.1}), pml=0.3)
     t_si = 1.55 / (N_SI * 14)
     ell = 1.55 / (2 * math.pi * math.sqrt(N_SI**2 - N_OX**2))
     # x: the strip runs through every x plane
@@ -466,7 +478,7 @@ def test_mesh_reproduces_the_hand_set_bend_grid(pdk):
 
 def strip_mesh() -> tuple[bf.StackDevice, bf.Mesh]:
     d = device()
-    return d, bf.mesh(d, 1.55, refine=bf.Refine(dilation={"WG": 0.1}), pml=0.3)
+    return d, bf.mesh(d, 1.55, ppw=14, refine=bf.Refine(dilation={"WG": 0.1}), pml=0.3)
 
 
 def moved(params: dict, key: str, i: int, xy: tuple[float, float]) -> dict:

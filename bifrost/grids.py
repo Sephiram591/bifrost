@@ -480,18 +480,21 @@ class _Lattice:
                     b = mid - 1
             found = (a, feasible(a))
         k_lo, ends = found
-        modes: list[tuple[bool, int | None]] = []
-        if symmetric and self.mirrored and ends[0] == ends[1] and thickness[0] == thickness[1]:
+        # the PML choices to try for alignment: the one found first, then narrower ones (the fine cells' lattice
+        # may need narrower PML cells to be reached within the growth limit)
+        choices = [ends, *(e for e in self.ends(thickness, k_lo) if e != ends)]
+        modes: list[tuple[bool, int | None, tuple]] = []
+        if symmetric and self.mirrored and thickness[0] == thickness[1]:
             if align and self.n % self.k_fine == 0:
-                modes.append((True, self.k_fine))
-            modes.append((True, None))
+                modes += [(True, self.k_fine, e) for e in choices if e[0] == e[1]]
+            modes += [(True, None, e) for e in choices[:1] if e[0] == e[1]]
         if align:
-            modes.append((False, self.k_fine))
-        modes.append((False, None))
-        for mirror, aligned in modes:
-            widths = self.dp(k_lo, ends, aligned, mirror, eps)
+            modes += [(False, self.k_fine, e) for e in choices]
+        modes.append((False, None, ends))
+        for mirror, aligned, pml in modes:
+            widths = self.dp(k_lo, pml, aligned, mirror, eps)
             if widths is not None:
-                return widths, ends, mirror
+                return widths, pml, mirror
         raise AssertionError("lattice_edges: a feasible problem lost its solution")  # pragma: no cover
 
     def _raise_infeasible(self, thickness: tuple[float, float], lo: float, q: float) -> None:

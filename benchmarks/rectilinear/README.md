@@ -125,3 +125,50 @@ and 0.65). With the fix the tensor is continuous and they converge: sidewall ang
 1.2e-3 at 1e-5 um (1e-1 at 1e-4 um: second order, the blend is steep where the corner sits on a sub-cell's corner too;
 a band of 0.05 to 0.3 instead of 0.02 to 0.1 gives 1.8e-5, but `validate_closure.py`'s median error of the written
 tensor grows from 5.1 % to 5.8 %). The graded results above are unchanged by it (zmin 9.6e-5).
+
+## Automatic meshing (`bf.mesh`): the tail and ppw (`graded_guide.py`, `graded_bend.py`)
+
+`bf.mesh` refines wherever a material is or may come to be (`lambda / (n ppw)` there), plus an evanescent tail past
+each boundary in units of its decay length `l = lambda / (2 pi sqrt(n_high^2 - n_low^2))`. NVIDIA L40S, float32.
+
+**The tail** (`results/guide_tails.json`, the sloped silicon strip above, mode solver only, `--mode-only`): 20 nm
+cells on uniform-20's lattice over the core and some distance past it, growing to 60 nm in the silica; neff against
+uniform 20 nm's (2.378058). `tail-<um>` places the fine block by hand, `mesh-<l>` is `bf.mesh` with 20 nm in silicon,
+60 nm in silica (`material_cells`) and a global tail of that many decay lengths (here l = 0.078 um):
+
+| grid | fine cells past the core | cells (of uniform 20) | neff - uniform 20 |
+|---|---|---|---|
+| tail-0 | none | 19 % | -3.3e-3 |
+| tail-0.1 | 0.1 um | 23 % | -5.4e-4 |
+| tail-0.2 | 0.2 um | 27 % | -9.5e-5 |
+| tail-0.4 | 0.4 um | 37 % | -4.1e-6 |
+| mesh-1 | 1 l | 23 % | -5.5e-4 |
+| mesh-2 | 2 l | 28 % | -1.3e-4 |
+| mesh-3 (the default) | 3 l | 40 % | -2.9e-5 |
+| mesh-5 | 5 l | 89 % | -9.5e-7 |
+
+The error falls by about 6 per 0.1 um, as the field energy past the fine cells does (`exp(-2 x / delta)`, delta =
+0.131 um for this mode): the tail is about the evanescent field, also around geometry that never moves. Without it the
+graded grid gives up as much as uniform 40 nm does (3.3e-3). The fine cells must stay on one lattice for such
+comparisons: at 20 nm fdtdx's neff moves by a few 1e-3 with where the cells fall on the sloped walls, which is why
+`bf.mesh` puts its finest cells on the lattice of their width from the box's face (`align_fine`), with narrower PML
+cells where wide ones cannot reach it. The ppw sweep on this strip (`results/guide_ppw.json`, ppw 14 / 18 / 22 / 26:
+-1.1e-3 / +1.8e-3 / -3.3e-5 / +7.2e-4 against uniform 20) is dominated by that placement, not by the cell size.
+
+**The inverse-design bend** (`results/bend_mesh*.json`): the transmission of the uniform-width bend on `bf.mesh`'s
+grids, `dilation={"WG": 0.45}` (the half-widths' reach), the default tail, against uniform 40 nm (11.46 M cells,
+0.55856, 23.8 s) and the hand-set graded 40 / 80 nm grid of the section above:
+
+| grid | cells (of uniform 40) | smallest cells | T - T(40 nm) | forward run |
+|---|---|---|---|---|
+| hand-set graded 40 / 80 nm | 63 % | 40 nm | +4.4e-4 | 14.2 s |
+| mesh: 40 nm in the core, 80 nm in air and silica (`material_cells`) | 66 % | 40 nm | -3.0e-5 | 14.8 s |
+| mesh-auto-20: ppw 20 | 85 % | 38 nm | -3.6e-4 | 20.4 s |
+| mesh-auto-17: ppw 17 | 51 % | 45 nm | +2.6e-3 | 9.9 s |
+| mesh-auto: ppw 14 | 29 % | 55 nm | +9.8e-3 | 3.8 s |
+
+With the hand-set grid's choices, `bf.mesh` (its fine region from the dilation and the tail alone) is 15 times closer
+to uniform 40 nm. ppw 20 is the default; ppw 14 is about uniform 60 nm (+4.9e-3, 30 % of the cells), for fast
+optimizations. The silica under the bend spans every x and y plane, so at ppw 20 its 54 nm target caps the lateral
+cells everywhere (the tensor product); coarsening it with `material_cells` (80 nm, about 13 cells per wavelength in
+silica) saves a fifth of the cells at no cost in accuracy here.
