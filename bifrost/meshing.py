@@ -19,6 +19,7 @@ moves past its dilation lands in cells coarser than its target, which
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
@@ -26,6 +27,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .geometry import recipe_rings, run_recipe
+from .grids import AxisEdges, lattice_edges
 from .stack import (
     _ANISOTROPY_SENTINEL,
     _CHECK_ANGLE,
@@ -39,7 +41,7 @@ from .stack import (
 )
 from .subpixel import material_tensor
 
-__all__ = ["Refine"]
+__all__ = ["Mesh", "Refine", "mesh"]
 
 _C0 = 299792458.0  # m/s
 # lateral offsets: KLayout's square corners (sizing mode 2) bound a round offset from outside when growing
@@ -576,7 +578,9 @@ def _neighbours(levels: list[_LevelGeom], visible: dict[str, Any], padded: dict[
         if other.name == lv.name:
             continue
         lo, hi = padded[other.name]
-        if lo <= z[1] and z[0] <= hi and not (visible[other.name] & where).is_empty():
+        # spans that only touch (a core on a substrate) are not lateral neighbours; a height is in a closed span
+        meets = (min(hi, z[1]) > max(lo, z[0])) if z[1] > z[0] else lo <= z[0] <= hi
+        if meets and not (visible[other.name] & where).is_empty():
             names.add(other.material)
             bare -= visible[other.name]
     if not bare.is_empty():
@@ -597,3 +601,208 @@ def _axis_targets(geom: _Geometry) -> tuple[list[tuple[float, float, float]], ..
             out[axis].extend((lo, hi, c.size) for lo, hi in geom.plane.extent(c.region, axis))
         out[2].append((a, b, c.size))
     return out
+
+
+# ---------------------------------------------------------------- the mesh
+
+#: the six faces in fdtdx's BoundaryConfig order
+FACES = ("minx", "maxx", "miny", "maxy", "minz", "maxz")
+_KINDS = ("pml", "periodic", "pec", "pmc", "bloch")
+# relative slack of the realized (float) grid's checks
+_REALIZED_RTOL = 1e-3
+
+
+@dataclass(frozen=True, eq=False)
+class Mesh:
+    """The cell edges :func:`mesh` built for a device's box.
+
+    Attributes:
+        edges: per axis, the (n + 1,) cell edges (um, stack coordinates) from the box's lower face to its
+            upper one.
+        pml_cells: PML cells at each face, in :data:`FACES` order (0 where the face has none).
+        boundaries: the boundary kind of each face, in :data:`FACES` order.
+        axes: per axis, the :class:`~bifrost.AxisEdges` (smallest cell, alignment, symmetry).
+        growth: the largest ratio of neighbouring cells.
+        stack: the device it was built for.
+        geometry: the refinements it was built from (for plots and the coarse-vertex report).
+    """
+
+    edges: tuple[np.ndarray, np.ndarray, np.ndarray]
+    pml_cells: tuple[int, int, int, int, int, int]
+    boundaries: tuple[str, str, str, str, str, str]
+    axes: tuple[AxisEdges, AxisEdges, AxisEdges]
+    growth: float
+    stack: Any = field(repr=False)
+    geometry: _Geometry = field(repr=False)
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        """Cells along x, y and z."""
+        return tuple(len(e) - 1 for e in self.edges)  # type: ignore[return-value]
+
+    @property
+    def grid(self) -> Any:
+        """The fdtdx ``RectilinearGrid`` over the device's box (in the device's dtype), checked once more in
+        that precision: increasing edges and neighbouring cells within ``growth``."""
+        grid = self.stack.rectilinear_grid(min(a.min_cell for a in self.axes), *self.edges)
+        for name, e in zip("xyz", (grid.x_edges, grid.y_edges, grid.z_edges), strict=True):
+            w = np.diff(np.asarray(e, dtype=np.float64))
+            ratio = float(np.max(np.maximum(w[1:] / w[:-1], w[:-1] / w[1:]))) if len(w) > 1 else 1.0
+            if not (np.all(w > 0) and ratio <= self.growth * (1 + _REALIZED_RTOL)):
+                raise ValueError(
+                    f"mesh: the {name} edges do not survive the device's dtype (largest ratio {ratio:.6g}); use a "
+                    "float64 device or a coarser quantum"
+                )
+        return grid
+
+    @property
+    def boundary(self) -> Any:
+        """The fdtdx ``BoundaryConfig``: the PML cells of each PML face and the other faces' kinds."""
+        import fdtdx
+
+        kwargs: dict[str, Any] = {}
+        for face, kind, cells in zip(FACES, self.boundaries, self.pml_cells, strict=True):
+            kwargs[f"boundary_type_{face}"] = kind
+            kwargs[f"thickness_grid_{face}"] = cells if kind == "pml" else 1
+        return fdtdx.BoundaryConfig(**kwargs)
+
+    def summary(self, time: float | None = None, courant_factor: float = 0.99) -> str:
+        """Cells, cell sizes, the time step and the field memory, as text.
+
+        Args:
+            time: simulated time (s), for the number of time steps.
+            courant_factor: fdtdx's ``SimulationConfig.courant_factor``.
+        """
+        grid = self.grid
+        dt = float(grid.cfl_time_step(courant_factor))
+        cells = int(np.prod(self.shape))
+        nbytes = np.dtype(self.stack.dtype).itemsize
+        lines = [f"mesh of {self.stack.name!r}: {self.shape[0]} x {self.shape[1]} x {self.shape[2]} = {cells:,} cells"]
+        for name, e, ax in zip("xyz", self.edges, self.axes, strict=True):
+            w = np.diff(e) * 1e3
+            ratio = float(np.max(np.maximum(w[1:] / w[:-1], w[:-1] / w[1:]))) if len(w) > 1 else 1.0
+            flags = ", ".join(f for f, on in (("aligned", ax.aligned), ("mirror-symmetric", ax.symmetric)) if on)
+            lines.append(
+                f"  {name}: {len(w)} cells, {w.min():.4g} to {w.max():.4g} nm, largest ratio {ratio:.3f}, PML cells "
+                f"{ax.pml_cells[0]} / {ax.pml_cells[1]}" + (f" ({flags})" if flags else "")
+            )
+        steps = f", {math.ceil(time / dt):,} steps" if time is not None else ""
+        lines.append(f"  time step {dt * 1e18:.4g} as{steps}")
+        lines.append(f"  fields (E and H, {nbytes * 8}-bit): {6 * cells * nbytes / 1e9:.3g} GB")
+        return "\n".join(lines)
+
+
+def mesh(
+    stack: Any,
+    wavelength: float | tuple[float, float],
+    *,
+    ppw: float = 14.0,
+    refine: Refine | None = None,
+    boundaries: str | Sequence[str] = "pml",
+    pml: float | Sequence[float] = 1.0,
+    growth: float = 1.25,
+    quantum: float = 0.001,
+    min_cell: float | None = None,
+    align_fine: bool = True,
+    feature_cells: float = 1.5,
+    max_states: float = 2e7,
+) -> Mesh:
+    """Cell edges over a device's box, fine wherever its materials are or may come to be.
+
+    Every place a level's material is, or may come to be (its shape, the bands of its moving layers, its
+    z padding), asks for cells of at most ``lambda / (n ppw)``; so do the evanescent tails past its
+    boundaries (``refine.global_dilation`` and ``global_z_padding``, in units of each boundary's decay
+    length), narrow parts and gaps of the starting geometry (``feature_cells`` cells across), and
+    ``refine.regions``. Each axis takes, at each coordinate, the smallest target anywhere in the plane
+    through it, and :func:`~bifrost.lattice_edges` places its edges on a lattice of ``quantum``: the largest
+    smallest cell, then the fewest cells, with uniform cells under each PML. The result is fixed: build it
+    once, then run or optimize on ``mesh.grid``::
+
+        m = bf.mesh(stack, (1.50, 1.60), refine=bf.Refine(dilation={"WG": 0.45}))
+        config = stack.get_simulation_config(time=..., grid=m.grid)
+        boundaries, constraints = fdtdx.boundary_objects_from_config(m.boundary, volume)
+
+    Args:
+        stack: the device (placed or not); its box is meshed.
+        wavelength: wavelength (um), or the band (min, max).
+        ppw: cells per wavelength in each material.
+        refine: where the geometry may move, and the tails (:class:`Refine`); default ``Refine()``.
+        boundaries: the kind of each face ("pml", "periodic", "pec", "pmc" or "bloch"), one for all or six
+            in :data:`FACES` order.
+        pml: PML thickness (um), one for all or six; uniform cells cover it at each PML face.
+        growth: largest ratio of neighbouring cells.
+        quantum: the lattice step (um); the box must be a whole number of quanta along each axis.
+        min_cell: no target finer than this (um): protects the time step from thin films or narrow gaps.
+        align_fine: put each axis's finest cells on the lattice of their own width from the box's face.
+        feature_cells: cells across the narrowest part or gap of each level (0: no such targets).
+        max_states: refuse an axis with more lattice states than this (see :func:`~bifrost.lattice_edges`).
+
+    Returns:
+        The :class:`Mesh`.
+
+    Raises:
+        ValueError: on a box that is not whole quanta, an unknown boundary kind, a level that may move into
+            the box (z padding) but that placing the device would drop (``level_margin``), a material
+            without an automatic size (see ``Refine.material_cells``), or targets an axis cannot meet.
+    """
+    refine = Refine() if refine is None else refine
+    kinds = (boundaries,) * 6 if isinstance(boundaries, str) else tuple(boundaries)
+    if len(kinds) != 6 or any(k not in _KINDS for k in kinds):
+        raise ValueError(f"mesh: boundaries must be one or six of {_KINDS}, got {boundaries!r}")
+    thick = (float(pml),) * 6 if np.ndim(pml) == 0 else tuple(float(t) for t in pml)  # type: ignore[arg-type]
+    if len(thick) != 6 or min(thick) < 0:
+        raise ValueError(f"mesh: pml must be one or six nonnegative thicknesses (um), got {pml!r}")
+    geom = _geometry(stack, wavelength, ppw, refine, feature_cells, min_cell)
+    _check_levels_kept(stack, geom)
+    targets = _axis_targets(geom)
+    axes = []
+    for a in range(3):
+        lo, hi = geom.box[a]
+        n = round((hi - lo) / quantum)
+        if abs(n * quantum - (hi - lo)) > 1e-6 * quantum:
+            raise ValueError(
+                f"mesh: the box is {hi - lo:.9g} um along {'xyz'[a]}, not a whole number of {quantum:g} um quanta; "
+                f"move a face by {(math.ceil((hi - lo) / quantum) * quantum - (hi - lo)):.6g} um (boundary_offset) "
+                "or use a quantum that divides it"
+            )
+        sides = tuple(thick[2 * a + e] if kinds[2 * a + e] == "pml" else 0.0 for e in (0, 1))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            try:
+                axis = lattice_edges(
+                    lo, hi, max(s for *_, s in targets[a]), targets[a], quantum=quantum, growth=growth, pml=sides,
+                    align=align_fine, max_states=max_states,
+                )
+            except ValueError as e:
+                raise ValueError(f"mesh: the {'xyz'[a]} axis: {e}") from e
+        for w in caught:
+            if "do not all start" in str(w.message):
+                continue  # alignment is a preference (summary() reports it): ppw rarely gives a width the box divides
+            warnings.warn(f"mesh: the {'xyz'[a]} axis: {w.message}", w.category, stacklevel=2)
+        if kinds[2 * a] in ("periodic", "bloch") and kinds[2 * a + 1] in ("periodic", "bloch"):
+            w = np.diff(axis.edges)
+            if max(w[0] / w[-1], w[-1] / w[0]) > growth * (1 + 1e-9):
+                warnings.warn(
+                    f"mesh: the {'xyz'[a]} axis's end cells ({w[0] * 1e3:.4g} and {w[-1] * 1e3:.4g} nm) differ by more "
+                    f"than growth across its {kinds[2 * a]} boundary",
+                    stacklevel=2,
+                )
+        axes.append(axis)
+    pml_cells = tuple(axes[a].pml_cells[e] for a in range(3) for e in (0, 1))
+    return Mesh(tuple(ax.edges for ax in axes), pml_cells, kinds, tuple(axes), float(growth), stack, geom)  # type: ignore[arg-type]
+
+
+def _check_levels_kept(stack: Any, geom: _Geometry) -> None:
+    """Refuses a level that may move into the box but that placing the device would drop."""
+    (_, _), (_, _), (z0, z1) = geom.box
+    margin = float(stack.level_margin)
+    for lv in geom.levels:
+        lo, hi = lv.span
+        plo, phi = geom.padded[lv.name]
+        if phi > z0 and plo < z1 and not (hi > z0 - margin and lo < z1 + margin):
+            need = max(z0 - hi, lo - z1)
+            raise ValueError(
+                f"mesh: level {lv.name!r} may move into the box (z padding) but its nominal span is {need:.4g} um "
+                f"outside it, beyond level_margin={margin:g}: placing the device drops it. Build the device with "
+                f"level_margin >= {need:.4g}"
+            )

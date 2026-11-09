@@ -363,6 +363,101 @@ def test_no_tail_keeps_the_padding(pdk):
     assert min(a for a, _ in spans) == pytest.approx(-0.05)
 
 
+def cells_where(m, axis: int, size: float) -> tuple[float, float]:
+    """(first, last) coordinate covered by cells of at most ``size`` um along an axis."""
+    e = m.edges[axis]
+    w = np.diff(e)
+    fine = np.nonzero(w <= size + 1e-6)[0]
+    return float(e[fine.min()]), float(e[fine.max() + 1])
+
+
+def test_mesh_one_index_is_uniform(pdk):
+    same = {**MATS, "si": MATS["sio2"]}
+    m = bf.mesh(device(mats=same), 1.55, pml=0.3)
+    t = 1.55 / (N_OX * 14)
+    for axis in m.axes:
+        w = widths_q(axis)
+        assert w.max() <= math.floor(t * 1e3 + 1e-9) and w.min() >= w.max() - 4  # one size up to the PML rounding
+
+
+def test_mesh_strip_end_to_end(pdk):
+    d = device()
+    m = bf.mesh(d, 1.55, refine=bf.Refine(dilation={"WG": 0.1}), pml=0.3)
+    t_si = 1.55 / (N_SI * 14)
+    ell = 1.55 / (2 * math.pi * math.sqrt(N_SI**2 - N_OX**2))
+    # x: the strip runs through every x plane
+    assert np.diff(m.edges[0]).max() <= t_si + 1e-6
+    # the fine cells reach past the region by half the next cell (its halo) and up to one fine cell of tiling
+    lo, hi = cells_where(m, 1, t_si)
+    assert lo == pytest.approx(-0.35 - 3 * ell, abs=0.06) and hi == pytest.approx(0.35 + 3 * ell, abs=0.06)
+    assert lo <= -0.35 - 3 * ell and hi >= 0.35 + 3 * ell
+    lo, hi = cells_where(m, 2, t_si)
+    assert lo == pytest.approx(-3 * ell, abs=0.06) and hi == pytest.approx(0.22 + 3 * ell, abs=0.06)
+    assert lo <= -3 * ell and hi >= 0.22 + 3 * ell
+    assert (m.edges[1][0], m.edges[1][-1], m.edges[2][0], m.edges[2][-1]) == pytest.approx((-1.0, 1.0, -0.6, 1.0))
+    for axis in m.axes:
+        w = widths_q(axis)
+        assert np.all(np.maximum(w[1:] / w[:-1], w[:-1] / w[1:]) <= 1.25 + 1e-9)
+    assert m.pml_cells == tuple(ax.pml_cells[e] for ax in m.axes for e in (0, 1))
+    bc = m.boundary
+    assert bc.boundary_type_minx == "pml" and bc.thickness_grid_miny == m.pml_cells[2]
+    grid = m.grid
+    np.testing.assert_allclose(np.asarray(grid.y_edges) * 1e6, m.edges[1], atol=1e-5)
+    text = m.summary(time=1e-13)
+    assert "cells" in text and "steps" in text and "time step" in text
+
+
+def test_mesh_periodic_faces(pdk):
+    m = bf.mesh(device(), 1.55, boundaries=("periodic", "periodic", "pml", "pml", "pml", "pml"), pml=0.3)
+    assert m.pml_cells[:2] == (0, 0) and m.boundaries[0] == "periodic"
+    assert m.boundary.boundary_type_maxx == "periodic" and m.boundary.thickness_grid_minx == 1
+
+
+def test_mesh_box_must_be_whole_quanta(pdk):
+    with pytest.raises(ValueError, match="whole number of 0.001 um quanta"):
+        bf.mesh(device(boundary_offset=(0.0005, 0, 0, 0, 0, 0)), 1.55, pml=0.3)
+
+
+def test_mesh_refuses_a_level_placement_drops(pdk):
+    lid = LayerLevel(layer=LAYER.SLAB150, zmin=1.05, thickness=0.1, material="si", mesh_order=3)
+    d = device(levels={"lid": lid})
+    assert "lid" in [lv.name for lv in d.levels]  # within the construction slack, beyond level_margin
+    with pytest.raises(ValueError, match="level_margin"):
+        bf.mesh(d, 1.55, refine=bf.Refine(z_padding={"lid": (0.1, 0.0)}), pml=0.3)
+
+
+def test_mesh_reproduces_the_hand_set_bend_grid(pdk):
+    """The inverse-design bend: dilation 0.45 um (half-widths up to 1.25 um) and a 0.45 um tail give the fine
+    regions benchmarks/rectilinear/graded_bend.py sets by hand (40 nm cells; 80 nm in air and silica)."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parents[1] / "examples" / "guide"))
+    import inverse_design as ex
+
+    z_margin = (ex.BOX_HEIGHT - ex.THICKNESS) / 2
+    stack = bf.StackDevice.from_layer_stack(
+        ex.tight_bend(ex.UNIFORM), ex.layer_stack, ex.materials, background="air", zrange_layers=["core"],
+        extend_ports=(("o1", ex.EXTENSION), ("o2", ex.EXTENSION)),
+        boundary_offset=(ex.MARGIN, 0, 0, -ex.MARGIN, z_margin, -z_margin), name="stack",
+    )
+    lam, n_core, n_box = ex.WAVELENGTH, ex.CORE_INDEX, ex.BOX_INDEX
+    ell_air = lam / (2 * math.pi * math.sqrt(n_core**2 - 1.0))
+    ell_box = lam / (2 * math.pi * math.sqrt(n_core**2 - n_box**2))
+    refine = bf.Refine(dilation={"WG": 0.45}, global_dilation=0.45 / ell_air, global_z_padding=0.45 / ell_box,
+                       material_cells={"silica": 0.08})
+    m = bf.mesh(stack, lam, ppw=lam / (n_core * 0.0400001), refine=refine, pml=1.0)
+    coarse = 0.08
+    x_lo, x_hi = cells_where(m, 0, 0.04)
+    assert x_lo == m.edges[0][0] and x_hi == pytest.approx(8.7, abs=coarse)
+    y_lo, y_hi = cells_where(m, 1, 0.04)
+    assert y_lo == pytest.approx(-1.7, abs=coarse) and y_hi == m.edges[1][-1]
+    z_lo, z_hi = cells_where(m, 2, 0.04)
+    assert z_lo == pytest.approx(-0.45, abs=coarse)
+    assert z_hi == pytest.approx(ex.THICKNESS + 0.45 * ell_air / ell_box, abs=coarse)  # air above: shorter tail
+    assert np.diff(m.edges[0]).max() <= coarse + 1e-6
+
+
 def test_refine_errors(pdk):
     d = device()
     with pytest.raises(ValueError, match="not a source layer"):
