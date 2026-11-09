@@ -24,6 +24,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
+import jax
 import numpy as np
 
 from .geometry import recipe_rings, run_recipe
@@ -41,7 +42,7 @@ from .stack import (
 )
 from .subpixel import material_tensor
 
-__all__ = ["Mesh", "Refine", "mesh"]
+__all__ = ["CoarseVertices", "Mesh", "Refine", "coarse_vertices", "mesh"]
 
 _C0 = 299792458.0  # m/s
 # lateral offsets: KLayout's square corners (sizing mode 2) bound a round offset from outside when growing
@@ -440,6 +441,7 @@ class _Geometry(NamedTuple):
     tails: dict[str, tuple[float, float, float]]  # per level: decay lengths (lateral, below, above), 0: none
     cell: dict[str, float]  # target cell per material
     moving: dict[int, np.ndarray]  # per moving source layer: dilation per vertex
+    neighbours: dict[str, tuple[set[str], set[str], set[str]]]  # per level: materials beside, below, above it
 
 
 def _geometry(
@@ -510,9 +512,11 @@ def _geometry(
 
     # tails: past each boundary toward neighbours of a lower index, in units of the boundary's decay length
     tails: dict[str, tuple[float, float, float]] = {}
+    neighbours: dict[str, tuple[set[str], set[str], set[str]]] = {}
     for lv in levels:
-        if lv.name in no_tail or visible[lv.name].is_empty():
-            tails[lv.name] = (0.0, 0.0, 0.0)
+        tails[lv.name] = (0.0, 0.0, 0.0)
+        neighbours[lv.name] = (set(), set(), set())
+        if visible[lv.name].is_empty():
             continue
         n_high = mats.n_tail[lv.material]
         mine, (lo, hi) = visible[lv.name], padded[lv.name]
@@ -522,6 +526,9 @@ def _geometry(
         lateral = _neighbours(levels, visible, padded, lv, ring, (lo, hi), stack.background)
         below = _neighbours(levels, visible, padded, lv, inside, (lo - 1e-6, lo - 1e-6), stack.background)
         above = _neighbours(levels, visible, padded, lv, inside, (hi + 1e-6, hi + 1e-6), stack.background)
+        neighbours[lv.name] = (lateral, below, above)
+        if lv.name in no_tail:
+            continue
         lengths = []
         for names in (lateral, below, above):
             lows = [mats.n_tail[m] for m in names if mats.n_tail[m] < n_high]
@@ -564,7 +571,7 @@ def _geometry(
     contributions.append(_Contribution(plane.box.dup(), box[2], mats.cell[stack.background], "background"))
     if min_cell is not None:
         contributions = [c._replace(size=max(c.size, float(min_cell))) for c in contributions]
-    return _Geometry(plane, box, contributions, levels, visible, padded, tails, mats.cell, moving)
+    return _Geometry(plane, box, contributions, levels, visible, padded, tails, mats.cell, moving, neighbours)
 
 
 def _neighbours(levels: list[_LevelGeom], visible: dict[str, Any], padded: dict[str, tuple[float, float]],
@@ -689,6 +696,11 @@ class Mesh:
         steps = f", {math.ceil(time / dt):,} steps" if time is not None else ""
         lines.append(f"  time step {dt * 1e18:.4g} as{steps}")
         lines.append(f"  fields (E and H, {nbytes * 8}-bit): {6 * cells * nbytes / 1e9:.3g} GB")
+        report = coarse_vertices(self.stack, self.stack.init_params(), self)
+        lines.append(
+            f"  starting geometry: {int(np.sum(report.coarse))} of {int(np.sum(report.total))} vertices in cells "
+            f"wider than their target (largest cell / target {float(report.worst):.3f})"
+        )
         return "\n".join(lines)
 
 
@@ -806,3 +818,121 @@ def _check_levels_kept(stack: Any, geom: _Geometry) -> None:
                 f"outside it, beyond level_margin={margin:g}: placing the device drops it. Build the device with "
                 f"level_margin >= {need:.4g}"
             )
+
+
+# ---------------------------------------------------------------- the coarse-vertex report
+
+# a cell counts as coarse when wider than its target by more than this (relative): float32 edges
+_COARSE_RTOL = 1e-4
+
+
+@jax.tree_util.register_pytree_node_class
+class CoarseVertices:
+    """Vertices in cells wider than their target, per source layer (see :meth:`StackDevice.coarse_vertices`).
+
+    A pytree (the layer names are static), so it can leave a jitted function as auxiliary output; ``str()``
+    of concrete values prints a table.
+
+    Attributes:
+        layers: the source layers' parameter keys.
+        total: (layers,) vertices per layer.
+        x: (layers,) vertices whose x cell is wider than their target.
+        y: (layers,) the same along y.
+        z: (layers,) vertices of a layer that a level reading it puts in a z cell wider than that level's
+            target (all its vertices in the box, if any).
+        coarse: (layers,) vertices coarse along x, y or z.
+        outside: (layers,) vertices outside the box (not counted above).
+        worst: () the largest ratio of a cell to its target, over every vertex in the box and every level's z
+            cells.
+    """
+
+    def __init__(self, layers: tuple[str, ...], total: Any, x: Any, y: Any, z: Any, coarse: Any, outside: Any,
+                 worst: Any) -> None:
+        self.layers, self.total, self.x, self.y, self.z = layers, total, x, y, z
+        self.coarse, self.outside, self.worst = coarse, outside, worst
+
+    def tree_flatten(self) -> tuple[tuple, tuple[str, ...]]:
+        return (self.total, self.x, self.y, self.z, self.coarse, self.outside, self.worst), self.layers
+
+    @classmethod
+    def tree_unflatten(cls, layers: tuple[str, ...], leaves: tuple) -> CoarseVertices:
+        return cls(layers, *leaves)
+
+    def __str__(self) -> str:
+        rows = [f"{'layer':<20} {'vertices':>8} {'x':>6} {'y':>6} {'z':>6} {'coarse':>7} {'outside':>8}"]
+        for i, name in enumerate(self.layers):
+            cells = (int(np.asarray(f)[i]) for f in (self.total, self.x, self.y, self.z, self.coarse, self.outside))
+            rows.append("{:<20} {:>8} {:>6} {:>6} {:>6} {:>7} {:>8}".format(name, *cells))
+        rows.append(f"largest cell / target: {float(np.asarray(self.worst)):.3f}")
+        return "\n".join(rows)
+
+
+def _report_targets(stack: Any, geom: _Geometry) -> tuple[dict[int, float], dict[str, float]]:
+    """Per source layer, the lateral target of its vertices; per level, its z target: the smallest target of the
+    materials that meet there (the level's own and its neighbours')."""
+    by_level = {lv.name: lv for lv in geom.levels}
+    level_z = {}
+    for name, lv in by_level.items():
+        _, below, above = geom.neighbours[name]
+        level_z[name] = min([geom.cell[lv.material], *(geom.cell[m] for m in below | above)])
+    layer_xy = {}
+    for _, index in stack.source_layers:
+        sizes = [
+            min([geom.cell[lv.material], *(geom.cell[m] for m in geom.neighbours[lv.name][0])])
+            for lv in geom.levels if index in lv.reads
+        ]
+        layer_xy[index] = min(sizes) if sizes else math.inf
+    return layer_xy, level_z
+
+
+def _cell_width(edges: np.ndarray, widths: np.ndarray, x: Any) -> Any:
+    """The width of the cell holding each x (the wider of the two on an edge)."""
+    import jax.numpy as jnp
+
+    n = len(widths)
+    e = jnp.asarray(edges, dtype=x.dtype)
+    left = jnp.clip(jnp.searchsorted(e, x, side="left") - 1, 0, n - 1)
+    right = jnp.clip(jnp.searchsorted(e, x, side="right") - 1, 0, n - 1)
+    w = jnp.asarray(widths, dtype=x.dtype)
+    return jnp.maximum(w[left], w[right])
+
+
+def coarse_vertices(stack: Any, params: Mapping[str, Any], mesh: Mesh) -> CoarseVertices:
+    """Per source layer, how many vertices sit in cells wider than their target (see
+    :meth:`bifrost.StackDevice.coarse_vertices`)."""
+    import jax.numpy as jnp
+
+    geom = mesh.geometry
+    if stack.grid_frame is not None:  # a placed device: on the mesh's grid
+        frame = stack.grid_frame
+        for name, e, fe in zip("xyz", mesh.edges, frame.edges, strict=True):
+            placed = np.asarray(fe, dtype=np.float64) * frame.h_um
+            if placed.shape != e.shape or not np.allclose(placed, e - e[0], atol=1e-4):
+                raise ValueError(f"coarse_vertices: the device is placed on another grid than the mesh (along {name})")
+    layer_xy, level_z = _report_targets(stack, geom)
+    (ex, ey, ez) = (np.asarray(e, dtype=np.float64) for e in mesh.edges)
+    wx, wy, wz = np.diff(ex), np.diff(ey), np.diff(ez)
+    rows = []
+    worst = jnp.zeros(())
+    for key, index in stack.source_layers:
+        v = jnp.asarray(params[key])
+        target = layer_xy[index]
+        inside = (v[:, 0] >= ex[0]) & (v[:, 0] <= ex[-1]) & (v[:, 1] >= ey[0]) & (v[:, 1] <= ey[-1])
+        cx, cy = _cell_width(ex, wx, v[:, 0]), _cell_width(ey, wy, v[:, 1])
+        over_x = inside & (cx > target * (1 + _COARSE_RTOL))
+        over_y = inside & (cy > target * (1 + _COARSE_RTOL))
+        worst = jnp.maximum(worst, jnp.max(jnp.where(inside, jnp.maximum(cx, cy) / target, 0.0)))
+        over_z = jnp.zeros((), dtype=bool)
+        for lv in geom.levels:
+            if index not in lv.reads:
+                continue
+            zb = jnp.asarray(params[f"zmin/{lv.name}"])
+            top = zb + jnp.asarray(params[f"thickness/{lv.name}"])  # signed: a negative thickness grows down
+            lo, hi = jnp.minimum(zb, top), jnp.maximum(zb, top)
+            hit = (ez[:-1] < hi) & (ez[1:] > lo)
+            over_z = over_z | jnp.any(hit & (wz > level_z[lv.name] * (1 + _COARSE_RTOL)))
+            worst = jnp.maximum(worst, jnp.max(jnp.where(hit, wz / level_z[lv.name], 0.0)))
+        z = inside & over_z
+        rows.append((len(v), over_x.sum(), over_y.sum(), z.sum(), (over_x | over_y | z).sum(), (~inside).sum()))
+    columns = [jnp.asarray([r[i] for r in rows], dtype=jnp.int32) for i in range(6)]
+    return CoarseVertices(tuple(k for k, _ in stack.source_layers), *columns, worst)

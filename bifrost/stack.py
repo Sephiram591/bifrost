@@ -8707,6 +8707,37 @@ class StackDevice(StaticMultiMaterialObject):
         out["junction_voxels"] = capacity
         return out
 
+    def coarse_vertices(self, params: dict[str, Array], mesh: Any) -> Any:
+        """How many vertices sit in grid cells wider than their target, per source layer.
+
+        The target of a layer's vertices is the cell :func:`bifrost.mesh` asks of the materials that meet
+        there: ``lambda / (n ppw)`` of the levels reading the layer and of their lateral neighbours, the
+        smallest. A vertex counts along x or y where the cell holding it (the wider one on an edge) is wider
+        than that, and along z where a level reading its layer, at its current zmin and thickness, spans a
+        z cell wider than the level's own target. Vertices outside the box are counted apart.
+
+        A diagnostic only: nothing limits the parameters, and a vertex that leaves its dilation shows up
+        here. It runs under ``jax.jit`` (the mesh is static) and costs a search per vertex, so it can leave
+        an optimizer's objective as auxiliary output::
+
+            loss, report = objective(p)  # report = stack.coarse_vertices(p["stack"], mesh)
+            print(report)                # a table, on concrete values
+
+        It does not check how the device is painted: :meth:`interface_status` reports the corner and
+        junction coverage.
+
+        Args:
+            params: the device's parameters (``{"vertices/<layer>": ..., "zmin/<level>": ...,
+                "thickness/<level>": ...}``), concrete or traced.
+            mesh: the :class:`bifrost.Mesh` the device runs on (a placed device must be on its grid).
+
+        Returns:
+            A :class:`bifrost.meshing.CoarseVertices`.
+        """
+        from .meshing import coarse_vertices
+
+        return coarse_vertices(self, params, mesh)
+
     @timed("dispersion")
     def _write_dispersion(self, arrays: Any, w: Array) -> Any:
         """Writes the pole coefficients of the box.

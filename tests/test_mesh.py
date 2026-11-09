@@ -9,6 +9,8 @@ import math
 
 import fdtdx
 import gdsfactory as gf
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 from gdsfactory.technology import LayerLevel, LayerStack
@@ -405,6 +407,7 @@ def test_mesh_strip_end_to_end(pdk):
     np.testing.assert_allclose(np.asarray(grid.y_edges) * 1e6, m.edges[1], atol=1e-5)
     text = m.summary(time=1e-13)
     assert "cells" in text and "steps" in text and "time step" in text
+    assert "starting geometry: 0 of" in text
 
 
 def test_mesh_periodic_faces(pdk):
@@ -456,6 +459,76 @@ def test_mesh_reproduces_the_hand_set_bend_grid(pdk):
     assert z_lo == pytest.approx(-0.45, abs=coarse)
     assert z_hi == pytest.approx(ex.THICKNESS + 0.45 * ell_air / ell_box, abs=coarse)  # air above: shorter tail
     assert np.diff(m.edges[0]).max() <= coarse + 1e-6
+
+
+# ---------------------------------------------------------------- the coarse-vertex report
+
+
+def strip_mesh() -> tuple[bf.StackDevice, bf.Mesh]:
+    d = device()
+    return d, bf.mesh(d, 1.55, refine=bf.Refine(dilation={"WG": 0.1}), pml=0.3)
+
+
+def moved(params: dict, key: str, i: int, xy: tuple[float, float]) -> dict:
+    v = np.array(params[key])
+    v[i] = xy
+    return {**params, key: jnp.asarray(v, dtype=params[key].dtype)}
+
+
+def corner(params: dict) -> int:
+    v = np.asarray(params["vertices/WG"])
+    return int(np.argmin(v[:, 0] + v[:, 1]))  # the strip's vertex at (-1, -0.25)
+
+
+def test_coarse_vertices_counts(pdk):
+    d, m = strip_mesh()
+    p = d.init_params()
+    r = d.coarse_vertices(p, m)
+    i = list(r.layers).index("vertices/WG")
+    assert int(r.total[i]) == 4 and int(np.sum(r.coarse)) == 0 and float(r.worst) <= 1 + 1e-3
+    far = d.coarse_vertices(moved(p, "vertices/WG", corner(p), (-0.5, -0.9)), m)  # in the silica's coarse cells
+    assert (int(far.x[i]), int(far.y[i]), int(far.coarse[i])) == (0, 1, 1) and float(far.worst) > 1
+    gone = d.coarse_vertices(moved(p, "vertices/WG", corner(p), (-0.5, -1.5)), m)
+    assert int(gone.outside[i]) == 1 and int(gone.coarse[i]) == 0
+    thick = d.coarse_vertices({**p, "thickness/core": jnp.asarray(0.7, dtype=p["thickness/core"].dtype)}, m)
+    assert int(thick.z[i]) == 4 and int(thick.coarse[i]) == 4
+    assert "vertices/WG" in str(thick) and "largest cell / target" in str(thick)
+
+
+def test_coarse_vertices_traced_and_compiled_once(pdk):
+    d, m = strip_mesh()
+    p = d.init_params()
+    f = jax.jit(lambda q: d.coarse_vertices(q, m))
+    far = moved(p, "vertices/WG", corner(p), (-0.5, -0.9))
+    f(p)
+    traced, concrete = f(far), d.coarse_vertices(far, m)
+    assert traced.layers == concrete.layers
+    for a, b in zip(jax.tree_util.tree_leaves(traced), jax.tree_util.tree_leaves(concrete), strict=True):
+        np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=1e-6)
+    assert f._cache_size() == 1
+
+
+def test_vertices_at_their_dilation_paint_and_are_not_coarse(pdk):
+    d, m = strip_mesh()
+    p = d.init_params()
+    v = np.asarray(p["vertices/WG"])
+    grown = v.copy()
+    grown[:, 1] = np.sign(v[:, 1]) * 0.35  # both long edges moved out by the whole dilation
+    q = {**p, "vertices/WG": jnp.asarray(grown, dtype=p["vertices/WG"].dtype)}
+    assert int(np.sum(d.coarse_vertices(q, m).coarse)) == 0
+    config = d.get_simulation_config(time=1e-15, grid=m.grid)
+    volume, constraints = d.get_simulation_volume()
+    bounds, placing = fdtdx.boundary_objects_from_config(m.boundary, volume)
+    objects, arrays, params, config, _ = fdtdx.place_objects(
+        [volume, d, *bounds.values()], config, constraints + placing, jax.random.PRNGKey(0)
+    )
+    params = {**params, **bf.init_stack_params(objects)}
+    params["s"] = {**params["s"], "vertices/WG": q["vertices/WG"]}
+    arrays, objects, _ = bf.apply_stack(arrays, objects, params, jax.random.PRNGKey(0))
+    assert np.all(np.isfinite(np.asarray(arrays.inv_permittivities)))
+    placed = objects["s"]
+    assert tuple(len(e) - 1 for e in placed.grid_frame.edges) == m.shape
+    assert int(np.sum(placed.coarse_vertices(params["s"], m).coarse)) == 0
 
 
 def test_refine_errors(pdk):

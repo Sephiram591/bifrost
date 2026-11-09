@@ -16,7 +16,7 @@ from typing import Any
 from . import geometry, grids, jitting, meshing, stack, subpixel, timing
 from .grids import AxisEdges, graded_edges, lattice_edges
 from .jitting import COMPILER_OPTIONS, compiler_options, jit
-from .meshing import Mesh, Refine, mesh
+from .meshing import CoarseVertices, Mesh, Refine, mesh
 from .stack import (
     StackDevice,
     StackDiagnosticWarning,
@@ -32,6 +32,7 @@ __version__ = "0.2.0"
 __all__ = [
     "COMPILER_OPTIONS",
     "AxisEdges",
+    "CoarseVertices",
     "Mesh",
     "Refine",
     "StackDevice",
