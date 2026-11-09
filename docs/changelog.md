@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- [Automatic meshing](guide/simulation-setup.md#automatic-meshing): `bf.mesh(stack, band, refine=bf.Refine(...))`
+  builds a device's graded grid from its geometry, the band and where the geometry may move (`dilation` per layer or
+  per vertex, `z_padding` per level): cells of `lambda / (n ppw)` wherever a material is or may come to be, an
+  evanescent tail of 3 decay lengths past every boundary toward a lower index, narrow parts and gaps, explicit
+  regions. `bf.lattice_edges` places each axis's edges exactly on a 1 nm lattice (every cell and dual cell within
+  its target, a growth limit, the largest smallest cell, then the fewest cells, uniform PML cells, mirror symmetry).
+  The `Mesh` gives the fdtdx grid and boundaries and a summary; `StackDevice.coarse_vertices` counts, under jit, the
+  vertices that left the cells refined for them. On the inverse-design bend it is 15 times closer to the uniform
+  40 nm grid than the hand-set graded grid, with about as many cells.
 - [Graded grids](guide/simulation-setup.md#graded-grids): a `StackDevice` runs on an fdtdx `RectilinearGrid` whose
   cells differ along any axis (every averaging). Fill fractions stay exact, each field component averages over the dual
   cells between cell centers along the axes it is staggered on, and `averaging="subpixel_full"` solves a junction

@@ -11,11 +11,17 @@ Import as `import bifrost as bf`. For `Component`, cells, routing and PDKs see t
 | [`bf.apply_stack`][bifrost.stack.apply_stack] | writes the stacks into the permittivity arrays, in place of `fdtdx.apply_params` |
 | [`bf.init_stack_params`][bifrost.stack.init_stack_params] | the stacks' differentiable parameters (vertices, heights, thicknesses) |
 | [`bf.StackDiagnosticWarning`][bifrost.stack.StackDiagnosticWarning] | the warning for features the grid does not resolve |
+| [`bf.mesh`][bifrost.meshing.mesh] | a device's graded grid from its geometry, the band and where it may move |
+| [`bf.Refine`][bifrost.meshing.Refine] | where `bf.mesh` refines: the geometry's motion (dilation, z padding) and the tails |
+| [`bf.Mesh`][bifrost.meshing.Mesh] | `bf.mesh`'s result: the edges, the fdtdx grid and boundaries, a summary |
+| [`bf.CoarseVertices`][bifrost.meshing.CoarseVertices] | `StackDevice.coarse_vertices`' report: vertices in cells wider than their target |
+| [`bf.lattice_edges`][bifrost.grids.lattice_edges] | exact cell edges of one axis on a lattice of quanta, within their targets |
 | [`bf.graded_edges`][bifrost.grids.graded_edges] | cell edges of a graded axis, for `StackDevice.rectilinear_grid` |
 | [`bf.jit`][bifrost.jitting.jit] | `jax.jit` with the XLA option gradients through fdtdx's time loop need |
 | [`bf.compiler_options`][bifrost.jitting.compiler_options] | those options merged with your own, for another jit wrapper |
 | [`bf.record_timings`][bifrost.timing.record_timings] | times the geometry steps |
 | [`bf.view`][bifrost.viewer.widget.view] | the 3D viewer widget for a `StackDevice` |
 
-The modules: [bf.stack](stack.md), [bf.geometry](geometry.md), [bf.grids](grids.md), [bf.jit](jitting.md),
+The modules: [bf.stack](stack.md), [bf.geometry](geometry.md), [bf.grids](grids.md), [bf.meshing](meshing.md),
+[bf.jit](jitting.md),
 [bf.subpixel and bf.timing](subpixel-timing.md) and [bf.viewer](viewer.md).

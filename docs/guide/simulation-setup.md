@@ -164,6 +164,55 @@ source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid
   guide gives the uniform 40 nm grid's transmission within 4.4e-4 with 63 %. Keep the fine cells over the mode's
   evanescent tail, not only over the core: cells that grow too early (120 nm in the bend's silica) cost accuracy.
 
+## Automatic meshing
+
+`bf.mesh` builds the graded grid for you, once, before a run or an optimization: fine wherever a material is or may
+come to be, coarse elsewhere. You tell it the wavelength band and where the geometry may move; it never limits the
+parameters themselves.
+
+```python
+mesh = bf.mesh(
+    stack, (1.50, 1.60),                       # the band (um)
+    refine=bf.Refine(dilation={"WG": 0.45}),   # how far the WG layer's boundary may move (um)
+)
+print(mesh.summary(time=500e-15))              # cells, cell sizes, time step, memory
+config = stack.get_simulation_config(time=500e-15, grid=mesh.grid)
+boundaries, placing = fdtdx.boundary_objects_from_config(mesh.boundary, volume)
+source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid=config)
+```
+
+- **Where it refines.** Every level asks for cells of at most `lambda / (n ppw)` of its material (`ppw=20`) wherever
+  it is or may come to be: its shape, the bands within `dilation` of its moving layers (one value per layer, or one
+  per vertex in the layout of `stack.init_params()["vertices/<layer>"]`, 0 where nothing moves; along an edge the band
+  tapers between its vertices), and its faces moved by `z_padding`. Overlapping levels follow the painting order: a
+  level that one which never moves hides asks for nothing there, one that a moving level may uncover does.
+- **The evanescent tail.** Past each boundary toward a lower index the fine cells continue for `global_dilation`
+  (laterally) and `global_z_padding` (above and below) decay lengths `l = lambda / (2 pi sqrt(n_high^2 - n_low^2))`,
+  3 by default, also around geometry that never moves. On the silicon strip of `benchmarks/rectilinear` 1, 2 and 3
+  of them give the uniform 20 nm grid's effective index within 5.5e-4, 1.3e-4 and 2.9e-5; without a tail the graded
+  grid is as far off (3.3e-3) as a uniform grid of twice the cell.
+- **Narrow parts and gaps** of the starting geometry get `feature_cells` (1.5) cells across, `Refine.regions` adds
+  explicit sizes, and `min_cell` keeps a thin film or a narrow gap from setting a tiny time step. Conducting or
+  metallic materials need their size in `Refine.material_cells`.
+- **Each axis takes, at each coordinate, the smallest target anywhere in the plane through it** (the grid is a tensor
+  product). A substrate or a cladding that spans every plane caps the lateral cells everywhere: coarsen it with
+  `material_cells` (13 to 14 cells per wavelength are enough there).
+- **The edges** are whole multiples of `quantum` (1 nm) from the box's lower face (`bf.lattice_edges`, exactly): no
+  cell wider than its target, also over half its width on either side (so the dual cells, where the transverse E
+  components are sampled, are within it too), neighbours within `growth` (1.25); the largest smallest cell (which sets
+  the time step), then the fewest cells. Each PML face gets uniform cells covering `pml` um (`boundaries` may make
+  faces `"periodic"`, `"pec"`, `"pmc"` or `"bloch"` instead); mirror-symmetric devices get mirror-symmetric grids, and
+  the finest cells start on the lattice of their own width (`align_fine`), as a uniform grid of that size would have
+  them. The box must be a whole number of quanta along every axis.
+- **The geometry may leave its dilation.** `stack.coarse_vertices(params, mesh)` counts the vertices that sit in cells
+  wider than their target, per layer and axis; it runs under `jax.jit` (return it as auxiliary output of the
+  objective), and `mesh.summary()` reports it for the starting geometry. A level whose `z_padding` moves it into the
+  box from beyond `level_margin` is refused, since placing the device would drop it.
+- **How close it gets.** On the inverse-design bend with `dilation={"WG": 0.45}` (the half-widths' reach), 40 nm in the
+  core and 80 nm in the air and the silica, `bf.mesh` gives the uniform 40 nm grid's transmission within 3e-5 with 66 %
+  of its cells (the hand-set graded grid above: 4.4e-4); with `ppw=20` alone, within 3.6e-4 with 85 %. `ppw=14` is
+  about a uniform grid of half again the core's cells, for fast optimizations.
+
 ## Precision
 
 The whole simulation runs in the `StackDevice`'s `dtype`, `jnp.float32` (the default) or `jnp.float64`, and the device
