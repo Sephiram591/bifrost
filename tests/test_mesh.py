@@ -1,4 +1,5 @@
-"""Tests for the automatic mesher: the lattice edges of one axis (:func:`bifrost.lattice_edges`)."""
+"""Tests for the automatic mesher: the lattice edges of one axis (:func:`bifrost.lattice_edges`) and the
+refinements of a device (:mod:`bifrost.meshing`)."""
 
 from __future__ import annotations
 
@@ -6,10 +7,14 @@ import functools
 import itertools
 import math
 
+import fdtdx
+import gdsfactory as gf
 import numpy as np
 import pytest
+from gdsfactory.technology import LayerLevel, LayerStack
 
 import bifrost as bf
+from bifrost import meshing
 from bifrost.grids import _raster
 
 Q = 0.001  # um: the default quantum
@@ -174,3 +179,202 @@ def test_lattice_errors():
         bf.lattice_edges(0.0, 100.0, 0.5, quantum=0.001)
     with pytest.raises(ValueError, match="growth"):
         bf.lattice_edges(0.0, 1.0, 0.05, growth=1.0)
+
+
+# ---------------------------------------------------------------- geometry of the refinements
+
+LAYER = gf.gpdk.LAYER
+N_SI, N_OX = 3.48, 1.444
+MATS = {
+    "si": fdtdx.Material(permittivity=N_SI**2),
+    "sio2": fdtdx.Material(permittivity=N_OX**2),
+    "air": fdtdx.Material(),
+}
+
+
+@pytest.fixture
+def pdk():
+    gf.gpdk.PDK.activate()
+    gf.snap.SNAP_ENABLED = False
+    yield
+    gf.snap.SNAP_ENABLED = True
+
+
+def device(rects=(), levels: dict | None = None, mats: dict | None = None, angle: float = 0.0,
+           **kwargs) -> bf.StackDevice:
+    """Silicon rectangles (x0, y0, x1, y1) on WG (0 to 0.22 um) and the given extra levels, in silica.
+
+    A SLAB150 rectangle sets the box laterally (2 x 2 um); its level ("frame", silica, -0.6 to 1.0 um) sets
+    it in z. Extra levels may draw on SLAB90 (rectangles in ``levels["_slab90"]``).
+    """
+    levels = dict(levels or {})
+    slab90 = levels.pop("_slab90", ())
+    c = gf.Component()
+    c.add_polygon([(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)], layer=LAYER.SLAB150)
+    for layer, shapes in ((LAYER.WG, rects or [(-1.0, -0.25, 1.0, 0.25)]), (LAYER.SLAB90, slab90)):
+        for x0, y0, x1, y1 in shapes:
+            c.add_polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], layer=layer)
+    stack = {
+        "core": LayerLevel(layer=LAYER.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=2,
+                           sidewall_angle=angle),
+        "frame": LayerLevel(layer=LAYER.SLAB150, zmin=-0.6, thickness=1.6, material="sio2", mesh_order=9),
+        **levels,
+    }
+    return bf.StackDevice.from_layer_stack(
+        c, LayerStack(layers=stack), mats or MATS, background="sio2", name="s", zrange_layers=["frame"],
+        diagnostics=False, **kwargs,
+    )
+
+
+def pocket_device() -> bf.StackDevice:
+    """A 1 um wide silicon strip with an air pocket (SLAB90, painted over it) in its middle."""
+    pocket = LayerLevel(layer=LAYER.SLAB90, zmin=0.0, thickness=0.22, material="air", mesh_order=1)
+    return device([(-1.0, -0.5, 1.0, 0.5)], levels={"pocket": pocket, "_slab90": [(-0.3, -0.2, 0.3, 0.2)]})
+
+
+def contributions(geom, what: str) -> list:
+    return [c for c in geom.contributions if c.what == what]
+
+
+def y_extent(geom, region) -> tuple[float, float]:
+    spans = geom.plane.extent(region, 1)
+    return min(a for a, _ in spans), max(b for _, b in spans)
+
+
+def test_indices_and_targets():
+    lam = meshing._wavelengths(1.55, MATS)
+    assert lam.tolist() == [1.55]
+    idx = meshing._index(MATS["si"], lam)
+    assert idx.n[0] == pytest.approx(N_SI) and not idx.unsupported
+    aniso = meshing._index(fdtdx.Material(permittivity=(9.0, 12.0, 14.0)), lam)
+    assert aniso.n[0] == pytest.approx(math.sqrt(14.0))
+    band = meshing._wavelengths((1.5, 1.6), MATS)
+    assert band[0] == 1.5 and band[-1] == 1.6 and len(band) == 33
+    w0 = 2 * math.pi * meshing._C0 / (1.55e-6 / 1.3)  # a Lorentz resonance inside the band is sampled
+    lorentz = fdtdx.Material(permittivity=2.0, dispersion=fdtdx.DispersionModel(
+        poles=(fdtdx.LorentzPole(resonance_frequency=w0, damping=1e12, delta_epsilon=0.5),)))
+    lam_l = meshing._wavelengths((1.1, 1.6), {"l": lorentz})
+    assert np.any(np.isclose(lam_l, 1.55 / 1.3))
+    got = meshing._index(lorentz, np.array([1.5]))
+    eps = np.real(lorentz.dispersion.permittivity_tensor(2 * math.pi * meshing._C0 / 1.5e-6, lorentz.permittivity))
+    assert got.n[0] == pytest.approx(math.sqrt(eps[0, 0]))
+    assert meshing._index(fdtdx.Material(permittivity=2.0, electric_conductivity=1e3), lam).unsupported
+    drude = fdtdx.Material(dispersion=fdtdx.DispersionModel(
+        poles=(fdtdx.DrudePole(plasma_frequency=1.4e16, damping=1e14),)))
+    assert meshing._index(drude, lam).unsupported
+
+
+def test_strip_material_and_tail_targets(pdk):
+    geom = meshing._geometry(device(), 1.55, 14.0, meshing.Refine())
+    t_si, t_ox = 1.55 / (N_SI * 14), 1.55 / (N_OX * 14)
+    assert geom.cell["si"] == pytest.approx(t_si) and geom.cell["sio2"] == pytest.approx(t_ox)
+    (core,) = contributions(geom, "material core")
+    assert core.size == pytest.approx(t_si) and core.z == pytest.approx((0.0, 0.22))
+    assert y_extent(geom, core.region) == pytest.approx((-0.25, 0.25), abs=1e-3)
+    ell = 1.55 / (2 * math.pi * math.sqrt(N_SI**2 - N_OX**2))
+    assert geom.tails["core"] == pytest.approx((ell, ell, ell))
+    lateral, vertical = contributions(geom, "tail core")
+    assert y_extent(geom, lateral.region) == pytest.approx((-0.25 - 3 * ell, 0.25 + 3 * ell), abs=1e-3)
+    assert vertical.z == pytest.approx((-3 * ell, 0.22 + 3 * ell))
+    assert geom.tails["frame"] == (0.0, 0.0, 0.0)  # silica: nothing of a lower index next to it
+    _, y, z = meshing._axis_targets(geom)
+    assert min(s for *_, s in y) == pytest.approx(t_si)
+    assert any(a == pytest.approx(-0.25 - 3 * ell, abs=1e-3) and s == pytest.approx(t_si) for a, _, s in y)
+    assert any(a == pytest.approx(-3 * ell) and s == pytest.approx(t_si) for a, _, s in z)
+
+
+def test_sloped_strip_bounds(pdk):
+    refine = meshing.Refine(global_dilation=0, global_z_padding=0)
+    geom = meshing._geometry(device(angle=10.0), 1.55, 14.0, refine)
+    (core,) = [lv for lv in geom.levels if lv.name == "core"]
+    shrink = 0.22 * math.tan(math.radians(10.0))  # narrower toward the top (z_ref at the bottom)
+    assert y_extent(geom, core.upper) == pytest.approx((-0.25, 0.25), abs=1e-3)
+    assert y_extent(geom, core.lower) == pytest.approx((-0.25 + shrink, 0.25 - shrink), abs=1e-3)
+
+
+def test_dilation_band_and_per_vertex_taper(pdk):
+    refine = meshing.Refine(dilation={"WG": 0.1}, global_dilation=0, global_z_padding=0)
+    geom = meshing._geometry(device(), 1.55, 14.0, refine)
+    assert y_extent(geom, geom.possible["core"]) == pytest.approx((-0.35, 0.35), abs=1e-3)
+    d = device()
+    v = d.source_vertices[[k for k, _ in d.source_layers].index("vertices/WG")]
+    taper = np.zeros(len(v))
+    taper[np.argmin(v[:, 0] + v[:, 1])] = 0.2  # only the vertex at (-1, -0.25) moves
+    geom = meshing._geometry(d, 1.55, 14.0, meshing.Refine(dilation={"vertices/WG": taper}, global_dilation=0,
+                                                           global_z_padding=0))
+    lo, hi = y_extent(geom, geom.possible["core"])
+    assert lo == pytest.approx(-0.45, abs=1e-3) and hi == pytest.approx(0.25, abs=1e-3)
+
+
+def test_z_padding_extends_the_span(pdk):
+    refine = meshing.Refine(z_padding={"core": (0.05, 0.1)}, global_dilation=0, global_z_padding=0)
+    geom = meshing._geometry(device(), 1.55, 14.0, refine)
+    assert geom.padded["core"] == pytest.approx((-0.05, 0.32))
+    spans = [c.z for c in contributions(geom, "material core")]
+    assert min(a for a, _ in spans) == pytest.approx(-0.05) and max(b for _, b in spans) == pytest.approx(0.32)
+
+
+def test_narrow_gap_is_a_feature(pdk):
+    rects = [(-1.0, -0.25, 1.0, 0.25), (-1.0, 0.29, 1.0, 0.6)]
+    geom = meshing._geometry(device(rects), 1.55, 14.0, meshing.Refine(global_dilation=0, global_z_padding=0))
+    feats = contributions(geom, "feature core")
+    assert feats and min(c.size for c in feats) == pytest.approx(0.04 / 1.5, rel=1e-3)
+    lo, hi = y_extent(geom, min(feats, key=lambda c: c.size).region)
+    assert lo == pytest.approx(0.25, abs=1e-3) and hi == pytest.approx(0.29, abs=1e-3)
+
+
+def test_static_pocket_hides_the_core_and_gets_no_tail(pdk):
+    geom = meshing._geometry(pocket_device(), 1.55, 14.0, meshing.Refine())
+    assert geom.tails["pocket"] == (0.0, 0.0, 0.0)  # air next to silicon only: no tail of its own
+    center = geom.plane.region_box((-0.1, -0.05), (0.1, 0.05))
+    assert (geom.possible["core"] & center).is_empty()  # silicon cannot be under the static pocket
+    assert not (geom.possible["pocket"] & center).is_empty()
+
+
+def test_moving_pocket_does_not_hide_the_core(pdk):
+    geom = meshing._geometry(pocket_device(), 1.55, 14.0, meshing.Refine(dilation={"SLAB90": 0.05}))
+    center = geom.plane.region_box((-0.1, -0.05), (0.1, 0.05))
+    assert not (geom.possible["core"] & center).is_empty()
+
+
+def test_pocket_inner_boundary_gets_the_core_tail(pdk):
+    geom = meshing._geometry(pocket_device(), 1.55, 14.0, meshing.Refine())
+    ell = 1.55 / (2 * math.pi * math.sqrt(N_SI**2 - N_OX**2))  # silica is the highest index below silicon
+    assert geom.tails["core"][0] == pytest.approx(ell)
+    lateral = contributions(geom, "tail core")[0]
+    center = geom.plane.region_box((-0.1, -0.05), (0.1, 0.05))  # 3 l ~ 0.23 um into the pocket from its edges
+    assert not (lateral.region & center).is_empty()
+
+
+def test_fill_slab_gets_z_tails_only(pdk):
+    slab = LayerLevel(layer=LAYER.WAFER, zmin=-0.4, thickness=0.1, material="si", mesh_order=5)
+    geom = meshing._geometry(device(levels={"slab": slab}), (1.5, 1.6), 14.0, meshing.Refine())
+    lateral, below, above = geom.tails["slab"]
+    ell = 1.6 / (2 * math.pi * math.sqrt(N_SI**2 - N_OX**2))  # the longest wavelength
+    assert lateral == 0.0 and below == pytest.approx(ell) and above == pytest.approx(ell)
+
+
+def test_no_tail_keeps_the_padding(pdk):
+    refine = meshing.Refine(no_tail=("core",), z_padding={"core": 0.05})
+    geom = meshing._geometry(device(), 1.55, 14.0, refine)
+    assert not contributions(geom, "tail core")
+    assert geom.padded["core"] == pytest.approx((-0.05, 0.27))
+    spans = [c.z for c in contributions(geom, "material core")]
+    assert min(a for a, _ in spans) == pytest.approx(-0.05)
+
+
+def test_refine_errors(pdk):
+    d = device()
+    with pytest.raises(ValueError, match="not a source layer"):
+        meshing._geometry(d, 1.55, 14.0, meshing.Refine(dilation={"NOPE": 0.1}))
+    with pytest.raises(ValueError, match="one per vertex"):
+        meshing._geometry(d, 1.55, 14.0, meshing.Refine(dilation={"WG": np.zeros(3)}))
+    with pytest.raises(ValueError, match="not a level"):
+        meshing._geometry(d, 1.55, 14.0, meshing.Refine(z_padding={"nope": 0.1}))
+    with pytest.raises(ValueError, match="not levels"):
+        meshing._geometry(d, 1.55, 14.0, meshing.Refine(no_tail=("nope",)))
+    metal = {**MATS, "si": fdtdx.Material(permittivity=2.0, electric_conductivity=1e4)}
+    with pytest.raises(ValueError, match="material_cells"):
+        meshing._geometry(device(mats=metal), 1.55, 14.0, meshing.Refine())
+    geom = meshing._geometry(device(mats=metal), 1.55, 14.0, meshing.Refine(material_cells={"si": 0.01}))
+    assert geom.cell["si"] == 0.01
