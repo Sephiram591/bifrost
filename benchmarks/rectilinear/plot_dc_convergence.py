@@ -1,0 +1,113 @@
+"""Plot the directional coupler's splitting ratio against the total cell count (results of dc_convergence.py).
+
+    python benchmarks/rectilinear/plot_dc_convergence.py results/dc_convergence.jsonl results/dc_convergence.png
+
+Top: the splitting ratio at 619 nm on uniform grids (the core's faces on cell edges, as the box puts them), on uniform
+grids shifted half a cell in z (the faces mid-cell) and on bf.mesh's. Bottom: its distance from the converged value,
+from second-order fits S0 + C h^2 to the two uniform placements (they agree; the faces' place in their cells sets C).
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+
+# the reference palette's first three categorical slots (validated: CVD dE >= 9.2, normal dE >= 27.6; slot 3 is under
+# 3:1 contrast on the surface, so its points are labelled and drawn with their own marker)
+EDGE, MESH, MID = "#2a78d6", "#eb6834", "#1baf7a"
+SURFACE, INK, MUTED, GRID = "#fcfcfb", "#1f1f1e", "#6b6a63", "#e6e5e0"
+MID_SHIFT = "@3.2,"  # the uniform grids shifted half a cell in z: <grid>@3.2,<half height>
+
+
+def second_order(h: np.ndarray, s: np.ndarray) -> tuple[float, float]:
+    """(S0, C) of the least-squares fit s = S0 + C h^2."""
+    coef, *_ = np.linalg.lstsq(np.column_stack([np.ones_like(h), h**2]), s, rcond=None)
+    return float(coef[0]), float(coef[1])
+
+
+def main(src: str, dst: str) -> None:
+    with open(src) as f:
+        rows = {(r := json.loads(line))["grid"]: r for line in f}  # the last run of a grid wins
+
+    def series(keep) -> list[dict]:
+        return sorted((r for r in rows.values() if keep(r["grid"])), key=lambda r: r["total_cells"])
+
+    edge = series(lambda g: g.startswith("uniform-") and "@" not in g)
+    mid = series(lambda g: g.startswith("uniform-") and MID_SHIFT in g)
+    mesh = series(lambda g: g.startswith("mesh-"))
+    def cell(r: dict) -> float:
+        """A uniform grid's cell (nm), from its name."""
+        return float(r["grid"].split("-")[1].split("@")[0])
+
+    fits = []
+    for name, rs in (("faces on edges", edge), ("faces mid-cell", mid)):
+        fine = [r for r in rs if cell(r) <= 25]  # the asymptotic range
+        s0, c = second_order(np.array([cell(r) for r in fine]), np.array([r["split"] for r in fine]))
+        fits.append(s0)
+        print(f"uniform, {name}: S0 = {s0:.5f}, C = {c:.3e} per nm^2 (from {[r['grid'] for r in fine]})")
+    s0 = float(np.mean(fits))
+    print(f"converged: {s0:.5f} (the two fits differ by {abs(fits[0] - fits[1]):.1e})")
+    for r in edge + mid + mesh:
+        print(f"{r['grid']:>22} {r['total_cells'] / 1e6:7.1f}M  split {r['split']:.5f}  |S - S0| "
+              f"{abs(r['split'] - s0):.2e}  run {r['run_s']:.0f} s")
+
+    plt.rcParams.update({"font.size": 10, "axes.edgecolor": MUTED, "axes.labelcolor": INK, "xtick.color": MUTED,
+                         "ytick.color": MUTED, "text.color": INK})
+    fig, (top, bottom) = plt.subplots(2, 1, figsize=(7.4, 7.8), sharex=True, facecolor=SURFACE,
+                                      gridspec_kw={"height_ratios": [1.2, 1]})
+    for ax in (top, bottom):
+        ax.set_facecolor(SURFACE)
+        ax.grid(True, which="major", color=GRID, linewidth=0.8)
+        ax.set_axisbelow(True)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    bottom.set_xscale("log")
+    bottom.set_yscale("log")
+    plain = matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}")
+    for axis in (bottom.xaxis, bottom.yaxis):
+        axis.set_major_formatter(plain)
+        axis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+    bottom.set_xticks([5, 10, 20, 50, 100, 200, 400])
+    bottom.yaxis.set_major_locator(matplotlib.ticker.LogLocator(subs=(1.0, 2.0, 5.0)))
+    groups = (
+        ("uniform, core faces on cell edges", edge, EDGE, "o", lambda r: f"{cell(r):g} nm", (6, 6), "left", "bottom"),
+        ("uniform, core faces mid-cell", mid, MID, "^", lambda r: f"{cell(r):g} nm", (-6, 4), "right", "bottom"),
+        ("bf.mesh", mesh, MESH, "s", lambda r: f"ppw {r['grid'].split('-')[1]}", (-6, -6), "right", "top"),
+    )
+    for name, rs, color, marker, label, offset, ha, va in groups:
+        if not rs:
+            continue
+        cells = np.array([r["total_cells"] for r in rs]) / 1e6
+        split = np.array([r["split"] for r in rs])
+        style = {"color": color, "linewidth": 2, "marker": marker, "markersize": 7, "markeredgecolor": SURFACE,
+                 "markeredgewidth": 1.5, "label": name, "zorder": 3}
+        top.plot(cells, split, **style)
+        bottom.plot(cells, np.abs(split - s0), **style)
+        # the mid-cell points sit among bf.mesh's on top: label them in the bottom panel, where they stand apart
+        ax, ys = (bottom, np.abs(split - s0)) if rs is mid else (top, split)
+        for r, x, y in zip(rs, cells, ys, strict=True):
+            above = r["grid"] == "mesh-14"  # below it runs the mid-cell series
+            ax.annotate(label(r), (x, y), textcoords="offset points", xytext=(0, 8) if above else offset,
+                        ha="center" if above else ha, va="bottom" if above else va, fontsize=8, color=MUTED)
+    top.axhline(s0, color=MUTED, linewidth=1, linestyle=(0, (4, 3)), zorder=1)
+    top.annotate(f"converged: {s0:.4f} (h² fits of both uniform placements)", (0.01, s0),
+                 xycoords=("axes fraction", "data"), xytext=(0, 4), textcoords="offset points", fontsize=8,
+                 color=MUTED)
+    top.set_ylabel("splitting ratio at 619 nm\nP_cross / (P_cross + P_through)")
+    top.set_title("Directional coupler: convergence with the cell count", loc="left", fontsize=11, color=INK)
+    top.legend(frameon=False, loc="upper right", fontsize=9)
+    bottom.set_xlabel("total cells (millions)")
+    bottom.set_ylabel("|splitting ratio - converged|")
+    fig.tight_layout()
+    fig.savefig(dst, dpi=150, facecolor=SURFACE)
+    print("wrote", dst)
+
+
+if __name__ == "__main__":
+    main(*sys.argv[1:3])
