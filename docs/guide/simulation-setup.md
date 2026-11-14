@@ -204,6 +204,12 @@ source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid
   faces `"periodic"`, `"pec"`, `"pmc"` or `"bloch"` instead); mirror-symmetric devices get mirror-symmetric grids, and
   the finest cells start on the lattice of their own width (`align_fine`), as a uniform grid of that size would have
   them. The box must be a whole number of quanta along every axis.
+- **Faces in the middle of their cells** (`center_faces=True`, the default). Every level's bottom and top face where
+  the material changes sits in the middle of a z cell, not on an edge: with subpixel averaging that leaves a markedly
+  smaller error (a third, on the directional coupler of `benchmarks/rectilinear`). Two faces a fractional number of
+  cells apart need some narrower cells, so the smallest z cell may come out up to 20 % below the largest possible; a
+  face that still finds no room is left off with a warning, faces under a PML are left out, and a face that
+  `z_padding` moves is centered where it starts. `mesh.summary()` lists the centered faces.
 - **The geometry may leave its dilation.** `stack.coarse_vertices(params, mesh)` counts the vertices that sit in cells
   wider than their target, per layer and axis; it runs under `jax.jit` (return it as auxiliary output of the
   objective), and `mesh.summary()` reports it for the starting geometry. A level whose `z_padding` moves it into the

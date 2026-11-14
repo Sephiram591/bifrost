@@ -208,7 +208,21 @@ The mesher itself is not the source of any difference. On the lattices of the un
 within 5e-6 (the same edges as a `RectilinearGrid`, with `grid=` on the ports and `Mesh.boundary`); grading the oxide
 from the 20 nm core to 27 or 40 nm in y and z moves it by 4e-6 and 2.8e-5, with 76 % and 56 % of the cells.
 
-At equal cell count `bf.mesh` is closer to the converged value than the uniform grids with faces on edges: ppw 12
-(46 M cells) 9.5e-3 against uniform 20 nm (89 M) 1.3e-2, and ppw 20 (241 M) 3.4e-3 against uniform 12.5 nm (366 M)
-5.3e-3. Mid-cell faces on a uniform grid do better still (20 nm, 90 M cells: 3.7e-3), which `bf.mesh` does not choose
-yet.
+So `bf.mesh` puts every level's bottom and top face in the middle of a z cell by default (`center_faces=True`; the
+runs above without it are `meshoff-<ppw>`). Both core faces then sit at 0.46 to 0.54 of their cells; the cell counts
+stay the same (ppw 10: +1.4 %) and the time steps grow by 1 to 5 % (the smallest z cell comes out 1 nm smaller, 6 nm
+at ppw 6). Against S0:
+
+| ppw | cells | faces not centered | faces centered (default) |
+|---|---|---|---|
+| 6 | 5.8 M | 8.0e-2 | 4.1e-2 |
+| 8 | 13.8 M | 2.8e-2 | 2.1e-2 |
+| 10 | 28 M | 1.7e-2 | 9.6e-3 |
+| 12 | 46 M | 9.5e-3 | 3.6e-3 |
+| 14 | 79 M | 1.0e-2 | 4.4e-3 |
+| 17 | 136 M | 6.6e-3 | 3.1e-3 |
+
+Centering removes a third to two thirds of the error. At equal cell count `bf.mesh` is now well ahead of the uniform
+grids: ppw 12 (46 M cells, 160 s) matches uniform 20 nm with its faces mid-cell (90 M, 348 s: 3.7e-3) and beats the
+uniform grids as the box makes them (faces on edges: 20 nm, 89 M, 1.3e-2; 12.5 nm, 366 M, 5.3e-3). Differences of a
+few 1e-3 are within S0's own uncertainty (pairwise h^2 extrapolations spread over about 2e-3).

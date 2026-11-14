@@ -19,9 +19,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# the reference palette's first three categorical slots (validated: CVD dE >= 9.2, normal dE >= 27.6; slot 3 is under
-# 3:1 contrast on the surface, so its points are labelled and drawn with their own marker)
-EDGE, MESH, MID = "#2a78d6", "#eb6834", "#1baf7a"
+# the reference palette's first four categorical slots (validated: CVD dE >= 9.1, normal dE >= 22.9; slots 3 and 4
+# are under 3:1 contrast on the surface, so every series has its own marker and its points are labelled)
+EDGE, MESH, MID, MESH_OFF = "#2a78d6", "#eb6834", "#1baf7a", "#eda100"
 SURFACE, INK, MUTED, GRID = "#fcfcfb", "#1f1f1e", "#6b6a63", "#e6e5e0"
 MID_SHIFT = "@3.2,"  # the uniform grids shifted half a cell in z: <grid>@3.2,<half height>
 
@@ -53,7 +53,8 @@ def main(src: str, dst: str) -> None:
 
     edge = series(lambda g: g.startswith("uniform-") and "@" not in g)
     mid = series(lambda g: g.startswith("uniform-") and MID_SHIFT in g)
-    mesh = series(lambda g: g.startswith("mesh-"))
+    mesh = series(lambda g: g.startswith("mesh-"))  # faces centered (center_faces, the default)
+    mesh_off = series(lambda g: g.startswith("meshoff-"))  # center_faces=False
     def cell(r: dict) -> float:
         """A uniform grid's cell (nm), from its name."""
         return float(r["grid"].split("-")[1].split("@")[0])
@@ -62,7 +63,7 @@ def main(src: str, dst: str) -> None:
     s0, p, cs, rms = joint_fit(groups)
     print(f"converged: S0 = {s0:.5f}, p = {p:.2f}, C (faces on edges, mid-cell) = {cs[0]:.3e}, {cs[1]:.3e}, "
           f"rms {rms:.1e}")
-    for r in edge + mid + mesh:
+    for r in edge + mid + mesh + mesh_off:
         print(f"{r['grid']:>22} {r['total_cells'] / 1e6:7.1f}M  split {r['split']:.5f}  |S - S0| "
               f"{abs(r['split'] - s0):.2e}  run {r['run_s']:.0f} s")
 
@@ -87,7 +88,10 @@ def main(src: str, dst: str) -> None:
     groups = (
         ("uniform, core faces on cell edges", edge, EDGE, "o", lambda r: f"{cell(r):g} nm", (6, 6), "left", "bottom"),
         ("uniform, core faces mid-cell", mid, MID, "^", lambda r: f"{cell(r):g} nm", (-6, 4), "right", "bottom"),
-        ("bf.mesh", mesh, MESH, "s", lambda r: f"ppw {r['grid'].split('-')[1]}", (-6, -6), "right", "top"),
+        ("bf.mesh, faces centered (default)", mesh, MESH, "s", lambda r: f"ppw {r['grid'].split('-')[1]}", (-6, -6),
+         "right", "top"),
+        ("bf.mesh, center_faces=False", mesh_off, MESH_OFF, "D", lambda r: f"ppw {r['grid'].split('-')[1]}", (6, 6),
+         "left", "bottom"),
     )
     for name, rs, color, marker, label, offset, ha, va in groups:
         if not rs:
@@ -98,13 +102,14 @@ def main(src: str, dst: str) -> None:
                  "markeredgewidth": 1.5, "label": name, "zorder": 3}
         top.plot(cells, split, **style)
         bottom.plot(cells, np.abs(split - s0), **style)
-        # the mid-cell points sit among bf.mesh's on top: label them in the bottom panel, where they stand apart
-        ax, ys = (bottom, np.abs(split - s0)) if rs is mid else (top, split)
+        # label the uniform grids on top and bf.mesh's (default) at the bottom, where the series stand apart; the
+        # mid-cell and center_faces=False points share those grids' cell counts, so the legend names them
+        if rs is mid or rs is mesh_off:
+            continue
+        ax, ys = (top, split) if rs is edge else (bottom, np.abs(split - s0))
         for r, x, y in zip(rs, cells, ys, strict=True):
-            # below the finer bf.mesh points run the mid-cell series and the converged line
-            above = r["grid"].startswith("mesh-") and float(r["grid"].split("-")[1]) >= 12
-            ax.annotate(label(r), (x, y), textcoords="offset points", xytext=(0, 8) if above else offset,
-                        ha="center" if above else ha, va="bottom" if above else va, fontsize=8, color=MUTED)
+            ax.annotate(label(r), (x, y), textcoords="offset points", xytext=offset, ha=ha, va=va, fontsize=8,
+                        color=MUTED)
     top.axhline(s0, color=MUTED, linewidth=1, linestyle=(0, (4, 3)), zorder=1)
     top.annotate(f"converged: {s0:.4f} (fit of the uniform grids, order {p:.2f})", (0.01, s0),
                  xycoords=("axes fraction", "data"), xytext=(0, 4), textcoords="offset points", fontsize=8,

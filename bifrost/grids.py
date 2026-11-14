@@ -137,12 +137,16 @@ class AxisEdges(NamedTuple):
     aligned: bool
     #: the edges are mirror-symmetric about the middle of the axis
     symmetric: bool
+    #: the ``centers`` (um) that lie in the middle of a cell
+    centered: tuple[float, ...] = ()
 
 
 # tolerance of the ratio comparisons (in quanta)
 _TOL = 1e-9
 # PML widths tried per end when the widest admissible one does not lead to a solution
 _PML_TRIES = 6
+# centers may bring the smallest cell down to this share of the largest possible one
+_CENTER_FLOOR = 0.8
 
 
 def lattice_edges(
@@ -156,6 +160,7 @@ def lattice_edges(
     pml: tuple[float, float] = (0.0, 0.0),
     align: bool = True,
     symmetric: bool = True,
+    centers: Sequence[float] = (),
     max_states: float = 2e7,
 ) -> AxisEdges:
     """Cell edges from ``lo`` to ``hi`` on a lattice of whole quanta, every cell within its target.
@@ -169,9 +174,15 @@ def lattice_edges(
 
     Among all such edges the result has the largest smallest cell (which sets this axis's share of the time
     step), then the fewest cells, then the cells closest to their targets (the least sum of squared log
-    ratios). With ``symmetric``, mirror-symmetric targets and PMLs give mirror-symmetric edges. With
-    ``align``, cells as wide as the finest target start at whole multiples of it from ``lo``, so that they
-    coincide with a uniform grid of that spacing; where that cannot be met it is dropped with a warning.
+    ratios). Each of ``centers`` (e.g. a planar interface) lies in the middle of a cell, within half a
+    quantum, no edge on it: with subpixel averaging an interface there gives a markedly smaller second-order
+    error than one on an edge (a third on the coupler of ``benchmarks/rectilinear``, faces normal to the axis).
+    For them the smallest cell may come out up to 20 % below the largest possible one (two faces a fractional
+    number of cells apart need some cells narrower than the rest: a layer 4 cells thick or more fits); the
+    most centers that fit are met, the rest dropped with a warning, as are those under a PML. With ``symmetric``, mirror-symmetric targets, PMLs and centers give
+    mirror-symmetric edges. With ``align``, cells as wide as the finest target start at whole multiples of it
+    from ``lo``, so that they coincide with a uniform grid of that spacing; where that cannot be met it is
+    dropped with a warning.
 
     Args:
         lo: first edge (um).
@@ -184,11 +195,12 @@ def lattice_edges(
         pml: PML thickness (um) at the lower and at the upper end (0: none).
         align: put the cells of the finest target's width on the lattice of that width from ``lo``.
         symmetric: give mirror-symmetric targets and PMLs mirror-symmetric edges.
+        centers: coordinates (um) to put in the middle of a cell (within half a quantum).
         max_states: refuse problems with more states (lattice positions times cell widths) than this.
 
     Returns:
-        The edges, the PML cells at both ends, the smallest cell, and whether the cells are aligned and
-        mirror-symmetric.
+        The edges, the PML cells at both ends, the smallest cell, whether the cells are aligned and
+        mirror-symmetric, and the centers met.
 
     Raises:
         ValueError: on an empty range, a range that is not whole quanta, a target smaller than a quantum, a
@@ -218,12 +230,25 @@ def lattice_edges(
             f"lattice_edges: {n} quanta by {int(targets.max())} cell widths is {states:.3g} states, more than "
             f"max_states={max_states:.3g}; use a coarser quantum"
         )
-    widths, ends, mirror = _Lattice(targets, growth).solve(thick, align, symmetric, lo, q)
+    # centers in half quanta from lo, inside the range (an edge is there at the ends anyway)
+    half = sorted({round(2 * (float(c) - lo) / q) for c in centers})
+    half = np.asarray([c for c in half if 0 < c < 2 * n], dtype=np.int64)
+    widths, ends, mirror = _Lattice(targets, growth).solve(thick, align, symmetric, lo, q, half)
     # aligned: every cell of the finest target's width outside the PMLs starts on that width's lattice
     fine_k, starts = int(targets.min()), np.concatenate([[0], np.cumsum(widths)[:-1]])
     inner = slice(ends[0][0], len(widths) - ends[1][0])
     w_in, s_in = np.asarray(widths[inner]), starts[inner]
     aligned = bool(np.all(s_in[w_in == fine_k] % fine_k == 0))
+    middles = 2 * starts + np.asarray(widths)  # cell middles in half quanta
+    hit = [bool(np.any(np.abs(middles - c) <= 1)) for c in half]
+    met = [int(c) for c, h in zip(half, hit, strict=True) if h]
+    missed = [lo + c * q / 2 for c, h in zip(half, hit, strict=True) if not h]
+    if missed:
+        warnings.warn(
+            f"lattice_edges: {', '.join(f'{c:.6g}' for c in missed)} um not in the middle of a cell (under a PML, or "
+            "no room within the targets and the growth limit at the largest smallest cell)",
+            stacklevel=2,
+        )
     if align and not aligned:
         warnings.warn(
             f"lattice_edges: the {int(targets.min()) * q:g} um cells do not all start at whole multiples of "
@@ -232,7 +257,8 @@ def lattice_edges(
         )
     edges = lo + q * np.concatenate([[0], np.cumsum(widths)]).astype(np.float64)
     edges[0], edges[-1] = lo, hi
-    return AxisEdges(edges, (ends[0][0], ends[1][0]), q * min(widths), aligned, mirror)
+    centered = tuple(round(lo + c * q / 2, 12) for c in met)
+    return AxisEdges(edges, (ends[0][0], ends[1][0]), q * min(widths), aligned, mirror, centered)
 
 
 def _raster(lo: float, q: float, n: int, spacing: float, fine: Sequence[tuple[float, float, float]]) -> np.ndarray:
@@ -279,6 +305,16 @@ def _window_min(w: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     if ok.any():
         out[ok] = _range_min(_sparse_table(w, np.inf), a[ok], b[ok] + 1)
     return out
+
+
+def _centered(centers: np.ndarray, start2: int, k: np.ndarray) -> np.ndarray:
+    """Whether the cells of k quanta from start2 / 2 hold no center (half quanta, sorted) but one within half a
+    quantum of their middle (an odd cell's middle is half a quantum off the whole-quantum lattice)."""
+    i = int(np.searchsorted(centers, start2, side="left"))
+    first = centers[i] if i < len(centers) else np.iinfo(np.int64).max
+    second = centers[i + 1] if i + 1 < len(centers) else np.iinfo(np.int64).max
+    end2 = start2 + 2 * k
+    return (first > end2) | ((np.abs(first - (start2 + k)) <= 1) & (second > end2))
 
 
 def _pick(options: list[tuple[int, int]], i: int, growth: float) -> tuple[int, int]:
@@ -351,12 +387,15 @@ class _Lattice:
         mirror: bool,
         eps: float,
         values_only: bool = False,
+        centers: np.ndarray | None = None,
     ) -> list[int] | None:
         """The best cell widths (quanta) with every cell >= k_lo, or None if there are none.
 
         Backward over lattice positions, the state being the width of the previous cell; ``mirror``
         solves the lower half (each cell counting twice) and ends on the middle edge or a middle cell.
+        ``centers`` (half quanta, sorted) must each lie in the middle of an interior cell.
         """
+        centers = np.zeros(0, dtype=np.int64) if centers is None else centers
         (n_lo, w_lo), (n_hi, w_hi) = ends
         n, g, k_max = self.n, self.growth, self.k_max
         s0, e0 = n_lo * w_lo, n - n_hi * w_hi
@@ -377,10 +416,11 @@ class _Lattice:
             """(value of ending here per state, candidate widths, value of each candidate)."""
             term = np.full(nk + 1, np.inf)
             if mirror:
-                if 2 * p == n:
+                if 2 * p == n and not np.any(np.abs(centers - n) <= 1):  # the middle edge, unless on a center
                     term[:] = 0.0
                 c = n - 2 * p
-                if k_lo <= c <= self.widest[p] and not (align and c == align and p % align):
+                if (k_lo <= c <= self.widest[p] and not (align and c == align and p % align)
+                        and (not len(centers) or _centered(centers, 2 * p, np.array([c]))[0])):
                     v = 1.0 + eps * float(self.cost(p, c))
                     term[:nk] = np.where(joins(c), np.minimum(term[:nk], v), term[:nk])
                     term[nk] = min(term[nk], v)
@@ -394,6 +434,8 @@ class _Lattice:
             w = value[p - s0 + cand, cand - k_lo] + weight * (1.0 + eps * self.cost(p, cand))
             if align and p % align and k_lo <= align <= widest:
                 w[align - k_lo] = np.inf
+            if len(centers):
+                w = np.where(_centered(centers, 2 * p, cand), w, np.inf)
             return term, cand, w
 
         for p in range(top, s0 - 1, -1):
@@ -451,9 +493,12 @@ class _Lattice:
         return far
 
     def solve(
-        self, thickness: tuple[float, float], align: bool, symmetric: bool, lo: float, q: float
+        self, thickness: tuple[float, float], align: bool, symmetric: bool, lo: float, q: float,
+        centers: np.ndarray | None = None,
     ) -> tuple[list[int], tuple[tuple[int, int], tuple[int, int]], bool]:
-        """(widths, PML ends, mirrored): the largest smallest cell first, then the best widths."""
+        """(widths, PML ends, mirrored): the largest smallest cell first (centers may take it down to
+        _CENTER_FLOOR of that), then as many centers as fit, then the best widths."""
+        centers = np.zeros(0, dtype=np.int64) if centers is None else centers
         eps = 0.25 / (2.0 * self.n * (math.log(self.k_max) ** 2 + 1.0) + 1.0)
 
         def feasible(k_lo: int) -> tuple[tuple[int, int], tuple[int, int]] | None:
@@ -479,22 +524,62 @@ class _Lattice:
                 else:
                     b = mid - 1
             found = (a, feasible(a))
-        k_lo, ends = found
-        # the PML choices to try for alignment: the one found first, then narrower ones (the fine cells' lattice
-        # may need narrower PML cells to be reached within the growth limit)
-        choices = [ends, *(e for e in self.ends(thickness, k_lo) if e != ends)]
-        modes: list[tuple[bool, int | None, tuple]] = []
-        if symmetric and self.mirrored and thickness[0] == thickness[1]:
-            if align and self.n % self.k_fine == 0:
-                modes += [(True, self.k_fine, e) for e in choices if e[0] == e[1]]
-            modes += [(True, None, e) for e in choices[:1] if e[0] == e[1]]
-        if align:
-            modes += [(False, self.k_fine, e) for e in choices]
-        modes.append((False, None, ends))
-        for mirror, aligned, pml in modes:
-            widths = self.dp(k_lo, pml, aligned, mirror, eps)
-            if widths is not None:
-                return widths, pml, mirror
+        k_star, ends_star = found
+
+        def choices(k_lo: int, ends: tuple) -> list:
+            """The PML choices to try: the one found first, then narrower ones (the fine cells' lattice or a
+            center may need narrower PML cells to be reached within the growth limit)."""
+            return [ends, *(e for e in self.ends(thickness, k_lo) if e != ends)]
+
+        def attempt(k_lo: int, options: list, cs: np.ndarray) -> tuple | None:
+            """The first mode that meets every center in cs: mirrored before not, aligned before not."""
+            mirrored_centers = np.array_equal(np.sort(2 * self.n - cs), cs)
+            modes: list[tuple[bool, int | None, tuple]] = []
+            if symmetric and self.mirrored and thickness[0] == thickness[1] and mirrored_centers:
+                if align and self.n % self.k_fine == 0:
+                    modes += [(True, self.k_fine, e) for e in options if e[0] == e[1]]
+                modes += [(True, None, e) for e in options if e[0] == e[1]][: 1 if not len(cs) else None]
+            if align:
+                modes += [(False, self.k_fine, e) for e in options]
+            modes += [(False, None, e) for e in (options if len(cs) else options[:1])]
+            for mirror, aligned, pml in modes:
+                widths = self.dp(k_lo, pml, aligned, mirror, eps, centers=cs)
+                if widths is not None:
+                    return widths, pml, mirror
+            return None
+
+        best = choices(k_star, ends_star)
+        if len(centers):
+            # the most centers, then the largest smallest cell down to _CENTER_FLOOR of the largest possible
+            kept_best: tuple[int, int, list, list[int]] = (0, k_star, best, [])
+            for k in range(k_star, max(1, math.ceil(_CENTER_FLOOR * k_star)) - 1, -1):
+                ends_k = ends_star if k == k_star else feasible(k)
+                if ends_k is None:
+                    continue
+                opts = choices(k, ends_k)
+
+                def fits(cs: list[int], k: int = k, opts: list = opts) -> bool:
+                    trial = np.array(sorted(cs), dtype=np.int64)
+                    return any(self.dp(k, e, None, False, eps, values_only=True, centers=trial) is not None
+                               for e in opts)
+
+                kept = centers.tolist() if fits(centers.tolist()) else []
+                if not kept:  # not all at once: keep each center that still fits with those kept before it
+                    for c in centers.tolist():
+                        if fits([*kept, c]):
+                            kept.append(c)
+                if len(kept) > kept_best[0]:
+                    kept_best = (len(kept), k, opts, kept)
+                if len(kept) == len(centers):
+                    break
+            if kept_best[0]:
+                _, k, opts, kept = kept_best
+                got = attempt(k, opts, np.array(sorted(kept), dtype=np.int64))
+                if got is not None:
+                    return got
+        got = attempt(k_star, best, np.zeros(0, dtype=np.int64))
+        if got is not None:
+            return got
         raise AssertionError("lattice_edges: a feasible problem lost its solution")  # pragma: no cover
 
     def _raise_infeasible(self, thickness: tuple[float, float], lo: float, q: float) -> None:

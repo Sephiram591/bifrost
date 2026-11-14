@@ -7,7 +7,12 @@ are saved too. Grids:
 
 * ``uniform-<nm>``: uniform cells (the box, 43 x 6.4 x 2.6 um, is whole cells at 20, 25, 40, 50 and 100 nm);
 * ``mesh-<ppw>``: :func:`bifrost.mesh` over the band (538 to 728 nm) with ``ppw`` cells per wavelength in each
-  material and the default tail; nothing moves.
+  material and the default tail, the core's faces centered in their cells (``center_faces``, the default);
+  nothing moves;
+* ``meshoff-<ppw>``: the same with ``center_faces=False``;
+* ``cells-<core nm>-<clad nm>``: :func:`bifrost.mesh` with the materials' cells given (``material_cells``);
+* ``<grid>@<half y>[,<half z>]``: the box's half height in y (and z) changed, which shifts the lattice against
+  the guides.
 
 One grid per process (clean peak memory); each appends one JSON line to ``out``::
 
@@ -54,8 +59,9 @@ def run(kind: str) -> dict:
         if kind.startswith("cells-"):  # cells-<core nm>-<clad nm>: bf.mesh with the materials' cells given
             core, clad = (float(v) * 1e-3 for v in kind.split("-")[1:3])
             m = bf.mesh(stack, band, pml=dc.PML, refine=bf.Refine(material_cells={"core": core, "clad": clad}))
-        else:
-            m = bf.mesh(stack, band, ppw=float(kind.split("-")[1]), pml=dc.PML)
+        else:  # mesh-<ppw> (faces centered, the default) or meshoff-<ppw> (center_faces=False)
+            m = bf.mesh(stack, band, ppw=float(kind.split("-")[1]), pml=dc.PML,
+                        center_faces=not kind.startswith("meshoff-"))
         summary = m.summary(time=dc.TIME)
         print(summary, flush=True)
         grid, bound = m.grid, m.boundary

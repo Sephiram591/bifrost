@@ -10,7 +10,9 @@
   its target, a growth limit, the largest smallest cell, then the fewest cells, uniform PML cells, mirror symmetry).
   The `Mesh` gives the fdtdx grid and boundaries and a summary; `StackDevice.coarse_vertices` counts, under jit, the
   vertices that left the cells refined for them. On the inverse-design bend it is 15 times closer to the uniform
-  40 nm grid than the hand-set graded grid, with about as many cells.
+  40 nm grid than the hand-set graded grid, with about as many cells. By default (`center_faces=True`) every level's
+  bottom and top face sits in the middle of a z cell, which on the directional coupler leaves a third of the error of
+  faces on cell edges; `bf.lattice_edges(..., centers=...)` centers any coordinates.
 - [Graded grids](guide/simulation-setup.md#graded-grids): a `StackDevice` runs on an fdtdx `RectilinearGrid` whose
   cells differ along any axis (every averaging). Fill fractions stay exact, each field component averages over the dual
   cells between cell centers along the axes it is staggered on, and `averaging="subpixel_full"` solves a junction

@@ -117,6 +117,40 @@ def test_lattice_alignment_takes_narrower_pml_cells_when_it_must():
     assert np.all(starts[inner][w[inner] == 20] % 20 == 0)
 
 
+def middles(axis: bf.AxisEdges) -> np.ndarray:
+    """The middle of every cell (um)."""
+    return 0.5 * (axis.edges[1:] + axis.edges[:-1])
+
+
+def test_lattice_centers_lie_in_the_middle_of_a_cell():
+    fine = [(0.2, 0.6, 0.02)]
+    centers = (0.3, 0.513)
+    axis = bf.lattice_edges(0.0, 1.0, 0.05, fine, centers=centers, align=False)
+    check_axis(axis, 0.0, 1.0, 0.05, fine, 1.25)
+    assert axis.centered == centers
+    for c in centers:
+        assert np.min(np.abs(middles(axis) - c)) <= 0.0005 + 1e-12  # within half a quantum
+        assert np.min(np.abs(axis.edges - c)) > 1e-3  # no edge on it
+    plain = bf.lattice_edges(0.0, 1.0, 0.05, fine, align=False)
+    assert axis.min_cell >= 0.8 * plain.min_cell - 1e-12  # centering costs at most a fifth of the smallest cell
+
+
+def test_lattice_symmetric_centers_keep_the_mirror():
+    fine = [(-0.3, 0.3, 0.02)]
+    axis = bf.lattice_edges(-1.0, 1.0, 0.06, fine, centers=(-0.11, 0.11), pml=(0.3, 0.3), align=False)
+    assert axis.symmetric and axis.centered == (-0.11, 0.11)
+    e = axis.edges
+    assert np.allclose(e - e[0], e[-1] - e[::-1], atol=1e-12)
+
+
+def test_lattice_drops_centers_without_room_with_a_warning():
+    # two faces 0.004 um apart in 0.02 um cells: one fits, the other cannot also be centered
+    with pytest.warns(UserWarning, match="not in the middle of a cell"):
+        axis = bf.lattice_edges(0.0, 1.0, 0.02, centers=(0.5, 0.504), align=False)
+    assert len(axis.centered) == 1
+    check_axis(axis, 0.0, 1.0, 0.02, (), 1.25)
+
+
 def test_lattice_is_deterministic():
     fine = [(0.3, 0.45, 0.017), (1.1, 1.13, 0.009)]
     a = bf.lattice_edges(0.0, 2.0, 0.07, fine, pml=(0.3, 0.2))
@@ -420,6 +454,20 @@ def test_mesh_strip_end_to_end(pdk):
     text = m.summary(time=1e-13)
     assert "cells" in text and "steps" in text and "time step" in text
     assert "starting geometry: 0 of" in text
+
+
+def test_mesh_centers_the_core_faces_by_default(pdk):
+    d = device()
+    m = bf.mesh(d, 1.55, ppw=14, pml=0.3)
+    z = m.edges[2]
+    mid = 0.5 * (z[1:] + z[:-1])
+    for face in (0.0, 0.22):  # the core's faces against silica
+        assert np.min(np.abs(mid - face)) <= 0.0005 + 1e-12 and np.min(np.abs(z - face)) > 1e-3
+    assert m.axes[2].centered == (0.0, 0.22)
+    assert "faces centered at 0, 0.22 um" in m.summary()
+    off = bf.mesh(d, 1.55, ppw=14, pml=0.3, center_faces=False)
+    assert off.axes[2].centered == ()
+    assert m.axes[2].min_cell >= 0.8 * off.axes[2].min_cell - 1e-12
 
 
 def test_mesh_periodic_faces(pdk):

@@ -442,6 +442,7 @@ class _Geometry(NamedTuple):
     cell: dict[str, float]  # target cell per material
     moving: dict[int, np.ndarray]  # per moving source layer: dilation per vertex
     neighbours: dict[str, tuple[set[str], set[str], set[str]]]  # per level: materials beside, below, above it
+    index: dict[str, float]  # per material: its index at the longest wavelength
 
 
 def _geometry(
@@ -571,7 +572,9 @@ def _geometry(
     contributions.append(_Contribution(plane.box.dup(), box[2], mats.cell[stack.background], "background"))
     if min_cell is not None:
         contributions = [c._replace(size=max(c.size, float(min_cell))) for c in contributions]
-    return _Geometry(plane, box, contributions, levels, visible, padded, tails, mats.cell, moving, neighbours)
+    return _Geometry(
+        plane, box, contributions, levels, visible, padded, tails, mats.cell, moving, neighbours, mats.n_tail
+    )
 
 
 def _neighbours(levels: list[_LevelGeom], visible: dict[str, Any], padded: dict[str, tuple[float, float]],
@@ -688,7 +691,9 @@ class Mesh:
         for name, e, ax in zip("xyz", self.edges, self.axes, strict=True):
             w = np.diff(e) * 1e3
             ratio = float(np.max(np.maximum(w[1:] / w[:-1], w[:-1] / w[1:]))) if len(w) > 1 else 1.0
-            flags = ", ".join(f for f, on in (("aligned", ax.aligned), ("mirror-symmetric", ax.symmetric)) if on)
+            flags = ", ".join(f for f, on in (("aligned", ax.aligned), ("mirror-symmetric", ax.symmetric),
+                                              (f"faces centered at {", ".join(f"{c:g}" for c in ax.centered)} um",
+                                               bool(ax.centered))) if on)
             lines.append(
                 f"  {name}: {len(w)} cells, {w.min():.4g} to {w.max():.4g} nm, largest ratio {ratio:.3f}, PML cells "
                 f"{ax.pml_cells[0]} / {ax.pml_cells[1]}" + (f" ({flags})" if flags else "")
@@ -716,6 +721,7 @@ def mesh(
     quantum: float = 0.001,
     min_cell: float | None = None,
     align_fine: bool = True,
+    center_faces: bool = True,
     feature_cells: float = 1.5,
     max_states: float = 2e7,
 ) -> Mesh:
@@ -750,6 +756,12 @@ def mesh(
         quantum: the lattice step (um); the box must be a whole number of quanta along each axis.
         min_cell: no target finer than this (um): protects the time step from thin films or narrow gaps.
         align_fine: put each axis's finest cells on the lattice of their own width from the box's face.
+        center_faces: put every level's bottom and top face, where the material changes, in the middle of a
+            z cell (not on an edge): a markedly smaller error with subpixel averaging (a third, on the
+            coupler of benchmarks/rectilinear). The smallest z cell may come out up to 20 % below the largest
+            possible (two faces a fractional number of cells apart need some narrower cells); a face that still
+            finds no room is left off with a warning, and faces under a PML are left out. A face that
+            z_padding moves is centered where it starts.
         feature_cells: cells across the narrowest part or gap of each level (0: no such targets).
         max_states: refuse an axis with more lattice states than this (see :func:`~bifrost.lattice_edges`).
 
@@ -771,6 +783,7 @@ def mesh(
     geom = _geometry(stack, wavelength, ppw, refine, feature_cells, min_cell)
     _check_levels_kept(stack, geom)
     targets = _axis_targets(geom)
+    faces = _interface_faces(geom, kinds, thick) if center_faces else []
     axes = []
     for a in range(3):
         lo, hi = geom.box[a]
@@ -787,7 +800,7 @@ def mesh(
             try:
                 axis = lattice_edges(
                     lo, hi, max(s for *_, s in targets[a]), targets[a], quantum=quantum, growth=growth, pml=sides,
-                    align=align_fine, max_states=max_states,
+                    align=align_fine, centers=faces if a == 2 else (), max_states=max_states,
                 )
             except ValueError as e:
                 raise ValueError(f"mesh: the {'xyz'[a]} axis: {e}") from e
@@ -806,6 +819,24 @@ def mesh(
         axes.append(axis)
     pml_cells = tuple(axes[a].pml_cells[e] for a in range(3) for e in (0, 1))
     return Mesh(tuple(ax.edges for ax in axes), pml_cells, kinds, tuple(axes), float(growth), stack, geom)  # type: ignore[arg-type]
+
+
+def _interface_faces(geom: _Geometry, kinds: Sequence[str], thick: Sequence[float]) -> list[float]:
+    """The z (um) of every visible level's bottom and top face where the material changes, inside the box and
+    clear of the PMLs."""
+    (_, _), (_, _), (z0, z1) = geom.box
+    lo = z0 + (thick[4] if kinds[4] == "pml" else 0.0)
+    hi = z1 - (thick[5] if kinds[5] == "pml" else 0.0)
+    faces = set()
+    for lv in geom.levels:
+        if geom.possible[lv.name].is_empty():
+            continue
+        _, below, above = geom.neighbours[lv.name]
+        for face, across in ((lv.span[0], below), (lv.span[1], above)):
+            n = geom.index.get(lv.material)
+            if any(abs(geom.index.get(m, -1.0) - n) > 1e-9 for m in across) and lo < face < hi:
+                faces.add(round(face, 9))
+    return sorted(faces)
 
 
 def _check_levels_kept(stack: Any, geom: _Geometry) -> None:
