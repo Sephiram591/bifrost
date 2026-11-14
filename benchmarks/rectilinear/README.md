@@ -177,30 +177,38 @@ silica) saves a fifth of the cells at no cost in accuracy here.
 
 The silicon-nitride directional coupler of `examples/fdtdx_directional_coupler.py` (43 x 6.4 x 2.6 um, a 300 nm gap
 over 20 um); the splitting ratio `P_cross / (P_cross + P_through)` at 619 nm, on uniform grids and on `bf.mesh`'s
-(band 538 to 728 nm, ppw 6 to 17, the default tail). L40S, float32. `results/dc_convergence.jsonl`, plotted in
-`results/dc_convergence.png`:
+(band 538 to 728 nm, ppw 6 to 20, the default tail). Float32; L40S, and an H200 for the two largest grids (241 M and
+366 M cells: about 205 bytes per cell at peak, mostly `apply_stack`'s painting, 49 and 75 GB).
+`results/dc_convergence.jsonl`, plotted in `results/dc_convergence.png`:
 
 ![splitting ratio against the total cell count](results/dc_convergence.png)
 
 The splitting ratio is very sensitive: the coupling falls about as `exp(-8.9 gap / um)`, so 1 nm of effective gap moves
-it by about 6e-3. Its second-order error depends on where the core's faces (z = +-0.1 um) fall in their cells:
+it by about 6e-3. Its error depends on where the core's faces (z = +-0.1 um) fall in their cells, and the uniform grids
+always put them on cell edges (the box is whole cells from them); shifted half a cell in z
+(`uniform-<nm>@3.2,<half height>`) they sit mid-cell:
 
-| grid | core faces | 25 nm | 20 nm | second-order fit S0 + C h^2 |
+| uniform grid | core faces | 25 nm | 20 nm | 12.5 nm |
 |---|---|---|---|---|
-| uniform (the box puts the faces on cell edges) | on edges | 0.37780 | 0.36911 | S0 = 0.35365, C = 3.9e-5 / nm^2 |
-| uniform, shifted half a cell in z (`uniform-<nm>@3.2,<half height>`) | mid-cell | 0.36259 | 0.35943 | S0 = 0.35380, C = 1.4e-5 / nm^2 |
+| the box's own lattice | on edges | 0.37780 | 0.36911 | 0.36100 |
+| shifted half a cell in z | mid-cell | 0.36259 | 0.35943 | |
 
-The two placements converge to the same value (0.3537, within 1.4e-4); mid-cell faces have a 2.7 times smaller error
-constant here. `bf.mesh`'s lattice starts at the box's face, so its finest cells put the core's faces 0.17 to 0.44 into
-a cell, and its error constants (2.3e-5 to 4.0e-5 against 0.3537) fall between the two: the series converges to the
-same value. Shifting the lattice in y (the gap's walls on edges or mid-cell) moves the ratio by under 1e-3.
+One fit `S0 + C h^p` to these five, with S0 and p shared and C per placement, gives **S0 = 0.3558**, p = 2.16,
+C = 2.1e-5 (on edges) and 6.4e-6 (mid-cell) per nm^p, rms 2.8e-4: the placement sets the error constant, not the
+limit. (Fits of 25 and 20 nm alone, at p = 2, gave 0.3537 for both placements; 12.5 nm showed that range was not yet
+asymptotic.) Shifting the lattice in y instead (the gap's walls on edges or mid-cell) moves the ratio by under 1e-3.
 
-The mesher itself is not the source of any of this. On the lattices of the uniform grids (`cells-<core>-<clad>`:
+`bf.mesh`'s lattice starts at the box's face, so its finest cells put the core's faces 0.17 to 0.44 into a cell. Against
+S0 its error at ppw 14, 17 and 20 (core cells 19, 16 and 13 nm) is 9.9e-3, 6.6e-3 and 3.4e-3; divided by h^2.16 that is
+1.75e-5, 1.66e-5 and 1.35e-5, about constant and between the two uniform placements' constants. It has no offset of its
+own: it converges to the same value.
+
+The mesher itself is not the source of any difference. On the lattices of the uniform grids (`cells-<core>-<clad>`:
 `material_cells` forcing both materials to 20 or 25 nm) `bf.mesh`'s pipeline gives uniform 20 and 25 nm's ratios
 within 5e-6 (the same edges as a `RectilinearGrid`, with `grid=` on the ports and `Mesh.boundary`); grading the oxide
 from the 20 nm core to 27 or 40 nm in y and z moves it by 4e-6 and 2.8e-5, with 76 % and 56 % of the cells.
 
-At equal cell count `bf.mesh` is closer to the converged value than the uniform grids with faces on edges (ppw 12,
-46 M cells: 1.2e-2; uniform 20 nm, 89 M cells: 1.5e-2). Mid-cell faces on a uniform grid do better still (20 nm:
-5.7e-3), which `bf.mesh` does not choose yet. A grid of 241 M cells (`bf.mesh` ppw 20) or 366 M (uniform 12.5 nm) does
-not fit an L40S's 46 GB (about 205 bytes per cell at peak, mostly `apply_stack`'s painting).
+At equal cell count `bf.mesh` is closer to the converged value than the uniform grids with faces on edges: ppw 12
+(46 M cells) 9.5e-3 against uniform 20 nm (89 M) 1.3e-2, and ppw 20 (241 M) 3.4e-3 against uniform 12.5 nm (366 M)
+5.3e-3. Mid-cell faces on a uniform grid do better still (20 nm, 90 M cells: 3.7e-3), which `bf.mesh` does not choose
+yet.

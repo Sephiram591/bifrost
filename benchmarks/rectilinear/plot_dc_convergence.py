@@ -4,7 +4,8 @@
 
 Top: the splitting ratio at 619 nm on uniform grids (the core's faces on cell edges, as the box puts them), on uniform
 grids shifted half a cell in z (the faces mid-cell) and on bf.mesh's. Bottom: its distance from the converged value,
-from second-order fits S0 + C h^2 to the two uniform placements (they agree; the faces' place in their cells sets C).
+from one fit S0 + C h^p to every uniform grid of 25 nm and finer, S0 and p shared by both placements and C their own
+(the faces' place in their cells sets C, not the limit).
 """
 
 from __future__ import annotations
@@ -25,10 +26,22 @@ SURFACE, INK, MUTED, GRID = "#fcfcfb", "#1f1f1e", "#6b6a63", "#e6e5e0"
 MID_SHIFT = "@3.2,"  # the uniform grids shifted half a cell in z: <grid>@3.2,<half height>
 
 
-def second_order(h: np.ndarray, s: np.ndarray) -> tuple[float, float]:
-    """(S0, C) of the least-squares fit s = S0 + C h^2."""
-    coef, *_ = np.linalg.lstsq(np.column_stack([np.ones_like(h), h**2]), s, rcond=None)
-    return float(coef[0]), float(coef[1])
+def joint_fit(groups: list[list[tuple[float, float]]]) -> tuple[float, float, list[float], float]:
+    """(S0, p, C per group, rms) of the least-squares fit s = S0 + C_g h^p, S0 and p shared, p over [1, 4]."""
+    best = None
+    rows = [(g, h, s) for g, points in enumerate(groups) for h, s in points]
+    b = np.array([s for _, _, s in rows])
+    for p in np.linspace(1.0, 4.0, 3001):
+        a = np.zeros((len(rows), 1 + len(groups)))
+        a[:, 0] = 1.0
+        for i, (g, h, _) in enumerate(rows):
+            a[i, 1 + g] = h**p
+        coef, *_ = np.linalg.lstsq(a, b, rcond=None)
+        res = float(np.sum((a @ coef - b) ** 2))
+        if best is None or res < best[0]:
+            best = (res, float(p), coef)
+    res, p, coef = best
+    return float(coef[0]), p, [float(c) for c in coef[1:]], float(np.sqrt(res / len(rows)))
 
 
 def main(src: str, dst: str) -> None:
@@ -45,14 +58,10 @@ def main(src: str, dst: str) -> None:
         """A uniform grid's cell (nm), from its name."""
         return float(r["grid"].split("-")[1].split("@")[0])
 
-    fits = []
-    for name, rs in (("faces on edges", edge), ("faces mid-cell", mid)):
-        fine = [r for r in rs if cell(r) <= 25]  # the asymptotic range
-        s0, c = second_order(np.array([cell(r) for r in fine]), np.array([r["split"] for r in fine]))
-        fits.append(s0)
-        print(f"uniform, {name}: S0 = {s0:.5f}, C = {c:.3e} per nm^2 (from {[r['grid'] for r in fine]})")
-    s0 = float(np.mean(fits))
-    print(f"converged: {s0:.5f} (the two fits differ by {abs(fits[0] - fits[1]):.1e})")
+    groups = [[(cell(r), r["split"]) for r in rs if cell(r) <= 25] for rs in (edge, mid)]  # the asymptotic range
+    s0, p, cs, rms = joint_fit(groups)
+    print(f"converged: S0 = {s0:.5f}, p = {p:.2f}, C (faces on edges, mid-cell) = {cs[0]:.3e}, {cs[1]:.3e}, "
+          f"rms {rms:.1e}")
     for r in edge + mid + mesh:
         print(f"{r['grid']:>22} {r['total_cells'] / 1e6:7.1f}M  split {r['split']:.5f}  |S - S0| "
               f"{abs(r['split'] - s0):.2e}  run {r['run_s']:.0f} s")
@@ -92,11 +101,12 @@ def main(src: str, dst: str) -> None:
         # the mid-cell points sit among bf.mesh's on top: label them in the bottom panel, where they stand apart
         ax, ys = (bottom, np.abs(split - s0)) if rs is mid else (top, split)
         for r, x, y in zip(rs, cells, ys, strict=True):
-            above = r["grid"] == "mesh-14"  # below it runs the mid-cell series
+            # below the finer bf.mesh points run the mid-cell series and the converged line
+            above = r["grid"].startswith("mesh-") and float(r["grid"].split("-")[1]) >= 12
             ax.annotate(label(r), (x, y), textcoords="offset points", xytext=(0, 8) if above else offset,
                         ha="center" if above else ha, va="bottom" if above else va, fontsize=8, color=MUTED)
     top.axhline(s0, color=MUTED, linewidth=1, linestyle=(0, (4, 3)), zorder=1)
-    top.annotate(f"converged: {s0:.4f} (h² fits of both uniform placements)", (0.01, s0),
+    top.annotate(f"converged: {s0:.4f} (fit of the uniform grids, order {p:.2f})", (0.01, s0),
                  xycoords=("axes fraction", "data"), xytext=(0, 4), textcoords="offset points", fontsize=8,
                  color=MUTED)
     top.set_ylabel("splitting ratio at 619 nm\nP_cross / (P_cross + P_through)")
