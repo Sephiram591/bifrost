@@ -195,7 +195,20 @@ always put them on cell edges (the box is whole cells from them); shifted half a
 
 One fit `S0 + C h^p` to those of 25 nm and finer, with S0 and p shared and C per placement, gives **S0 = 0.3558**, p = 2.16,
 C = 2.1e-5 (on edges) and 6.4e-6 (mid-cell) per nm^p, rms 2.8e-4: the placement sets the error constant, not the
-limit. (Fits of 25 and 20 nm alone, at p = 2, gave 0.3537 for both placements; 12.5 nm showed that range was not yet
+limit.
+
+Between the two, at 25 nm (`uniform-25%<f>`: the box one cell taller, both core faces at the fraction f of their
+cells):
+
+| f | 0 (on an edge) | 1/8 | 1/4 | 3/8 | 1/2 (mid-cell) | 3/4 |
+|---|---|---|---|---|---|---|
+| splitting ratio | 0.37780 | 0.37682 | 0.37393 | 0.36916 | 0.36259 | 0.37393 |
+| minus S0 | 2.21e-2 | 2.11e-2 | 1.82e-2 | 1.34e-2 | 6.84e-3 | 1.82e-2 |
+
+The error falls with the square of the face's distance d from the nearest edge (in cells), `2.205e-2 - 6.08e-2 d^2`
+within 1e-4, and is symmetric about the middle (3/4 gives 1/4's ratio to six digits): its minimum is exactly mid-cell,
+a cusp (there the face crosses the boundary of Ex's and Ey's averaging cells, where the averaged permittivity has a
+kink). An eighth of a cell off the middle doubles the error; near it the error grows by about 9 % per 1 % of a cell. (Fits of 25 and 20 nm alone, at p = 2, gave 0.3537 for both placements; 12.5 nm showed that range was not yet
 asymptotic.) Shifting the lattice in y instead (the gap's walls on edges or mid-cell) moves the ratio by under 1e-3.
 
 `bf.mesh`'s lattice starts at the box's face, so its finest cells put the core's faces 0.17 to 0.44 into a cell. Against

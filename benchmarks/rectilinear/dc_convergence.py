@@ -12,7 +12,8 @@ are saved too. Grids:
 * ``meshoff-<ppw>``: the same with ``center_faces=False``;
 * ``cells-<core nm>-<clad nm>``: :func:`bifrost.mesh` with the materials' cells given (``material_cells``);
 * ``<grid>@<half y>[,<half z>]``: the box's half height in y (and z) changed, which shifts the lattice against
-  the guides.
+  the guides;
+* ``uniform-<nm>%<f>``: the box one cell taller, so that both core faces sit at the fraction ``f`` of their cells.
 
 One grid per process (clean peak memory); each appends one JSON line to ``out``::
 
@@ -46,7 +47,20 @@ def run(kind: str) -> dict:
     if span:
         half = [float(v) for v in span.split(",")]
         dc.HALF_SPAN = (half[0], half[1] if len(half) > 1 else dc.HALF_SPAN[1])
-    stack = dc.build_stack()
+    # uniform-<nm>%<f>: the box one cell taller, f cells of it below and 1 - f above, so that both core faces
+    # (whole cells from the box's faces before) sit at f of their cells
+    kind, _, frac = kind.partition("%")
+    if frac:
+        f, h = float(frac), float(kind.split("-")[1]) * 1e-3
+        dy = dc.HALF_SPAN[0] - (dc.PORT_GAP + 2 * dc.WIDTH) / 2
+        dz = dc.HALF_SPAN[1] - dc.HEIGHT / 2
+        stack = bf.stack.StackDevice.from_layer_stack(
+            dc.directional_coupler(), dc.LAYER_STACK, dc.MATERIALS, background="clad", name="stack",
+            zrange_layers=["core"], extend_ports=tuple((p, dc.EXTENSION) for p in ("o1", "o2", "o3", "o4")),
+            boundary_offset=(0.0, 0.0, dy, -dy, dz + (1 - f) * h, -(dz + f * h)), averaging=dc.AVERAGING,
+        )
+    else:
+        stack = dc.build_stack()
     summary = None
     if kind.startswith("uniform-"):
         res = float(kind.split("-")[1]) * 1e-3
