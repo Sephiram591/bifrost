@@ -188,12 +188,12 @@ it by about 6e-3. Its error depends on where the core's faces (z = +-0.1 um) fal
 always put them on cell edges (the box is whole cells from them); shifted half a cell in z
 (`uniform-<nm>@3.2,<half height>`) they sit mid-cell:
 
-| uniform grid | core faces | 25 nm | 20 nm | 12.5 nm |
-|---|---|---|---|---|
-| the box's own lattice | on edges | 0.37780 | 0.36911 | 0.36100 |
-| shifted half a cell in z | mid-cell | 0.36259 | 0.35943 | |
+| uniform grid | core faces | 50 nm | 40 nm | 25 nm | 20 nm | 12.5 nm |
+|---|---|---|---|---|---|---|
+| the box's own lattice | on edges | 0.45116 | 0.41787 | 0.37780 | 0.36911 | 0.36100 |
+| shifted half a cell in z | mid-cell | 0.39023 | 0.37887 | 0.36259 | 0.35943 | (queued) |
 
-One fit `S0 + C h^p` to these five, with S0 and p shared and C per placement, gives **S0 = 0.3558**, p = 2.16,
+One fit `S0 + C h^p` to those of 25 nm and finer, with S0 and p shared and C per placement, gives **S0 = 0.3558**, p = 2.16,
 C = 2.1e-5 (on edges) and 6.4e-6 (mid-cell) per nm^p, rms 2.8e-4: the placement sets the error constant, not the
 limit. (Fits of 25 and 20 nm alone, at p = 2, gave 0.3537 for both placements; 12.5 nm showed that range was not yet
 asymptotic.) Shifting the lattice in y instead (the gap's walls on edges or mid-cell) moves the ratio by under 1e-3.
@@ -222,7 +222,10 @@ at ppw 6). Against S0:
 | 14 | 79 M | 1.0e-2 | 4.4e-3 |
 | 17 | 136 M | 6.6e-3 | 3.1e-3 |
 
-Centering removes a third to two thirds of the error. At equal cell count `bf.mesh` is now well ahead of the uniform
-grids: ppw 12 (46 M cells, 160 s) matches uniform 20 nm with its faces mid-cell (90 M, 348 s: 3.7e-3) and beats the
+Centering removes a third to two thirds of the error. At the coarsest cells a uniform grid with its faces mid-cell is
+still a little closer (50 nm: 3.5e-2 against ppw 6's 4.1e-2, both 5.8 M cells; level at about 14 M; not
+investigated). From ppw 10 on `bf.mesh` is ahead: ppw 12 (46 M cells, 160 s) matches uniform 20 nm with its faces
+mid-cell (90 M, 348 s:
+3.7e-3) and beats the
 uniform grids as the box makes them (faces on edges: 20 nm, 89 M, 1.3e-2; 12.5 nm, 366 M, 5.3e-3). Differences of a
 few 1e-3 are within S0's own uncertainty (pairwise h^2 extrapolations spread over about 2e-3).
