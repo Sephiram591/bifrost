@@ -11,3 +11,7 @@
 ::: bifrost.stack.init_stack_params
 
 ::: bifrost.stack.StackDiagnosticWarning
+
+::: bifrost.stack.ModePlaneSource
+
+::: bifrost.stack.ModeOverlapDetector

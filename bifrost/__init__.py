@@ -13,10 +13,13 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from . import geometry, grids, jitting, stack, subpixel, timing
-from .grids import graded_edges
+from . import geometry, grids, jitting, meshing, stack, subpixel, timing
+from .grids import AxisEdges, axis_edges, graded_edges, lattice_edges
 from .jitting import COMPILER_OPTIONS, compiler_options, jit
+from .meshing import CoarseVertices, Mesh, Refine, mesh
 from .stack import (
+    ModeOverlapDetector,
+    ModePlaneSource,
     StackDevice,
     StackDiagnosticWarning,
     StackOptions,
@@ -30,12 +33,19 @@ __version__ = "0.2.0"
 
 __all__ = [
     "COMPILER_OPTIONS",
+    "AxisEdges",
+    "CoarseVertices",
+    "Mesh",
+    "ModeOverlapDetector",
+    "ModePlaneSource",
+    "Refine",
     "StackDevice",
     "StackDiagnosticWarning",
     "StackOptions",
     "TopRoughness",
     "__version__",
     "apply_stack",
+    "axis_edges",
     "compiler_options",
     "geometry",
     "graded_edges",
@@ -43,6 +53,9 @@ __all__ = [
     "init_stack_params",
     "jit",
     "jitting",
+    "lattice_edges",
+    "mesh",
+    "meshing",
     "record_timings",
     "stack",
     "subpixel",

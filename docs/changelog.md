@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- [Automatic meshing](guide/simulation-setup.md#automatic-meshing): `bf.mesh(stack, band, refine=bf.Refine(...))`
+  builds a device's graded grid from its geometry, the band and where the geometry may move (`dilation` per layer or
+  per vertex, `z_padding` per level): cells of `lambda / (n ppw)` wherever a material is or may come to be, an
+  evanescent tail of 3 decay lengths past every boundary toward a lower index, narrow parts and gaps, explicit
+  regions. `bf.axis_edges` places each axis's edges in continuous real coordinates (`quantum=None` by default; pass a
+  float `quantum` to use `bf.lattice_edges` on a discrete lattice): every cell and dual cell within its target, a
+  growth limit, the largest smallest cell, then the fewest cells, uniform PML cells, mirror symmetry, and smooth LP+QP
+  grading.
+  The `Mesh` gives the fdtdx grid and boundaries and a summary; `StackDevice.coarse_vertices` counts, under jit, the
+  vertices that left the cells refined for them. On the inverse-design bend it is more than 20 times closer to the
+  uniform 40 nm grid than the hand-set graded grid, with about as many cells. By default (`center_faces=True`) every static
+  level's bottom and top material interface sits in the middle of a z cell (skipping faces moved by `Refine.z_padding`
+  so step-0 vertical derivatives stay off dual-cell kinks), which on the directional coupler leaves a third of the
+  error of faces on cell edges; `bf.axis_edges(..., centers=...)` and `bf.lattice_edges(..., centers=...)` center any
+  coordinates.
 - [Graded grids](guide/simulation-setup.md#graded-grids): a `StackDevice` runs on an fdtdx `RectilinearGrid` whose
   cells differ along any axis (every averaging). Fill fractions stay exact, each field component averages over the dual
   cells between cell centers along the axes it is staggered on, and `averaging="subpixel_full"` solves a junction
@@ -11,6 +26,11 @@
   interpolated to the columns, and finite-difference normals from the distances between cell centers. `bf.graded_edges` places graded edges (fine regions, a growth limit,
   interfaces on edges, uniform cells under the PML), `StackDevice.rectilinear_grid` builds the grid over the box, and
   the `create_*_at` methods take `grid=` to give port planes whole cells there. Uniform grids are unchanged, bit for bit.
+- `bf.ModePlaneSource` and `bf.ModeOverlapDetector` (returned by `create_mode_plane_source_at` and
+  `create_mode_overlap_detector_at`): on a non-uniform `RectilinearGrid`, normalize launched mode fields and overlap
+  area weights against the simulation-wide `min_spacing**2` instead of each port plane's own `mean(face_area)`, removing
+  `fdtdx`'s `mean(A_in) / mean(A_out)` bias between port planes of different paddings, widths, or orientations (such as
+  90-degree bends with non-identical x/y grading). Uniform grids are unchanged, bit for bit.
 - The viewer adopts results recorded on non-uniform grids (detectors at their physical extent, from the grid's
   edges) and draws their field planes resampled onto an even grid at each graded axis's finest cell.
 - `averaging="subpixel_full"`: a junction sub-cell whose two largest face directions weigh nearly the same (a polygon

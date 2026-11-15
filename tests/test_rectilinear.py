@@ -849,3 +849,273 @@ def test_graded_x_full_averaging_closes_corners(angle: float):
     if angle == 0.0:
         exact = exact_areas(L_SHAPE, dual_cells(X_GRADED), dual_cells(Y_EDGES))
         np.testing.assert_allclose((1.0 / inv[2, 2, :, :, CORE_LAYER] - 1.0) / 11.0, exact, atol=1e-4)
+
+
+def test_mode_source_and_overlap_are_port_area_invariant_on_graded_grids():
+    """ModePlaneSource and ModeOverlapDetector normalize against min_spacing**2 on graded grids:
+    uniform grids stay bit-for-bit identical to fdtdx, while on graded grids two port planes with
+    different paddings (or orthogonal x/y slices on a 90-degree bend with dx != dy) agree on modal
+    power without fdtdx's mean(A_in)/mean(A_out) bias."""
+    c = gf.Component()
+    bend = c << gf.components.bend_euler(radius=1.8, width=0.45, layer=L.WG, allow_min_radius_violation=True)
+    c.add_port("o1", port=bend.ports["o1"])
+    c.add_port("o2", port=bend.ports["o2"])
+    b = c.bbox()
+    c.add_polygon(
+        [(b.left - 2.0, b.bottom - 2.0), (b.right + 2.0, b.bottom - 2.0),
+         (b.right + 2.0, b.top + 2.0), (b.left - 2.0, b.top + 2.0)],
+        layer=L.WAFER,
+    )
+    ls = LayerStack(layers={
+        "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
+        "box": LayerLevel(layer=L.WAFER, zmin=-1.5, thickness=1.5, material="sio2", mesh_order=2),
+    })
+    d = bf.StackDevice.from_layer_stack(
+        c, ls, MATERIALS, background="air", name="s", zrange_layers=["core"],
+        boundary_offset=(1.4, -1.2, 1.8, -1.2, 1.0, -1.2), extend_ports=(("o1", 0.6), ("o2", 0.6)),
+        diagnostics=False,
+    )
+    wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
+    volume, placing = d.get_simulation_volume()
+
+    # 1. UniformGrid: bit-for-bit identical to fdtdx's base classes
+    u_cfg = d.get_simulation_config(time=2e-15, grid=UniformGrid(spacing=0.05e-6))
+    src_u, sc_u = d.create_mode_plane_source_at("o1", (0.4, 0.3), wave_character=wave, port_offset=-0.2)
+    det_u, dc_u = d.create_mode_overlap_detector_at("o1", (0.4, 0.3), wave_characters=(wave,), direction="in")
+    assert isinstance(src_u, bf.ModePlaneSource) and isinstance(det_u, bf.ModeOverlapDetector)
+    raw_src, rsc = d._at_port(
+        fdtdx.ModePlaneSource, "o1", (0.4, 0.3), "mode_source", wavelengths_um=[1.55],
+        direction="in", level=None, port_offset=-0.2, name="raw_src", wave_character=wave, mode_index=0,
+    )
+    raw_det, rdc = d._at_port(
+        fdtdx.ModeOverlapDetector, "o1", (0.4, 0.3), "mode_detector", wavelengths_um=[1.55],
+        direction="in", level=None, port_offset=0.0, name="raw_det", wave_characters=(wave,), mode_index=0,
+    )
+    objs_u, arr_u, par_u, u_cfg, _ = fdtdx.place_objects(
+        object_list=[volume, d, src_u, det_u, raw_src, raw_det],
+        config=u_cfg, constraints=placing + sc_u + dc_u + rsc + rdc, key=jax.random.PRNGKey(0),
+    )
+    arr_u, objs_u, _ = bf.apply_stack(arr_u, objs_u, {**par_u, **bf.init_stack_params(objs_u)}, jax.random.PRNGKey(0))
+    np.testing.assert_array_equal(np.asarray(objs_u[src_u.name]._E), np.asarray(objs_u["raw_src"]._E))
+    np.testing.assert_array_equal(
+        np.asarray(objs_u[det_u.name]._cached_face_area_weights),
+        np.asarray(objs_u["raw_det"]._cached_face_area_weights),
+    )
+
+    # 2. Graded RectilinearGrid with unequal padding and 90-deg x/y ports:
+    #    launching amplitude=1 on either port gives physical flux == min_spacing**2 and |alpha| == 1
+    m = bf.mesh(d, 1.55, ppw=16, pml=0.6)
+    r_cfg = d.get_simulation_config(time=2e-15, grid=m.grid)
+    s1, s1c = d.create_mode_plane_source_at("o1", (0.35, 0.30), wave_character=wave, port_offset=-0.2, grid=m.grid)
+    s2, s2c = d.create_mode_plane_source_at("o2", (0.65, 0.50), wave_character=wave, port_offset=-0.2, grid=m.grid)
+    d1, d1c = d.create_mode_overlap_detector_at(
+        "o1", (0.35, 0.30), wave_characters=(wave,), direction="in", port_offset=-0.2, name="d1", grid=m.grid
+    )
+    d2, d2c = d.create_mode_overlap_detector_at(
+        "o2", (0.65, 0.50), wave_characters=(wave,), direction="in", port_offset=-0.2, name="d2", grid=m.grid
+    )
+    objs_r, arr_r, par_r, r_cfg, _ = fdtdx.place_objects(
+        object_list=[volume, d, s1, s2, d1, d2],
+        config=r_cfg, constraints=placing + s1c + s2c + d1c + d2c, key=jax.random.PRNGKey(0),
+    )
+    arr_r, objs_r, _ = bf.apply_stack(arr_r, objs_r, {**par_r, **bf.init_stack_params(objs_r)}, jax.random.PRNGKey(0))
+
+    a1 = np.asarray(bf.stack._plane_face_areas(objs_r["d1"]))
+    a2 = np.asarray(bf.stack._plane_face_areas(objs_r["d2"]))
+    assert a2.mean() / a1.mean() > 1.2  # genuinely different mean cell areas on the two port planes
+    ref_area = float(r_cfg.resolved_grid.min_spacing) ** 2
+
+    for s_name, d_name in ((s1.name, "d1"), (s2.name, "d2")):
+        src_obj, det_obj = objs_r[s_name], objs_r[d_name]
+        areas = np.asarray(bf.stack._plane_face_areas(src_obj))
+        # Physical Poynting flux of the source's mode fields equals min_spacing**2 on both ports
+        s_vec = 0.5 * np.real(np.cross(np.conj(np.asarray(src_obj._E)), np.asarray(src_obj._H), axis=0))
+        flux = abs(float(np.sum(s_vec[src_obj.propagation_axis] * areas)))
+        assert flux == pytest.approx(ref_area, rel=2e-5)
+        # Feeding a mode of physical power 2 * ref_area (2 * |src|) into compute_overlap gives |alpha|^2 == 2.0
+        phasor = jnp.concatenate([src_obj._E, src_obj._H], axis=0)[None, None] * math.sqrt(2.0)
+        alpha = complex(np.asarray(det_obj.compute_overlap({"phasor": phasor.astype(det_obj.dtype)}))[0])
+        assert abs(alpha) ** 2 == pytest.approx(2.0, rel=2e-5)
+
+
+# ---------------------------------------------------------------- continuous bf.mesh & gradients
+
+
+def test_long_uniform_float32_axis_recognized_by_frame_and_port_snap():
+    """A 43 um continuous uniform axis in float32 keeps its uniform classification in _grid_frame and _snap_extent."""
+    c = gf.Component()
+    c.add_polygon([(-21.5, -0.25), (21.5, -0.25), (21.5, 0.25), (-21.5, 0.25)], layer=L.WG)
+    c.add_polygon([(-21.5, -1.6), (21.5, -1.6), (21.5, 1.6), (-21.5, 1.6)], layer=L.SLAB150)
+    c.add_port(name="o1", center=(-21.5, 0.0), width=0.5, orientation=180, layer=L.WG)
+    ls = LayerStack(layers={
+        "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
+        "frame": LayerLevel(layer=L.SLAB150, zmin=-1.0, thickness=2.2, material="sio2", mesh_order=9),
+    })
+    d = bf.StackDevice.from_layer_stack(
+        c, ls, MATERIALS, background="sio2", name="s", zrange_layers=["frame"], diagnostics=False,
+    )
+    m = bf.mesh(d, 1.55, ppw=14, pml=1.0)
+    assert np.ptp(np.diff(m.edges[0])) <= 1e-12
+    assert d._snap_extent(m.grid, 0, 0.0, 2.0) is None
+    placed = place(d, m.grid)["s"]
+    assert placed.grid_frame.widths[0] is not None
+
+
+@pytest.mark.parametrize("averaging", ["subpixel", "subpixel_full"])
+def test_mesh_subpixel_gradients_match_finite_differences_all_params(averaging: str):
+    """Continuous bf.mesh preserves smooth AD gradients matching central FD across all 4 StackDevice parameter types."""
+    def make_wg(width_um: Any) -> gf.Component:
+        hw = 0.5 * width_um
+        c = gf.Component()
+        c.add_polygon([(-0.9, -hw), (0.9, -hw), (0.9, hw), (-0.9, hw)], layer=L.WG)
+        c.add_polygon([(-0.9, -0.8), (0.9, -0.8), (0.9, 0.8), (-0.9, 0.8)], layer=L.SLAB150)
+        return c
+
+    ls = LayerStack(layers={
+        "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1, sidewall_angle=12.0),
+        "box": LayerLevel(layer=L.SLAB150, zmin=-0.5, thickness=0.52, material="sio2", mesh_order=2),
+        "frame": LayerLevel(layer=L.SLAB150, zmin=-0.5, thickness=1.1, material="air", mesh_order=9),
+    })
+    d = bf.StackDevice.from_layer_stack(
+        make_wg(0.44), ls, MATERIALS, background="air", name="s", zrange_layers=["frame"],
+        averaging=averaging, dtype=jnp.float64, diagnostics=False,
+    )
+    refine = bf.Refine(dilation={"WG": 0.08}, z_padding={"core": 0.04})
+    m = bf.mesh(d, 1.55, ppw=12, refine=refine, pml=0.25)
+    # Moving faces of 'core' (0.0 and 0.22) are left uncentered while static box/air face (0.02) is centered.
+    assert m.axes[2].centered == pytest.approx((0.02,))
+
+    volume, constraints = d.get_simulation_volume()
+    cfg = d.get_simulation_config(time=1e-15, grid=m.grid)
+    objects, arrays, params, cfg, _ = fdtdx.place_objects(
+        object_list=[volume, d], config=cfg, constraints=constraints, key=jax.random.PRNGKey(0)
+    )
+    params = {**params, **bf.init_stack_params(objects)}
+    placed = objects["s"]
+
+    # Smooth spatial weight mask so every component and coordinate contributes non-trivially
+    nx, ny, nz = m.shape
+    mask = (
+        (1.0 + 0.3 * jnp.linspace(-1.0, 1.0, nx)[:, None, None])
+        * (1.0 + 0.4 * jnp.cos(jnp.linspace(-1.2, 1.2, ny))[None, :, None])
+        * (1.0 + 0.5 * jnp.linspace(0.2, 1.5, nz)[None, None, :])
+    )
+
+    def loss(vec: jax.Array) -> jax.Array:
+        w_wg, z0, th, ang = vec[0], vec[1], vec[2], vec[3]
+        p_s = {
+            **placed.pack(make_wg(w_wg), params["s"]),
+            "zmin/core": z0,
+            "thickness/core": th,
+            "sidewall_angle/core": ang,
+        }
+        out, _, _ = bf.apply_stack(arrays, objects, {**params, "s": p_s}, jax.random.PRNGKey(0))
+        return jnp.mean(out.inv_permittivities * mask[None, ...])
+
+    v0 = jnp.array([0.44, 0.0, 0.22, 12.0], dtype=jnp.float64)
+    g_ad = np.asarray(jax.grad(loss)(v0))
+    assert np.all(np.isfinite(g_ad)) and np.all(np.abs(g_ad) > 1e-5)
+
+    eps_steps = (1e-5, 1e-5, 1e-5, 1e-3)
+    for idx, step in enumerate(eps_steps):
+        ei = jnp.zeros_like(v0).at[idx].set(step)
+        fd = float(loss(v0 + ei) - loss(v0 - ei)) / (2.0 * step)
+        assert g_ad[idx] == pytest.approx(fd, rel=1e-2), (averaging, idx, g_ad[idx], fd)
+
+
+def test_mesh_fdtd_value_and_grad_compiles_once_and_matches_fd():
+    """End-to-end FDTD adjoint value_and_grad on a continuous bf.mesh grid compiles once and matches central FD."""
+    def make_device(bridge_w: Any) -> gf.Component:
+        hw = 0.5 * bridge_w
+        c = gf.Component()
+        c.add_polygon([(-0.8, -0.225), (-0.35, -0.225), (-0.35, 0.225), (-0.8, 0.225)], layer=L.WG)
+        c.add_polygon([(0.35, -0.225), (0.8, -0.225), (0.8, 0.225), (0.35, 0.225)], layer=L.WG)
+        c.add_polygon([(-0.4, -hw), (0.4, -hw), (0.4, hw), (-0.4, hw)], layer=L.SLAB150)
+        c.add_port("o1", center=(-0.8, 0.0), width=0.45, orientation=180, layer=L.WG)
+        c.add_port("o2", center=(0.8, 0.0), width=0.45, orientation=0, layer=L.WG)
+        return c
+
+    ls = LayerStack(layers={
+        "bridge": LayerLevel(layer=L.SLAB150, zmin=0.0, thickness=0.19, material="si", mesh_order=1),
+        "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=2),
+        "box": LayerLevel(layer=L.WAFER, zmin=-1.0, thickness=1.0, material="sio2", mesh_order=3),
+    })
+    d = bf.StackDevice.from_layer_stack(
+        make_device(0.50), ls, MATERIALS, background="sio2", name="s", zrange_layers=["core"],
+        boundary_offset=(0.0, 0.0, 0.9, -0.9, 0.8, -0.8), extend_ports=(("o1", 0.6), ("o2", 0.6)),
+        dtype=jnp.float64, diagnostics=False,
+    )
+    m = bf.mesh(
+        d, 1.55, ppw=10,
+        refine=bf.Refine(dilation={"SLAB150": 0.08}, z_padding={"bridge": (0.0, 0.05)}),
+        pml=0.35,
+    )
+    # Static core faces (0.0, 0.22) are centered; moving bridge top (0.19) is left uncentered.
+    assert m.axes[2].centered == pytest.approx((0.0, 0.22))
+
+    wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
+    pulse = fdtdx.GaussianPulseProfile(
+        center_wave=wave, spectral_width=fdtdx.WaveCharacter(frequency=0.15 * wave.get_frequency())
+    )
+    cfg = d.get_simulation_config(
+        time=35e-15, grid=m.grid,
+        gradient_config=fdtdx.GradientConfig(method="checkpointed", num_checkpoints=20),
+    )
+    volume, placing = d.get_simulation_volume()
+    bounds, b_placing = fdtdx.boundary_objects_from_config(m.boundary, volume)
+    src, s_placing = d.create_mode_plane_source_at(
+        "o1", (0.35, 0.30), wave_character=wave, temporal_profile=pulse, port_offset=-0.15, grid=cfg
+    )
+    det, d_placing = d.create_mode_overlap_detector_at(
+        "o2", (0.35, 0.30), wave_characters=(wave,), scaling_mode="pulse", port_offset=-0.15, name="out", grid=cfg
+    )
+    objects, arrays, params, cfg, _ = fdtdx.place_objects(
+        object_list=[volume, d, src, det, *bounds.values()],
+        config=cfg, constraints=placing + b_placing + s_placing + d_placing, key=jax.random.PRNGKey(0),
+    )
+    params = {**params, **bf.init_stack_params(objects)}
+    placed = objects["s"]
+
+    def objective(theta: jax.Array, arrays, params) -> jax.Array:
+        p_s = {
+            **placed.pack(make_device(theta[0]), params["s"]),
+            "thickness/bridge": theta[1],
+        }
+        arr_step, objs_step, _ = bf.apply_stack(arrays, objects, {**params, "s": p_s}, jax.random.PRNGKey(0))
+        _, arr_out = fdtdx.run_fdtd(arrays=arr_step, objects=objs_step, config=cfg, key=jax.random.PRNGKey(0),
+                                    show_progress=False)
+        alpha = objs_step["out"].compute_overlap(arr_out.detector_states["out"])[0]
+        return jnp.abs(alpha) ** 2
+
+    compiles: list[float] = []
+    listen_active = True
+
+    def listener(event: str, duration: float, **_: object) -> None:
+        if listen_active and event == "/jax/core/compile/backend_compile_duration":
+            compiles.append(duration)
+
+    jax.monitoring.register_event_duration_secs_listener(listener)
+    try:
+        fwd = bf.jit(objective)
+        vag = bf.jit(jax.value_and_grad(objective))
+
+        dev = jax.devices()[0]
+        t0 = jax.device_put(jnp.array([0.50, 0.19], dtype=jnp.float64), dev)
+        n0 = len(compiles)
+        val0, grad0 = vag(t0, arrays, params)
+        n1 = len(compiles)
+        _, grad1 = vag(jax.device_put(jnp.array([0.53, 0.20], dtype=jnp.float64), dev), arrays, params)
+        _, grad2 = vag(jax.device_put(jnp.array([0.47, 0.18], dtype=jnp.float64), dev), arrays, params)
+        assert n1 - n0 >= 1 and len(compiles) == n1  # zero backend recompiles across steps 1 and 2
+        if hasattr(vag, "_cache_size"):
+            assert vag._cache_size() == 1
+        assert np.all(np.isfinite(np.asarray(grad0))) and np.all(np.isfinite(np.asarray(grad1)))
+        assert np.all(np.isfinite(np.asarray(grad2)))
+
+        step = 2e-4
+        for idx in (0, 1):
+            ei = jax.device_put(jnp.zeros_like(t0).at[idx].set(step), dev)
+            fd = float(fwd(t0 + ei, arrays, params) - fwd(t0 - ei, arrays, params)) / (2.0 * step)
+            assert float(grad0[idx]) == pytest.approx(fd, rel=3e-2, abs=5e-4), (idx, float(grad0[idx]), fd)
+    finally:
+        listen_active = False

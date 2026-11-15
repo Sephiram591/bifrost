@@ -9,7 +9,14 @@ A 500 x 220 nm silicon strip in silica with 10 degree walls, along x through a 6
 * ``graded-snap``: the same with the fine block's faces on uniform-20's edges, so its cells are uniform-20's and
   the painted permittivity can be compared cell by cell (``--save-eps``);
 * ``graded-wide``: 20 nm cells on uniform-20's edges 0.6 um past the core, growing to 60 nm (the PMLs about 1 um,
-  partly on the graded cells).
+  partly on the graded cells);
+* ``tail-<um>``: 20 nm cells on uniform-20's edges ``<um>`` past the core (0 for none), growing to 60 nm, as
+  graded-wide: the evanescent tail's own effect;
+* ``mesh-<l>``: :func:`bifrost.mesh` with 20 nm cells in silicon (and its tails), 60 nm in silica
+  (``material_cells``) and a global tail of ``<l>`` decay lengths, the fine cells on uniform-20's lattice;
+* ``meshppw-<ppw>``: :func:`bifrost.mesh` with ``ppw`` cells per wavelength in every material and its default
+  tail;
+* ``lattice-<l>``, ``latticeppw-<ppw>``: the same on the 1 nm lattice (``quantum=0.001``).
 
 ``--save-eps`` saves the device's inverse permittivity on the yz plane at the box's middle, with the y and z edges
 (um).
@@ -74,12 +81,35 @@ def build(kind: str):
         c, ls, mats, background="clad", zrange_layers=["core"], name="stack", diagnostics=False,
         boundary_offset=(0.0, 0.0, y1 - h, y0 + h, z1 - THICKNESS, z0),
     )
-    if kind.startswith("graded"):
+    if kind.startswith(("mesh", "lattice")):
+        head, val = kind.split("-", 1)
+        quantum = 0.001 if head.startswith("lattice") else None
+        if head.endswith("ppw"):
+            m = bf.mesh(stack, WAVELENGTH, ppw=float(val), pml=PML, quantum=quantum)
+        else:  # 20 nm in silicon (on uniform-20's lattice), 60 nm in silica, the tail in decay lengths
+            tail = float(val)
+            m = bf.mesh(stack, WAVELENGTH, ppw=WAVELENGTH / (N_CORE * 0.02), pml=PML, center_faces=False,
+                        quantum=quantum,
+                        refine=bf.Refine(global_dilation=tail, global_z_padding=tail, material_cells={"clad": 0.06}))
+        print(m.summary(), flush=True)
+        grid, bound = m.grid, m.boundary
+    elif kind.startswith(("graded", "tail")):
         n = math.ceil(PML / 0.06 - 1e-9)
         if kind == "graded":
             fy, fz, snap, ends = (-h - 0.2, h + 0.2), (-0.2, THICKNESS + 0.2), False, (n, n)
         elif kind == "graded-snap":  # the fine block's faces on uniform-20's edges (-1.6 + 0.02 j, -1.48 + 0.02 k)
             fy, fz, snap, ends = (-0.46, 0.46), (-0.2, 0.42), True, (n, n)
+        elif kind.startswith("tail-"):  # the block t um past the core, out to uniform-20's next edges
+            t = float(kind.split("-")[1])
+
+            def lattice(a: float, base: float, up: bool) -> float:
+                """The uniform-20 edge (from base) at or past a, outward."""
+                k = math.ceil((a - base) / 0.02 - 1e-9) if up else math.floor((a - base) / 0.02 + 1e-9)
+                return base + 0.02 * k
+
+            fy = (lattice(-h - t, y0, False), lattice(h + t, y0, True))
+            fz = (lattice(-t, z0, False), lattice(THICKNESS + t, z0, True))
+            snap, ends = True, (0, 0)
         else:
             fy, fz, snap, ends = (-0.86, 0.86), (-0.6, 0.82), True, (0, 0)
         ey, ez = (
@@ -103,7 +133,7 @@ def build(kind: str):
     volume, constraints = stack.get_simulation_volume()
     source, placing = stack.create_mode_plane_source_at(
         "o1", (0.6, 0.6), wave_character=wave, temporal_profile=pulse, port_offset=1.3, name="source",
-        mode_index=0, filter_pol="te", **({"grid": config} if kind.startswith("graded") else {}),
+        mode_index=0, filter_pol="te", **({} if kind.startswith("uniform") else {"grid": config}),
     )
     constraints += placing
     line = fdtdx.PhasorDetector(

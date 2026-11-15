@@ -33,6 +33,7 @@ nav:
       - bf.stack: api/stack.md
       - bf.geometry: api/geometry.md
       - bf.grids: api/grids.md
+      - bf.meshing: api/meshing.md
       - bf.jit: api/jitting.md
       - bf.subpixel and bf.timing: api/subpixel-timing.md
       - bf.viewer: api/viewer.md

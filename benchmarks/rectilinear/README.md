@@ -125,3 +125,132 @@ and 0.65). With the fix the tensor is continuous and they converge: sidewall ang
 1.2e-3 at 1e-5 um (1e-1 at 1e-4 um: second order, the blend is steep where the corner sits on a sub-cell's corner too;
 a band of 0.05 to 0.3 instead of 0.02 to 0.1 gives 1.8e-5, but `validate_closure.py`'s median error of the written
 tensor grows from 5.1 % to 5.8 %). The graded results above are unchanged by it (zmin 9.6e-5).
+
+## Automatic meshing (`bf.mesh`): the tail and ppw (`graded_guide.py`, `graded_bend.py`)
+
+`bf.mesh` refines wherever a material is or may come to be (`lambda / (n ppw)` there), plus an evanescent tail past
+each boundary in units of its decay length `l = lambda / (2 pi sqrt(n_high^2 - n_low^2))`. NVIDIA L40S, float32.
+
+**The tail** (`results/guide_tails.json`, the sloped silicon strip above, mode solver only, `--mode-only`): 20 nm
+cells on uniform-20's lattice over the core and some distance past it, growing to 60 nm in the silica; neff against
+uniform 20 nm's (2.378058). `tail-<um>` places the fine block by hand, `mesh-<l>` is `bf.mesh` with 20 nm in silicon,
+60 nm in silica (`material_cells`) and a global tail of that many decay lengths (here l = 0.078 um):
+
+| grid | fine cells past the core | cells (of uniform 20) | neff - uniform 20 |
+|---|---|---|---|
+| tail-0 | none | 19 % | -3.3e-3 |
+| tail-0.1 | 0.1 um | 23 % | -5.4e-4 |
+| tail-0.2 | 0.2 um | 27 % | -9.4e-5 |
+| tail-0.4 | 0.4 um | 37 % | -3.8e-6 |
+| mesh-1 | 1 l | 22 % | -5.8e-4 |
+| mesh-2 | 2 l | 26 % | -1.4e-4 |
+| mesh-3 (the default) | 3 l | 31 % | -3.7e-5 |
+| mesh-5 | 5 l | 84 % | -1.7e-6 |
+
+The error falls by about 6 per 0.1 um, as the field energy past the fine cells does (`exp(-2 x / delta)`, delta =
+0.131 um for this mode): the tail is about the evanescent field, also around geometry that never moves. Without it the
+graded grid gives up as much as uniform 40 nm does (3.3e-3). The fine cells must stay on one lattice for such
+comparisons (`center_faces=False` on `mesh-<l>`): at 20 nm fdtdx's neff moves by a few 1e-3 with where the cells fall on
+the sloped walls, which is why `bf.mesh` puts its finest cells on the lattice of their width from the box's face
+(`align_fine`), with narrower PML cells where wide ones cannot reach it. In the ppw sweep (`results/guide_ppw.json`,
+`meshppw-14` to `meshppw-26`, `center_faces=True` default), continuous `bf.mesh` converges smoothly and monotonically
+toward tidy3d's 2.38104 continuum limit (2.39026, 2.38807, 2.38661, 2.38558, 2.38448, 2.38389, 2.38338) with 11 to
+29 % fewer cells than the 1 nm lattice (`latticeppw-*`, `quantum=0.001`), where integer-nanometer snaps plateau around
+ppw 18–20 (2.38550, 2.38543) before jumping at ppw 24 (2.38301).
+
+**The inverse-design bend** (`results/bend_mesh*.json`): the transmission of the uniform-width bend on `bf.mesh`'s
+grids, `dilation={"WG": 0.45}` (the half-widths' reach), the default tail, against uniform 40 nm (11.46 M cells,
+0.55856, 23.8 s) and the hand-set graded 40 / 80 nm grid of the section above:
+
+| grid | cells (of uniform 40) | smallest cells (x, y / z) | T - T(40 nm) | forward run | 1 nm lattice (`quantum=0.001`) |
+|---|---|---|---|---|---|
+| hand-set graded 40 / 80 nm | 63 % | 40 nm | +4.4e-4 | 14.2 s | — |
+| mesh: 40 nm in the core, 80 nm in air and silica (`material_cells`) | 65 % | 40 / 39.5 nm | -2.0e-5 | 14.4 s | 66 %, -2.8e-5, 14.8 s |
+| mesh-auto-20: ppw 20 | 81 % | 38.8 / 37.5 nm | -1.4e-4 | 19.1 s | 85 %, -3.6e-4, 20.4 s |
+| mesh-auto-17: ppw 17 | 50 % | 45.7 / 44.1 nm | +2.1e-3 | 9.5 s | 51 %, +2.6e-3, 9.9 s |
+| mesh-auto: ppw 14 | 28 % | 55.5 / 53.6 nm | +2.6e-3 | 3.7 s | 29 %, +9.8e-3, 3.8 s |
+
+With the hand-set grid's choices, `bf.mesh` (its fine region from the dilation and the tail alone) is more than 20 times
+closer to uniform 40 nm. Removing the 1 nm lattice (`quantum=None`, the default) realizes exact `lambda / (n ppw)` core
+cells and smooth grading, trimming 2 to 5 % of the cells while cutting the error against uniform 40 nm by 2.6x at ppw 20
+(the default) and 3.8x at ppw 14 (+2.6e-3 with 28 % of the cells, twice as close as uniform 60 nm's +4.9e-3 at 30 %,
+for fast optimizations). The silica under the bend spans every x and y plane, so at ppw 20 its 54 nm target caps the
+lateral cells everywhere (the tensor product); coarsening it with `material_cells` (80 nm, about 13 cells per wavelength
+in silica) saves a fifth of the cells at no cost in accuracy here.
+
+## The directional coupler: convergence with the cell count (`dc_convergence.py`, `plot_dc_convergence.py`)
+
+The silicon-nitride directional coupler of `examples/fdtdx_directional_coupler.py` (43 x 6.4 x 2.6 um, a 300 nm gap
+over 20 um); the splitting ratio `P_cross / (P_cross + P_through)` at 619 nm, on uniform grids and on `bf.mesh`'s
+(band 538 to 728 nm, ppw 6 to 20, the default tail). Float32; L40S, and an H200 for the two largest grids (241 M and
+366 M cells: about 205 bytes per cell at peak, mostly `apply_stack`'s painting, 49 and 75 GB).
+`results/dc_convergence.jsonl`, plotted in `results/dc_convergence.png`:
+
+![splitting ratio against the total cell count](results/dc_convergence.png)
+
+The splitting ratio is very sensitive: the coupling falls about as `exp(-8.9 gap / um)`, so 1 nm of effective gap moves
+it by about 6e-3. Its error depends on where the core's faces (z = +-0.1 um) fall in their cells, and the uniform grids
+always put them on cell edges (the box is whole cells from them); shifted half a cell in z
+(`uniform-<nm>@3.2,<half height>`) they sit mid-cell:
+
+| uniform grid | core faces | 50 nm | 40 nm | 25 nm | 20 nm | 12.5 nm |
+|---|---|---|---|---|---|---|
+| the box's own lattice | on edges | 0.45116 | 0.41787 | 0.37780 | 0.36911 | 0.36100 |
+| shifted half a cell in z | mid-cell | 0.39023 | 0.37887 | 0.36259 | 0.35943 | (queued) |
+
+One fit `S0 + C h^p` to those of 25 nm and finer, with S0 and p shared and C per placement, gives **S0 = 0.3558**, p = 2.16,
+C = 2.1e-5 (on edges) and 6.4e-6 (mid-cell) per nm^p, rms 2.8e-4: the placement sets the error constant, not the
+limit.
+
+Between the two, at 25 nm (`uniform-25%<f>`: the box one cell taller, both core faces at the fraction f of their
+cells):
+
+| f | 0 (on an edge) | 1/8 | 1/4 | 3/8 | 1/2 (mid-cell) | 3/4 |
+|---|---|---|---|---|---|---|
+| splitting ratio | 0.37780 | 0.37682 | 0.37393 | 0.36916 | 0.36259 | 0.37393 |
+| minus S0 | 2.21e-2 | 2.11e-2 | 1.82e-2 | 1.34e-2 | 6.84e-3 | 1.82e-2 |
+
+The error falls with the square of the face's distance d from the nearest edge (in cells), `2.205e-2 - 6.08e-2 d^2`
+within 1e-4, and is symmetric about the middle (3/4 gives 1/4's ratio to six digits): its minimum is exactly mid-cell,
+a cusp (there the face crosses the boundary of Ex's and Ey's averaging cells, where the averaged permittivity has a
+kink). An eighth of a cell off the middle doubles the error; near it the error grows by about 9 % per 1 % of a cell. (Fits of 25 and 20 nm alone, at p = 2, gave 0.3537 for both placements; 12.5 nm showed that range was not yet
+asymptotic.) Shifting the lattice in y instead (the gap's walls on edges or mid-cell) moves the ratio by under 1e-3.
+
+Without face centering (`center_faces=False`: `meshoff-<ppw>` on continuous `bf.mesh`, `latticeoff-<ppw>` with
+`quantum=0.001`), the core's z faces fall wherever the box-aligned lattice lands (at fractions 0.38 to 0.84 on
+`meshoff-*`, 0.17 to 0.44 on `latticeoff-*`). Against S0, `latticeoff-*` at ppw 14, 17 and 20 (core cells 19, 16 and
+13 nm; 79, 136 and 241 M cells) gives 9.9e-3, 6.5e-3 and 3.4e-3; divided by h^2.16 that is 1.75e-5, 1.66e-5 and
+1.35e-5, about constant and between the two uniform placements' constants. Neither has an offset of its own: both
+converge to the same value.
+
+The mesher itself is not the source of any difference. On the lattices of the uniform grids (`cells-<core>-<clad>`,
+`center_faces=False`: `material_cells` forcing both materials to 20 or 25 nm) `bf.mesh`'s pipeline gives uniform 20 and
+25 nm's ratios within 5e-6 (the same edges as a `RectilinearGrid`, with `grid=` on the ports and `Mesh.boundary`);
+grading the oxide from the 20 nm core to 27 or 40 nm in y and z moves it by 5e-6 and 2.9e-5, with 76 % and 56 % of the
+cells.
+
+So `bf.mesh` puts every static level's bottom and top face in the middle of a z cell by default (`center_faces=True`:
+`mesh-<ppw>`, and `lattice-<ppw>` with `quantum=0.001`). Continuous `bf.mesh` places both core z faces at 0.500 of their
+cells at every ppw (1 nm lattice: 0.46 to 0.54, since 200 nm is not an odd multiple of whole-nanometer widths), keeps x
+strictly uniform, and uses up to 8.5 % fewer cells (9 to 11 % faster at ppw 10, 14 and 17). Against S0:
+
+| ppw | cells (continuous / 1 nm) | not centered (`meshoff` / `latticeoff`) | centered: continuous (`mesh`, default) | centered: 1 nm (`lattice`) |
+|---|---|---|---|---|
+| 6 | 5.8 M / 5.8 M | 8.0e-2 / 8.0e-2 | 4.1e-2 | 4.1e-2 |
+| 8 | 13.4 M / 13.8 M | 3.0e-2 / 2.8e-2 | 2.0e-2 | 2.1e-2 |
+| 10 | 26.3 M / 28.4 M | 1.1e-2 / 1.7e-2 | 5.8e-3 | 9.6e-3 |
+| 12 | 45.2 M / 46.3 M | 1.6e-2 / 9.5e-3 | 9.8e-3 | 3.6e-3 |
+| 13 | 58.0 M / — | — | 6.3e-3 | — |
+| 14 | 72.0 M / 78.6 M | 4.8e-3 / 9.9e-3 | 3.5e-3 | 4.3e-3 |
+| 17 | 128.9 M / 136.0 M | 8.6e-3 / 6.5e-3 | 3.3e-3 | 3.1e-3 |
+
+Centering removes up to two thirds of the error (`meshoff-17` -> `mesh-17`: 8.6e-3 -> 3.3e-3, where `meshoff-17` lands
+0.16 of a cell from an edge). On y, unlike uniform 20 and 25 nm where the 400 nm guide width and 300 nm gap are whole
+numbers of cells (so shifting y moves both walls together), non-divisor core widths (27.6, 23.0, 19.7 nm) place the
+inner gap wall (`y = +-0.15 um`) and outer wall (`+-0.55 um`) at different cell fractions, modulating the effective gap
+by O(h_y^2) (a few 1e-3 here): at ppw 12 (23.0 nm core y cells), `mesh-12` (257 y cells) puts the gap wall on an edge
+(f = 0.02) while `lattice-12` (258 y cells, half-cell shifted) puts it mid-cell (f = 0.52); at ppw 10 and ppw 14
+`mesh-*` lands near mid-cell (f = 0.43 and 0.61) and beats `lattice-*` with 7 to 8 % fewer cells. From ppw 10 on
+`bf.mesh` is ahead of the uniform grids: `mesh-14` (72 M cells, 291 s, 3.5e-3) matches uniform 20 nm with its faces
+mid-cell (90 M, 348 s, 3.7e-3) and beats the uniform grids as the box makes them (20 nm, 89 M, 1.3e-2; 12.5 nm, 366 M,
+5.2e-3). Differences of a few 1e-3 are within S0's own uncertainty (pairwise h^2 extrapolations spread over about 2e-3).
