@@ -1,7 +1,24 @@
-/* The site name in the header, next to the logo that links home, is set in Eczar. The font itself is loaded by
-   the Google Fonts stylesheet listed before this file in `extra_css` (docs/zensical.yml), which is how the theme's
-   own fonts (Inter, JetBrains Mono) arrive; a serif is the fallback while it loads or if it is blocked. The weight
-   stays the theme's bold, so the stylesheet asks for 700 only. */
+/* The word "bifrost" outside code — including the header site name next to the logo, the narrow-viewport drawer
+   title, and non-code prose/headings wrapped as `.bf-word` by `javascripts/site-title.js` — is set in regular
+   (weight 400) Eczar, loaded by the Google Fonts stylesheet listed before this file in `extra_css` (docs/zensical.yml). */
 .md-header__topic:first-child {
   font-family: "Eczar", serif;
+  font-weight: 400;
+}
+
+.md-nav .md-nav__title[for="__drawer"] {
+  font-family: "Eczar", serif;
+  font-weight: 400;
+}
+
+.bf-word,
+.bf-word mark,
+.bf-word strong,
+.bf-word b,
+.md-typeset .bf-word,
+mark .bf-word,
+strong .bf-word,
+b .bf-word {
+  font-family: "Eczar", serif;
+  font-weight: 400;
 }

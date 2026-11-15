@@ -57,6 +57,13 @@ def _(anywidget, mo, traitlets):
               link.href = sheet;
               into.append(link);
             }
+            const eczar = "https://fonts.googleapis.com/css2?family=Eczar:wght@400&display=swap";
+            if (![...document.head.querySelectorAll("link")].some((l) => l.href === eczar)) {
+              const font = document.createElement("link");
+              font.rel = "stylesheet";
+              font.href = eczar;
+              document.head.append(font);
+            }
             el.style.height = model.get("height");
             const demo = await import(bundle);
             await demo.mountInto(el, model.get("src"));
@@ -153,7 +160,7 @@ def _(PROSE, mo):
 
         The page around the viewer is this notebook,
         <a href="https://github.com/Sephiram591/bifrost/blob/main/docs/notebooks/widget_demo.py" target="_blank"><code>docs/notebooks/widget_demo.py</code></a>,
-        exported with `marimo export html-wasm` when the docs are built. It does not import bifrost (jax, fdtdx and
+        exported with `marimo export html-wasm` when the docs are built. It does not import <span class="bf-word" style="font-family: 'Eczar', serif; font-weight: 400;">bifrost</span> (jax, fdtdx and
         gdsfactory do not run in a browser): its widget loads the same viewer bundle on the exported files, and one of its
         cells reads the run's `manifest.json` for the summary under the viewer.
 

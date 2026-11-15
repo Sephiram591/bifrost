@@ -225,12 +225,136 @@ def test_the_site_name_in_the_header_is_set_in_eczar(browser, base_url, path):
     page = browser.new_page(viewport={"width": 1600, "height": 900})
     try:
         page.goto(f"{base_url}/{path}")
-        family = page.locator(".md-header__topic").first.evaluate("(e) => getComputedStyle(e).fontFamily")
-        assert family.replace('"', "").split(",")[0].strip() == "Eczar", family
-        # the page asks Google Fonts for it, as it does for the theme's own fonts
-        assert any("fonts.googleapis.com/css2?family=Eczar" in href for href in page.evaluate(
-            "() => [...document.querySelectorAll('link[rel=stylesheet]')].map(l => l.href)"
-        ))
+        style = page.locator(".md-header__topic").first.evaluate(
+            "(e) => ({ family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight })"
+        )
+        assert style["family"].replace('"', "").split(",")[0].strip() == "Eczar", style
+        assert style["weight"] == "400", style
+        ellipsis = page.locator(".md-header__topic .md-ellipsis").first.evaluate(
+            "(e) => ({ family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight })"
+        )
+        assert ellipsis["family"].replace('"', "").split(",")[0].strip() == "Eczar", ellipsis
+        assert ellipsis["weight"] == "400", ellipsis
+        # the page asks Google Fonts for regular Eczar, as it does for the theme's own fonts
+        hrefs = page.evaluate("() => [...document.querySelectorAll('link[rel=stylesheet]')].map(l => l.href)")
+        assert any("fonts.googleapis.com/css2?family=Eczar:wght@400" in href for href in hrefs), hrefs
+        assert not any("Eczar:wght@700" in href for href in hrefs), hrefs
+        page.set_viewport_size({"width": 390, "height": 844})
+        drawer = page.locator('.md-nav .md-nav__title[for="__drawer"]').first.evaluate(
+            "(e) => ({ family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight })"
+        )
+        assert drawer["family"].replace('"', "").split(",")[0].strip() == "Eczar", drawer
+        assert drawer["weight"] == "400", drawer
+    finally:
+        page.close()
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["", "installation/", "getting-started/", "guide/simulation-setup/", "api/stack/", "api/jitting/"],
+)
+def test_every_non_code_bifrost_is_set_in_regular_eczar_and_code_is_not(browser, base_url, path):
+    page = browser.new_page(viewport={"width": 1600, "height": 900})
+    try:
+        page.goto(f"{base_url}/{path}")
+        report = page.evaluate(
+            """() => {
+              const badStyles = [];
+              for (const el of document.querySelectorAll('.bf-word')) {
+                const cs = getComputedStyle(el);
+                const fam = cs.fontFamily.replace(/"/g, '').split(',')[0].trim();
+                if (fam !== 'Eczar' || cs.fontWeight !== '400') {
+                  badStyles.push({ text: el.textContent, fam: cs.fontFamily, weight: cs.fontWeight });
+                }
+              }
+              const skipSel = [
+                'code', 'pre', 'kbd', 'samp', 'var', 'script', 'style', 'noscript', 'template',
+                'textarea', 'svg', 'math', '.highlight', '.arithmatex', '.mjx-container', '.md-source'
+              ].join(',');
+              const badAncestors = [...document.querySelectorAll(`${skipSel}`)].flatMap(
+                (root) => [...root.querySelectorAll('.bf-word')].map((el) => el.textContent)
+              );
+              const repo = document.querySelector('.md-source__repository');
+              const repoFamily = repo ? getComputedStyle(repo).fontFamily : '';
+              const h1Word = document.querySelector('.md-content h1 .bf-word');
+              const h1Style = h1Word ? {
+                text: h1Word.textContent,
+                fam: getComputedStyle(h1Word).fontFamily.replace(/"/g, '').split(',')[0].trim(),
+                weight: getComputedStyle(h1Word).fontWeight,
+              } : null;
+
+              const blocks = new Set([
+                'ADDRESS','ARTICLE','ASIDE','BLOCKQUOTE','BR','DD','DETAILS','DIV','DL','DT',
+                'FIGCAPTION','FIGURE','FOOTER','FORM','H1','H2','H3','H4','H5','H6',
+                'HEADER','HGROUP','HR','LI','MAIN','NAV','OL','P','PRE','SECTION',
+                'SUMMARY','TABLE','TD','TH','TR','UL'
+              ]);
+              const wordRe = /(?<![\\w/@-])(?<!\\w\\.)bifrost(?![\\w/-]|\\.\\w)/gi;
+              const leftover = [];
+              const content = document.querySelector('.md-content');
+              let buf = '';
+              function flush() {
+                wordRe.lastIndex = 0;
+                const m = wordRe.exec(buf);
+                if (m) leftover.push(buf.trim());
+                buf = '';
+              }
+              function walk(node) {
+                if (node.nodeType === Node.TEXT_NODE) { buf += node.nodeValue; return; }
+                if (node.nodeType !== Node.ELEMENT_NODE) return;
+                if (node.matches(`${skipSel},.bf-word`)) { buf += ' '; return; }
+                const isBlock = blocks.has(node.tagName);
+                if (isBlock) flush();
+                for (const c of node.childNodes) walk(c);
+                if (isBlock) flush();
+              }
+              if (content) { walk(content); flush(); }
+
+              return {
+                count: document.querySelectorAll('.bf-word').length,
+                badStyles,
+                badAncestors,
+                repoFamily,
+                h1Style,
+                leftover,
+              };
+            }"""
+        )
+        assert not report["badStyles"], report["badStyles"]
+        assert not report["badAncestors"], report["badAncestors"]
+        assert not report["leftover"], report["leftover"]
+        assert report["repoFamily"].replace('"', "").split(",")[0].strip() != "Eczar", report["repoFamily"]
+        if path == "":
+            assert report["count"] > 0
+            assert report["h1Style"] == {"text": "bifrost", "fam": "Eczar", "weight": "400"}, report["h1Style"]
+    finally:
+        page.close()
+
+
+def test_search_highlighted_bifrost_is_styled_without_matching_identifiers(browser, base_url):
+    page = browser.new_page(viewport={"width": 1600, "height": 900})
+    try:
+        page.goto(f"{base_url}/")
+        page.evaluate(
+            """() => {
+              const p = document.createElement('p');
+              p.id = 'bf-mark-probe';
+              p.innerHTML = '<span id="bf-probe-hit">Try <mark>bi</mark>frost</span>, not '
+                + '<span id="bf-probe-skip"><mark>bifrost</mark>.stack or <mark>bifrost</mark>-photonics</span>.';
+              document.querySelector('[data-md-component="content"]').append(p);
+            }"""
+        )
+        page.locator("#bf-probe-hit .bf-word").first.wait_for(timeout=5000)
+        hits = page.locator("#bf-probe-hit .bf-word").evaluate_all(
+            """(els) => els.map((e) => ({
+              text: e.textContent,
+              fam: getComputedStyle(e).fontFamily.replace(/"/g, '').split(',')[0].trim(),
+              weight: getComputedStyle(e).fontWeight,
+            }))"""
+        )
+        assert "".join(h["text"] for h in hits) == "bifrost", hits
+        assert all(h["fam"] == "Eczar" and h["weight"] == "400" for h in hits), hits
+        assert page.locator("#bf-probe-skip .bf-word").count() == 0
     finally:
         page.close()
 
