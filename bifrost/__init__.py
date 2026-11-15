@@ -14,7 +14,7 @@ import importlib
 from typing import Any
 
 from . import geometry, grids, jitting, meshing, stack, subpixel, timing
-from .grids import AxisEdges, graded_edges, lattice_edges
+from .grids import AxisEdges, axis_edges, graded_edges, lattice_edges
 from .jitting import COMPILER_OPTIONS, compiler_options, jit
 from .meshing import CoarseVertices, Mesh, Refine, mesh
 from .stack import (
@@ -45,6 +45,7 @@ __all__ = [
     "TopRoughness",
     "__version__",
     "apply_stack",
+    "axis_edges",
     "compiler_options",
     "geometry",
     "graded_edges",

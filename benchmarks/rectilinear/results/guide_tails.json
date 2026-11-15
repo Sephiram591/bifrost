@@ -8,7 +8,7 @@
     160
    ],
    "neff_mode": 2.3780577182769775,
-   "apply_stack_s": 10.69
+   "apply_stack_s": 11.68
   },
   {
    "grid": "graded-snap",
@@ -17,8 +17,8 @@
     88,
     79
    ],
-   "neff_mode": 2.3779854774475098,
-   "apply_stack_s": 8.45
+   "neff_mode": 2.377985715866089,
+   "apply_stack_s": 10.77
   },
   {
    "grid": "graded-wide",
@@ -27,8 +27,8 @@
     116,
     105
    ],
-   "neff_mode": 2.3780570030212402,
-   "apply_stack_s": 10.29
+   "neff_mode": 2.3780572414398193,
+   "apply_stack_s": 10.85
   },
   {
    "grid": "tail-0",
@@ -37,8 +37,8 @@
     76,
     65
    ],
-   "neff_mode": 2.3747310638427734,
-   "apply_stack_s": 9.51
+   "neff_mode": 2.3747315406799316,
+   "apply_stack_s": 10.08
   },
   {
    "grid": "tail-0.1",
@@ -47,8 +47,8 @@
     82,
     72
    ],
-   "neff_mode": 2.377514600753784,
-   "apply_stack_s": 9.46
+   "neff_mode": 2.3775148391723633,
+   "apply_stack_s": 10.15
   },
   {
    "grid": "tail-0.2",
@@ -57,8 +57,8 @@
     88,
     79
    ],
-   "neff_mode": 2.377963066101074,
-   "apply_stack_s": 7.1
+   "neff_mode": 2.3779633045196533,
+   "apply_stack_s": 7.38
   },
   {
    "grid": "tail-0.4",
@@ -67,48 +67,48 @@
     102,
     92
    ],
-   "neff_mode": 2.378053665161133,
-   "apply_stack_s": 8.58
+   "neff_mode": 2.378053903579712,
+   "apply_stack_s": 10.82
   },
   {
    "grid": "mesh-1",
    "cells": [
     300,
-    82,
-    72
+    80,
+    71
    ],
-   "neff_mode": 2.3775038719177246,
-   "apply_stack_s": 5.41
+   "neff_mode": 2.377473831176758,
+   "apply_stack_s": 7.91
   },
   {
    "grid": "mesh-2",
    "cells": [
     300,
-    94,
+    86,
     77
    ],
-   "neff_mode": 2.3779256343841553,
-   "apply_stack_s": 9.88
+   "neff_mode": 2.3779144287109375,
+   "apply_stack_s": 10.3
   },
   {
    "grid": "mesh-3",
    "cells": [
     300,
-    124,
-    83
+    98,
+    82
    ],
-   "neff_mode": 2.378028392791748,
-   "apply_stack_s": 8.07
+   "neff_mode": 2.378021001815796,
+   "apply_stack_s": 11.02
   },
   {
    "grid": "mesh-5",
    "cells": [
     300,
     160,
-    142
+    134
    ],
-   "neff_mode": 2.378056764602661,
-   "apply_stack_s": 7.66
+   "neff_mode": 2.378056049346924,
+   "apply_stack_s": 7.75
   }
  ]
 }

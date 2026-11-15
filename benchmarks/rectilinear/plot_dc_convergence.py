@@ -51,10 +51,16 @@ def main(src: str, dst: str) -> None:
     def series(keep) -> list[dict]:
         return sorted((r for r in rows.values() if keep(r["grid"])), key=lambda r: r["total_cells"])
 
-    edge = series(lambda g: g.startswith("uniform-") and "@" not in g)
+    edge = series(lambda g: g.startswith("uniform-") and "@" not in g and "%" not in g)
     mid = series(lambda g: g.startswith("uniform-") and MID_SHIFT in g)
-    mesh = series(lambda g: g.startswith("mesh-"))  # faces centered (center_faces, the default)
-    mesh_off = series(lambda g: g.startswith("meshoff-"))  # center_faces=False
+    mesh = series(lambda g: g.startswith("mesh-"))  # continuous (quantum=None), faces centered (default)
+    lattice = series(lambda g: g.startswith("lattice-"))  # 1 nm lattice (quantum=0.001), faces centered
+    mesh_off = series(lambda g: g.startswith("meshoff-"))
+    off_label = "bf.mesh, center_faces=False"
+    if not mesh_off:
+        mesh_off = series(lambda g: g.startswith("latticeoff-"))
+        off_label = "bf.mesh (1 nm), center_faces=False"
+
     def cell(r: dict) -> float:
         """A uniform grid's cell (nm), from its name."""
         return float(r["grid"].split("-")[1].split("@")[0])
@@ -63,7 +69,7 @@ def main(src: str, dst: str) -> None:
     s0, p, cs, rms = joint_fit(groups)
     print(f"converged: S0 = {s0:.5f}, p = {p:.2f}, C (faces on edges, mid-cell) = {cs[0]:.3e}, {cs[1]:.3e}, "
           f"rms {rms:.1e}")
-    for r in edge + mid + mesh + mesh_off:
+    for r in edge + mid + mesh + lattice + mesh_off:
         print(f"{r['grid']:>22} {r['total_cells'] / 1e6:7.1f}M  split {r['split']:.5f}  |S - S0| "
               f"{abs(r['split'] - s0):.2e}  run {r['run_s']:.0f} s")
 
@@ -86,33 +92,43 @@ def main(src: str, dst: str) -> None:
     bottom.set_xticks([5, 10, 20, 50, 100, 200, 400])
     bottom.yaxis.set_major_locator(matplotlib.ticker.LogLocator(subs=(1.0, 2.0, 5.0)))
     groups = (
-        ("uniform, core faces on cell edges", edge, EDGE, "o", lambda r: f"{cell(r):g} nm", (6, 6), "left", "bottom"),
-        ("uniform, core faces mid-cell", mid, MID, "^", lambda r: f"{cell(r):g} nm", (-6, 4), "right", "bottom"),
-        ("bf.mesh, faces centered (default)", mesh, MESH, "s", lambda r: f"ppw {r['grid'].split('-')[1]}", (-6, -6),
-         "right", "top"),
-        ("bf.mesh, center_faces=False", mesh_off, MESH_OFF, "D", lambda r: f"ppw {r['grid'].split('-')[1]}", (6, 6),
+        ("uniform, core faces on cell edges", edge, EDGE, "o", {}, lambda r: f"{cell(r):g} nm", (6, 6),
          "left", "bottom"),
+        ("uniform, core faces mid-cell", mid, MID, "^", {}, lambda r: f"{cell(r):g} nm", (-6, 4),
+         "right", "bottom"),
+        ("bf.mesh, continuous (default)", mesh, MESH, "s", {}, lambda r: f"ppw {r['grid'].split('-')[1]}", (-6, -6),
+         "right", "top"),
+        ("bf.mesh, 1 nm lattice (quantum=0.001)", lattice, MESH, "s",
+         {"linestyle": (0, (4, 2.5)), "linewidth": 1.6, "markerfacecolor": SURFACE, "markeredgecolor": MESH,
+          "zorder": 2.5},
+         lambda r: f"ppw {r['grid'].split('-')[1]}", (6, 6), "left", "bottom"),
+        (off_label, mesh_off, MESH_OFF, "D", {}, lambda r: f"ppw {r['grid'].split('-')[1]}",
+         (6, 6), "left", "bottom"),
     )
-    for name, rs, color, marker, label, offset, ha, va in groups:
+    for name, rs, color, marker, extra, label, offset, ha, va in groups:
         if not rs:
             continue
         cells = np.array([r["total_cells"] for r in rs]) / 1e6
         split = np.array([r["split"] for r in rs])
         style = {"color": color, "linewidth": 2, "marker": marker, "markersize": 7, "markeredgecolor": SURFACE,
-                 "markeredgewidth": 1.5, "label": name, "zorder": 3}
+                 "markeredgewidth": 1.5, "label": name, "zorder": 3, **extra}
         top.plot(cells, split, **style)
         bottom.plot(cells, np.abs(split - s0), **style)
-        # label the uniform grids on top and bf.mesh's (default) at the bottom, where the series stand apart; the
-        # mid-cell and center_faces=False points share those grids' cell counts, so the legend names them
-        if rs is mid or rs is mesh_off:
+        # label the uniform grids on top and bf.mesh's default at the bottom, where the series stand apart
+        if rs is not edge and rs is not mesh:
             continue
         ax, ys = (top, split) if rs is edge else (bottom, np.abs(split - s0))
         for r, x, y in zip(rs, cells, ys, strict=True):
-            ax.annotate(label(r), (x, y), textcoords="offset points", xytext=offset, ha=ha, va=va, fontsize=8,
+            tag = r["grid"].split("-")[1]
+            if rs is mesh and tag not in ("6", "8", "10", "12", "14", "17", "20"):
+                continue
+            xytext, pt_ha, pt_va = ((-7, 5), "right", "bottom") if (rs is mesh and tag == "12") else (offset, ha, va)
+            ax.annotate(label(r), (x, y), textcoords="offset points", xytext=xytext, ha=pt_ha, va=pt_va, fontsize=8,
                         color=MUTED)
     top.axhline(s0, color=MUTED, linewidth=1, linestyle=(0, (4, 3)), zorder=1)
+    top.set_ylim(bottom=s0 - 0.009)
     top.annotate(f"converged: {s0:.4f} (fit of the uniform grids, order {p:.2f})", (0.01, s0),
-                 xycoords=("axes fraction", "data"), xytext=(0, 4), textcoords="offset points", fontsize=8,
+                 xycoords=("axes fraction", "data"), xytext=(0, -4), textcoords="offset points", va="top", fontsize=8,
                  color=MUTED)
     top.set_ylabel("splitting ratio at 619 nm\nP_cross / (P_cross + P_through)")
     top.set_title("Directional coupler: convergence with the cell count", loc="left", fontsize=11, color=INK)

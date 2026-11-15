@@ -3,42 +3,142 @@
   {
    "grid": "meshppw-14",
    "cells": [
-    194,
-    79,
+    189,
+    70,
+    59
+   ],
+   "neff_mode": 2.39025616645813,
+   "apply_stack_s": 11.11
+  },
+  {
+   "grid": "meshppw-16",
+   "cells": [
+    216,
+    78,
     67
    ],
-   "neff_mode": 2.376946210861206,
-   "apply_stack_s": 13.35
+   "neff_mode": 2.3880722522735596,
+   "apply_stack_s": 10.22
   },
   {
    "grid": "meshppw-18",
    "cells": [
-    250,
-    102,
-    75
+    243,
+    88,
+    74
    ],
-   "neff_mode": 2.379859447479248,
-   "apply_stack_s": 12.13
+   "neff_mode": 2.386606454849243,
+   "apply_stack_s": 13.1
+  },
+  {
+   "grid": "meshppw-20",
+   "cells": [
+    270,
+    91,
+    82
+   ],
+   "neff_mode": 2.385577917098999,
+   "apply_stack_s": 10.35
   },
   {
    "grid": "meshppw-22",
+   "cells": [
+    297,
+    98,
+    90
+   ],
+   "neff_mode": 2.38448429107666,
+   "apply_stack_s": 10.44
+  },
+  {
+   "grid": "meshppw-24",
+   "cells": [
+    324,
+    106,
+    97
+   ],
+   "neff_mode": 2.3838908672332764,
+   "apply_stack_s": 9.32
+  },
+  {
+   "grid": "meshppw-26",
+   "cells": [
+    351,
+    114,
+    105
+   ],
+   "neff_mode": 2.3833820819854736,
+   "apply_stack_s": 10.51
+  },
+  {
+   "grid": "latticeppw-14",
+   "cells": [
+    194,
+    79,
+    68
+   ],
+   "neff_mode": 2.3877456188201904,
+   "apply_stack_s": 11.91
+  },
+  {
+   "grid": "latticeppw-16",
+   "cells": [
+    223,
+    102,
+    70
+   ],
+   "neff_mode": 2.386094093322754,
+   "apply_stack_s": 10.81
+  },
+  {
+   "grid": "latticeppw-18",
+   "cells": [
+    250,
+    102,
+    77
+   ],
+   "neff_mode": 2.3854987621307373,
+   "apply_stack_s": 10.51
+  },
+  {
+   "grid": "latticeppw-20",
+   "cells": [
+    273,
+    100,
+    83
+   ],
+   "neff_mode": 2.385427951812744,
+   "apply_stack_s": 11.33
+  },
+  {
+   "grid": "latticeppw-22",
    "cells": [
     300,
     124,
     91
    ],
-   "neff_mode": 2.3780250549316406,
-   "apply_stack_s": 8.67
+   "neff_mode": 2.384594678878784,
+   "apply_stack_s": 8.76
   },
   {
-   "grid": "meshppw-26",
+   "grid": "latticeppw-24",
+   "cells": [
+    334,
+    120,
+    102
+   ],
+   "neff_mode": 2.3830068111419678,
+   "apply_stack_s": 11.61
+  },
+  {
+   "grid": "latticeppw-26",
    "cells": [
     353,
     130,
     106
    ],
-   "neff_mode": 2.378772258758545,
-   "apply_stack_s": 11.13
+   "neff_mode": 2.3828163146972656,
+   "apply_stack_s": 11.17
   }
  ]
 }

@@ -1,30 +1,30 @@
 {
  "grid": "mesh-auto",
  "cells": [
-  223,
-  223,
+  218,
+  218,
   67
  ],
- "total_cells": 3331843,
+ "total_cells": 3184108,
  "min_cell_nm": [
-  55.0,
-  55.0,
-  55.0
+  55.47,
+  55.47,
+  53.57
  ],
  "max_cell_nm": [
-  60.0,
-  60.0,
-  110.0
+  73.62,
+  73.62,
+  108.26
  ],
- "dt_fs": 0.10486144813112684,
- "steps": 4768,
+ "dt_fs": 0.10450598917643181,
+ "steps": 4784,
  "corner_columns": 448,
- "place_s": 15.3,
- "transmission": 0.5683637145041306,
- "forward_first_s": 15.55,
- "forward_s": 3.84,
- "forward_compile_s": 9.55,
+ "place_s": 15.8,
+ "transmission": 0.5611198959018574,
+ "forward_first_s": 16.75,
+ "forward_s": 3.65,
+ "forward_compile_s": 10.87,
  "forward_compiles": 1,
- "ns_per_cell_step": 0.24194202595892156,
- "peak_gb_forward": 0.71
+ "ns_per_cell_step": 0.23967101309628924,
+ "peak_gb_forward": 0.67
 }

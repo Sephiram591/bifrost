@@ -15,7 +15,8 @@ A 500 x 220 nm silicon strip in silica with 10 degree walls, along x through a 6
 * ``mesh-<l>``: :func:`bifrost.mesh` with 20 nm cells in silicon (and its tails), 60 nm in silica
   (``material_cells``) and a global tail of ``<l>`` decay lengths, the fine cells on uniform-20's lattice;
 * ``meshppw-<ppw>``: :func:`bifrost.mesh` with ``ppw`` cells per wavelength in every material and its default
-  tail.
+  tail;
+* ``lattice-<l>``, ``latticeppw-<ppw>``: the same on the 1 nm lattice (``quantum=0.001``).
 
 ``--save-eps`` saves the device's inverse permittivity on the yz plane at the box's middle, with the y and z edges
 (um).
@@ -80,12 +81,15 @@ def build(kind: str):
         c, ls, mats, background="clad", zrange_layers=["core"], name="stack", diagnostics=False,
         boundary_offset=(0.0, 0.0, y1 - h, y0 + h, z1 - THICKNESS, z0),
     )
-    if kind.startswith("mesh"):
-        if kind.startswith("meshppw-"):
-            m = bf.mesh(stack, WAVELENGTH, ppw=float(kind.split("-")[1]), pml=PML)
+    if kind.startswith(("mesh", "lattice")):
+        head, val = kind.split("-", 1)
+        quantum = 0.001 if head.startswith("lattice") else None
+        if head.endswith("ppw"):
+            m = bf.mesh(stack, WAVELENGTH, ppw=float(val), pml=PML, quantum=quantum)
         else:  # 20 nm in silicon (on uniform-20's lattice), 60 nm in silica, the tail in decay lengths
-            tail = float(kind.split("-")[1])
-            m = bf.mesh(stack, WAVELENGTH, ppw=WAVELENGTH / (N_CORE * 0.02000001), pml=PML,
+            tail = float(val)
+            m = bf.mesh(stack, WAVELENGTH, ppw=WAVELENGTH / (N_CORE * 0.02), pml=PML, center_faces=False,
+                        quantum=quantum,
                         refine=bf.Refine(global_dilation=tail, global_z_padding=tail, material_cells={"clad": 0.06}))
         print(m.summary(), flush=True)
         grid, bound = m.grid, m.boundary

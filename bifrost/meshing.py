@@ -8,8 +8,9 @@ Every place a material is, or may come to be, asks for cells of at most ``lambda
 target); so do the evanescent tails past each boundary (a global dilation and z padding in units of the
 boundary's decay length ``l = lambda / (2 pi sqrt(n_high^2 - n_low^2))``), narrow parts and gaps of the
 starting geometry, and explicit regions. The grid is a tensor product, so an axis takes, at each
-coordinate, the smallest target anywhere in the plane through it; :func:`~bifrost.lattice_edges` then
-places that axis's edges on a lattice of whole quanta.
+coordinate, the smallest target anywhere in the plane through it; :func:`~bifrost.axis_edges` then
+places continuous real-valued edges along that axis (or :func:`~bifrost.lattice_edges` when an explicit
+``quantum`` is given).
 
 The mesher only learns where to refine: it never limits how the parameters may change. A vertex that
 moves past its dilation lands in cells coarser than its target, which
@@ -28,7 +29,7 @@ import jax
 import numpy as np
 
 from .geometry import recipe_rings, run_recipe
-from .grids import AxisEdges, lattice_edges
+from .grids import AxisEdges, axis_edges, lattice_edges
 from .stack import (
     _ANISOTROPY_SENTINEL,
     _CHECK_ANGLE,
@@ -661,7 +662,7 @@ class Mesh:
             if not (np.all(w > 0) and ratio <= self.growth * (1 + _REALIZED_RTOL)):
                 raise ValueError(
                     f"mesh: the {name} edges do not survive the device's dtype (largest ratio {ratio:.6g}); use a "
-                    "float64 device or a coarser quantum"
+                    "float64 device or a larger min_cell"
                 )
         return grid
 
@@ -718,7 +719,7 @@ def mesh(
     boundaries: str | Sequence[str] = "pml",
     pml: float | Sequence[float] = 1.0,
     growth: float = 1.25,
-    quantum: float = 0.001,
+    quantum: float | None = None,
     min_cell: float | None = None,
     align_fine: bool = True,
     center_faces: bool = True,
@@ -732,9 +733,10 @@ def mesh(
     boundaries (``refine.global_dilation`` and ``global_z_padding``, in units of each boundary's decay
     length), narrow parts and gaps of the starting geometry (``feature_cells`` cells across), and
     ``refine.regions``. Each axis takes, at each coordinate, the smallest target anywhere in the plane
-    through it, and :func:`~bifrost.lattice_edges` places its edges on a lattice of ``quantum``: the largest
-    smallest cell, then the fewest cells, with uniform cells under each PML. The result is fixed: build it
-    once, then run or optimize on ``mesh.grid``::
+    through it, and :func:`~bifrost.axis_edges` places continuous real-valued edges along it: maximizing
+    the smallest cell, keeping cell counts minimal, smoothing transitions, and covering each PML with
+    uniform cells (or :func:`~bifrost.lattice_edges` on a discrete lattice when ``quantum`` is given). The
+    result is fixed: build it once, then run or optimize on ``mesh.grid``::
 
         m = bf.mesh(stack, (1.50, 1.60), refine=bf.Refine(dilation={"WG": 0.45}))
         config = stack.get_simulation_config(time=..., grid=m.grid)
@@ -753,25 +755,30 @@ def mesh(
             in :data:`FACES` order.
         pml: PML thickness (um), one for all or six; uniform cells cover it at each PML face.
         growth: largest ratio of neighbouring cells.
-        quantum: the lattice step (um); the box must be a whole number of quanta along each axis.
+        quantum: default ``None`` places continuous real-valued edges via :func:`~bifrost.axis_edges` (any
+            box size is accepted). Passing a positive step (um, e.g. ``0.001``) places edges on whole
+            multiples of ``quantum`` via :func:`~bifrost.lattice_edges` and requires the box to divide it.
         min_cell: no target finer than this (um): protects the time step from thin films or narrow gaps.
-        align_fine: put each axis's finest cells on the lattice of their own width from the box's face.
-        center_faces: put every level's bottom and top face, where the material changes, in the middle of a
-            z cell (not on an edge): a markedly smaller error with subpixel averaging (a third, on the
+        align_fine: put each axis's finest cells on the lattice of their own width from the box's face when
+            compatible with maximizing the smallest cell and mirror symmetry.
+        center_faces: put every static level face where the material changes at the exact middle of a z
+            cell (not on an edge): a markedly smaller error with subpixel averaging (a third, on the
             coupler of benchmarks/rectilinear). The smallest z cell may come out up to 20 % below the largest
             possible (two faces a fractional number of cells apart need some narrower cells); a face that still
-            finds no room is left off with a warning, and faces under a PML are left out. A face that
-            z_padding moves is centered where it starts.
+            finds no room is left off with a warning, and faces under a PML are left out. Faces moved by
+            ``Refine.z_padding`` are left uncentered so vertical derivatives do not start on a dual-cell
+            boundary.
         feature_cells: cells across the narrowest part or gap of each level (0: no such targets).
-        max_states: refuse an axis with more lattice states than this (see :func:`~bifrost.lattice_edges`).
+        max_states: state budget forwarded to :func:`~bifrost.lattice_edges` when ``quantum`` is not ``None``.
 
     Returns:
         The :class:`Mesh`.
 
     Raises:
-        ValueError: on a box that is not whole quanta, an unknown boundary kind, a level that may move into
-            the box (z padding) but that placing the device would drop (``level_margin``), a material
-            without an automatic size (see ``Refine.material_cells``), or targets an axis cannot meet.
+        ValueError: on an explicit ``quantum`` that does not divide the box, an unknown boundary kind, a
+            level that may move into the box (z padding) but that placing the device would drop
+            (``level_margin``), a material without an automatic size (see ``Refine.material_cells``), or
+            targets an axis cannot meet.
     """
     refine = Refine() if refine is None else refine
     kinds = (boundaries,) * 6 if isinstance(boundaries, str) else tuple(boundaries)
@@ -787,28 +794,39 @@ def mesh(
     axes = []
     for a in range(3):
         lo, hi = geom.box[a]
-        n = round((hi - lo) / quantum)
-        if abs(n * quantum - (hi - lo)) > 1e-6 * quantum:
-            raise ValueError(
-                f"mesh: the box is {hi - lo:.9g} um along {'xyz'[a]}, not a whole number of {quantum:g} um quanta; "
-                f"move a face by {(math.ceil((hi - lo) / quantum) * quantum - (hi - lo)):.6g} um (boundary_offset) "
-                "or use a quantum that divides it"
-            )
         sides = tuple(thick[2 * a + e] if kinds[2 * a + e] == "pml" else 0.0 for e in (0, 1))
+        is_periodic = kinds[2 * a] in ("periodic", "bloch") and kinds[2 * a + 1] in ("periodic", "bloch")
+        if quantum is not None:
+            quantum = float(quantum)
+            if not (math.isfinite(quantum) and quantum > 0):
+                raise ValueError(f"mesh: quantum must be positive (um) or None, got {quantum!r}")
+            n = round((hi - lo) / quantum)
+            if abs(n * quantum - (hi - lo)) > 1e-6 * quantum:
+                raise ValueError(
+                    f"mesh: the box is {hi - lo:.9g} um along {'xyz'[a]}, not a whole number of {quantum:g} um quanta; "
+                    f"move a face by {(math.ceil((hi - lo) / quantum) * quantum - (hi - lo)):.6g} um (boundary_offset) "
+                    "or pass quantum=None"
+                )
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             try:
-                axis = lattice_edges(
-                    lo, hi, max(s for *_, s in targets[a]), targets[a], quantum=quantum, growth=growth, pml=sides,
-                    align=align_fine, centers=faces if a == 2 else (), max_states=max_states,
-                )
+                if quantum is None:
+                    axis = axis_edges(
+                        lo, hi, max(s for *_, s in targets[a]), targets[a], growth=growth, pml=sides,
+                        align=align_fine, centers=faces if a == 2 else (), periodic=is_periodic, dtype=stack.dtype,
+                    )
+                else:
+                    axis = lattice_edges(
+                        lo, hi, max(s for *_, s in targets[a]), targets[a], quantum=quantum, growth=growth, pml=sides,
+                        align=align_fine, centers=faces if a == 2 else (), max_states=max_states,
+                    )
             except ValueError as e:
                 raise ValueError(f"mesh: the {'xyz'[a]} axis: {e}") from e
         for w in caught:
             if "do not all start" in str(w.message):
                 continue  # alignment is a preference (summary() reports it): ppw rarely gives a width the box divides
             warnings.warn(f"mesh: the {'xyz'[a]} axis: {w.message}", w.category, stacklevel=2)
-        if kinds[2 * a] in ("periodic", "bloch") and kinds[2 * a + 1] in ("periodic", "bloch"):
+        if is_periodic:
             w = np.diff(axis.edges)
             if max(w[0] / w[-1], w[-1] / w[0]) > growth * (1 + 1e-9):
                 warnings.warn(
@@ -822,21 +840,34 @@ def mesh(
 
 
 def _interface_faces(geom: _Geometry, kinds: Sequence[str], thick: Sequence[float]) -> list[float]:
-    """The z (um) of every visible level's bottom and top face where the material changes, inside the box and
-    clear of the PMLs."""
+    """The z (um) of every visible level's static bottom and top face where the material changes, inside the
+    box and clear of the PMLs."""
     (_, _), (_, _), (z0, z1) = geom.box
     lo = z0 + (thick[4] if kinds[4] == "pml" else 0.0)
     hi = z1 - (thick[5] if kinds[5] == "pml" else 0.0)
-    faces = set()
+    moving: list[float] = []
+    raw: list[float] = []
     for lv in geom.levels:
         if geom.possible[lv.name].is_empty():
             continue
+        plo, phi = geom.padded[lv.name]
+        if plo < lv.span[0] - 1e-12:
+            moving.append(float(lv.span[0]))
+        if phi > lv.span[1] + 1e-12:
+            moving.append(float(lv.span[1]))
         _, below, above = geom.neighbours[lv.name]
+        n = geom.index.get(lv.material)
         for face, across in ((lv.span[0], below), (lv.span[1], above)):
-            n = geom.index.get(lv.material)
             if any(abs(geom.index.get(m, -1.0) - n) > 1e-9 for m in across) and lo < face < hi:
-                faces.add(round(face, 9))
-    return sorted(faces)
+                raw.append(float(face))
+    tol = 1e-12 * max(1.0, abs(z0), abs(z1))
+    faces: list[float] = []
+    for face in sorted(raw):
+        if any(abs(face - m) <= 1e-9 for m in moving):
+            continue
+        if not faces or face - faces[-1] > tol:
+            faces.append(face)
+    return faces
 
 
 def _check_levels_kept(stack: Any, geom: _Geometry) -> None:

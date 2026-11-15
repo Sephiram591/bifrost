@@ -189,35 +189,37 @@ source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid
 - **The evanescent tail.** Past each boundary toward a lower index the fine cells continue for `global_dilation`
   (laterally) and `global_z_padding` (above and below) decay lengths `l = lambda / (2 pi sqrt(n_high^2 - n_low^2))`,
   3 by default, also around geometry that never moves. On the silicon strip of `benchmarks/rectilinear` 1, 2 and 3
-  of them give the uniform 20 nm grid's effective index within 5.5e-4, 1.3e-4 and 2.9e-5; without a tail the graded
-  grid is as far off (3.3e-3) as a uniform grid of twice the cell.
+  of them give the uniform 20 nm grid's effective index within 5.8e-4, 1.4e-4 and 3.7e-5 (with 31 % of its cells at 3);
+  without a tail the graded grid is as far off (3.3e-3) as a uniform grid of twice the cell.
 - **Narrow parts and gaps** of the starting geometry get `feature_cells` (1.5) cells across, `Refine.regions` adds
   explicit sizes, and `min_cell` keeps a thin film or a narrow gap from setting a tiny time step. Conducting or
   metallic materials need their size in `Refine.material_cells`.
 - **Each axis takes, at each coordinate, the smallest target anywhere in the plane through it** (the grid is a tensor
   product). A substrate or a cladding that spans every plane caps the lateral cells everywhere: coarsen it with
   `material_cells` (13 to 14 cells per wavelength are enough there).
-- **The edges** are whole multiples of `quantum` (1 nm) from the box's lower face (`bf.lattice_edges`, exactly): no
-  cell wider than its target, also over half its width on either side (so the dual cells, where the transverse E
-  components are sampled, are within it too), neighbours within `growth` (1.25); the largest smallest cell (which sets
-  the time step), then the fewest cells. Each PML face gets uniform cells covering `pml` um (`boundaries` may make
-  faces `"periodic"`, `"pec"`, `"pmc"` or `"bloch"` instead); mirror-symmetric devices get mirror-symmetric grids, and
-  the finest cells start on the lattice of their own width (`align_fine`), as a uniform grid of that size would have
-  them. The box must be a whole number of quanta along every axis.
-- **Faces in the middle of their cells** (`center_faces=True`, the default). Every level's bottom and top face where
-  the material changes sits in the middle of a z cell, not on an edge: with subpixel averaging that leaves a markedly
-  smaller error (a third, on the directional coupler of `benchmarks/rectilinear`). Two faces a fractional number of
-  cells apart need some narrower cells, so the smallest z cell may come out up to 20 % below the largest possible; a
-  face that still finds no room is left off with a warning, faces under a PML are left out, and a face that
-  `z_padding` moves is centered where it starts. `mesh.summary()` lists the centered faces.
+- **The edges** are placed in continuous real coordinates (`bf.axis_edges`): no cell wider than its target, also over
+  half its width on either side (so the dual cells, where the transverse E components are sampled, are within it too),
+  neighbours (and periodic wrap-around cells) within `growth` (1.25); maximizing the smallest cell (which sets the time
+  step), keeping cell counts minimal, and smoothing transitions across plateaus and ramps. Each PML face gets uniform
+  cells covering `pml` um (`boundaries` may make faces `"periodic"`, `"pec"`, `"pmc"` or `"bloch"` instead);
+  mirror-symmetric devices get mirror-symmetric grids, an axis with a single target gets exact uniform `L / N` cells,
+  and the finest cells align to the lattice of their own width (`align_fine`) when compatible. Any box size is accepted
+  (pass `quantum=0.001` to restrict edges to whole multiples of a discrete lattice via `bf.lattice_edges`).
+- **Faces in the middle of their cells** (`center_faces=True`, the default). Every static level face where the material
+  changes sits at the exact middle of a z cell, not on an edge: with subpixel averaging that leaves a markedly smaller
+  error (a third, on the directional coupler of `benchmarks/rectilinear`). Two faces a fractional number of cells apart
+  need some narrower cells, so the smallest z cell may come out up to 20 % below the largest possible; a face that still
+  finds no room is left off with a warning, faces under a PML are left out, and faces moved by `z_padding` are left
+  uncentered so vertical derivatives do not start on a dual-cell boundary. `mesh.summary()` lists the centered faces.
 - **The geometry may leave its dilation.** `stack.coarse_vertices(params, mesh)` counts the vertices that sit in cells
   wider than their target, per layer and axis; it runs under `jax.jit` (return it as auxiliary output of the
   objective), and `mesh.summary()` reports it for the starting geometry. A level whose `z_padding` moves it into the
   box from beyond `level_margin` is refused, since placing the device would drop it.
 - **How close it gets.** On the inverse-design bend with `dilation={"WG": 0.45}` (the half-widths' reach), 40 nm in the
-  core and 80 nm in the air and the silica, `bf.mesh` gives the uniform 40 nm grid's transmission within 3e-5 with 66 %
-  of its cells (the hand-set graded grid above: 4.4e-4); with `ppw=20` alone, within 3.6e-4 with 85 %. `ppw=14` is
-  about a uniform grid of half again the core's cells, for fast optimizations.
+  core and 80 nm in the air and the silica, `bf.mesh` gives the uniform 40 nm grid's transmission within 2e-5 with 65 %
+  of its cells (the hand-set graded grid above: 4.4e-4); with `ppw=20` alone, within 1.4e-4 with 81 %. `ppw=14` (within
+  2.6e-3 with 28 % of the cells) is twice as close as a uniform grid of half again the core's cells, for fast
+  optimizations.
 
 ## Precision
 

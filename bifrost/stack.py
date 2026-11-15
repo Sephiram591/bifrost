@@ -724,7 +724,7 @@ def _grid_frame(config: SimulationConfig, slices: Any) -> _Frame:
             (1.0, 1.0, 1.0),
             (True, True, True),
         )
-    edges, below, widths, uniform = [], [], [], []
+    edges, below, widths, uniform, floors = [], [], [], [], []
     for axis, (a, b) in enumerate(slices):
         raw = np.asarray(grid.edges(axis))
         full = raw.astype(np.float64) * 1e6
@@ -734,6 +734,7 @@ def _grid_frame(config: SimulationConfig, slices: Any) -> _Frame:
         floor = 8.0 * eps * float(np.max(np.abs(full)))
         edges.append(e)
         widths.append(w)
+        floors.append(floor)
         below.append(float(full[a] - full[a - 1]) if a > 0 else float(w[0]))
         uniform.append(bool(np.max(np.abs(w - w[0])) <= _FRAME_RTOL * w[0] + floor))
     # an evenly spaced axis' spacing over its whole extent, rounded like fdtdx rounds a uniform grid's (1e-14 m):
@@ -742,15 +743,12 @@ def _grid_frame(config: SimulationConfig, slices: Any) -> _Frame:
         round(float(e[-1] - e[0]) / len(w), 8) if u else float(e[-1] - e[0]) / len(w)
         for e, w, u in zip(edges, widths, uniform, strict=True)
     ]
-    if uniform[0] and uniform[1]:
-        h = min(spacing[0], spacing[1])
-    else:
-        h = float(min(np.min(widths[0]), np.min(widths[1])))
+    h = min(spacing[i] if uniform[i] else float(np.min(widths[i])) for i in (0, 1))
     out_edges, out_uniform, out_widths = [], [], []
-    for e, w, u, s, b in zip(edges, widths, uniform, spacing, below, strict=True):
+    for e, w, u, s, b, fl in zip(edges, widths, uniform, spacing, below, floors, strict=True):
         # the cell below the box too: the Yee-shifted samples of the first layer reach into it
-        even = u and abs(b - s) <= _FRAME_RTOL * s
-        same = even and abs(s - h) <= _FRAME_RTOL * h
+        even = u and abs(b - s) <= _FRAME_RTOL * s + fl
+        same = even and abs(s - h) <= _FRAME_RTOL * h + fl
         if same:
             out_edges.append(np.arange(len(w) + 1, dtype=float))
         elif even:  # one other size: exact multiples of it
@@ -9314,9 +9312,12 @@ class StackDevice(StaticMultiMaterialObject):
         resolved = grid.resolved_grid if isinstance(grid, SimulationConfig) else grid
         if not isinstance(resolved, fdtdx.core.grid.RectilinearGrid):
             return None
-        edges = np.asarray(resolved.edges(axis), dtype=np.float64) * 1e6
+        raw = np.asarray(resolved.edges(axis))
+        edges = raw.astype(np.float64) * 1e6
         widths = np.diff(edges)
-        if np.max(np.abs(widths - widths[0])) <= _FRAME_RTOL * widths[0]:
+        eps = float(np.finfo(raw.dtype).eps) if np.issubdtype(raw.dtype, np.floating) else 0.0
+        floor = 8.0 * eps * float(np.max(np.abs(edges)))
+        if np.max(np.abs(widths - widths[0])) <= _FRAME_RTOL * widths[0] + floor:
             return None
         size = float(self.partial_real_shape[axis]) * 1e6
         if abs((edges[-1] - edges[0]) - size) > 0.01 * float(np.min(widths)):

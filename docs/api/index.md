@@ -17,6 +17,7 @@ Import as `import bifrost as bf`. For `Component`, cells, routing and PDKs see t
 | [`bf.Refine`][bifrost.meshing.Refine] | where `bf.mesh` refines: the geometry's motion (dilation, z padding) and the tails |
 | [`bf.Mesh`][bifrost.meshing.Mesh] | `bf.mesh`'s result: the edges, the fdtdx grid and boundaries, a summary |
 | [`bf.CoarseVertices`][bifrost.meshing.CoarseVertices] | `StackDevice.coarse_vertices`' report: vertices in cells wider than their target |
+| [`bf.axis_edges`][bifrost.grids.axis_edges] | continuous cell edges of one axis within their targets, PMLs and centered faces |
 | [`bf.lattice_edges`][bifrost.grids.lattice_edges] | exact cell edges of one axis on a lattice of quanta, within their targets |
 | [`bf.graded_edges`][bifrost.grids.graded_edges] | cell edges of a graded axis, for `StackDevice.rectilinear_grid` |
 | [`bf.jit`][bifrost.jitting.jit] | `jax.jit` with the XLA option gradients through fdtdx's time loop need |

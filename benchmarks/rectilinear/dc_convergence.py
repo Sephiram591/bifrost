@@ -10,6 +10,7 @@ are saved too. Grids:
   material and the default tail, the core's faces centered in their cells (``center_faces``, the default);
   nothing moves;
 * ``meshoff-<ppw>``: the same with ``center_faces=False``;
+* ``lattice-<ppw>``, ``latticeoff-<ppw>``: the same on the 1 nm lattice (``quantum=0.001``);
 * ``cells-<core nm>-<clad nm>``: :func:`bifrost.mesh` with the materials' cells given (``material_cells``);
 * ``<grid>@<half y>[,<half z>]``: the box's half height in y (and z) changed, which shifts the lattice against
   the guides;
@@ -70,12 +71,15 @@ def run(kind: str) -> dict:
     else:
         wavelengths = 1 / dc.frequencies()  # um
         band = (float(wavelengths.min()), float(wavelengths.max()))
-        if kind.startswith("cells-"):  # cells-<core nm>-<clad nm>: bf.mesh with the materials' cells given
+        if kind.startswith("cells-"):  # cells-<core nm>-<clad nm>: bf.mesh on the uniform lattice (center_faces=False)
             core, clad = (float(v) * 1e-3 for v in kind.split("-")[1:3])
-            m = bf.mesh(stack, band, pml=dc.PML, refine=bf.Refine(material_cells={"core": core, "clad": clad}))
-        else:  # mesh-<ppw> (faces centered, the default) or meshoff-<ppw> (center_faces=False)
-            m = bf.mesh(stack, band, ppw=float(kind.split("-")[1]), pml=dc.PML,
-                        center_faces=not kind.startswith("meshoff-"))
+            m = bf.mesh(stack, band, pml=dc.PML, center_faces=False,
+                        refine=bf.Refine(material_cells={"core": core, "clad": clad}))
+        else:  # mesh-<ppw>, meshoff-<ppw>, lattice-<ppw> or latticeoff-<ppw>
+            head, ppw = kind.split("-", 1)
+            quantum = 0.001 if head.startswith("lattice") else None
+            m = bf.mesh(stack, band, ppw=float(ppw), pml=dc.PML,
+                        center_faces=not head.endswith("off"), quantum=quantum)
         summary = m.summary(time=dc.TIME)
         print(summary, flush=True)
         grid, bound = m.grid, m.boundary

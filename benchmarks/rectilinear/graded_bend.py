@@ -10,7 +10,8 @@ The silicon nitride bend of examples/guide/inverse_design.py (its geometry, mate
 * ``graded-60``: the same with 60 and 120 nm cells (to optimize on instead of uniform-60);
 * ``mesh``: :func:`bifrost.mesh` with graded's choices (40 nm in the core, 80 nm in the air and, through
   ``material_cells``, in the silica), the edges' reach as ``dilation={"WG": 0.45}`` and the default tail;
-* ``mesh-auto``, ``mesh-auto-<ppw>``: :func:`bifrost.mesh` with only a ppw (14 by default) and the dilation.
+* ``mesh-auto``, ``mesh-auto-<ppw>``: :func:`bifrost.mesh` with only a ppw (14 by default) and the dilation;
+* ``lattice``, ``lattice-auto``, ``lattice-auto-<ppw>``: the same on the 1 nm lattice (``quantum=0.001``).
 
 Per grid (one process each, for clean peak memory): the TE0 transmission of the uniform-width bend (``bf.jit`` of the
 objective, compile and run timed apart), and with ``--steps`` that many Adam steps of the example's
@@ -75,13 +76,14 @@ def place(kind: str, checkpoints: int = 60):
     middle = (*stack.center, stack.z_center)
     size = [s * 1e6 for s in stack.partial_real_shape]
     box = [(m - s / 2, m + s / 2) for m, s in zip(middle, size, strict=True)]
-    if kind.startswith("mesh"):
-        if kind == "mesh":  # graded's choices: 40 nm in the core, 80 nm in the air and the silica
-            m = bf.mesh(stack, ex.WAVELENGTH, ppw=ex.WAVELENGTH / (ex.CORE_INDEX * 0.0400001), pml=PML,
+    if kind.startswith(("mesh", "lattice")):
+        quantum = 0.001 if kind.startswith("lattice") else None
+        if kind in ("mesh", "lattice"):  # graded's choices: 40 nm in the core, 80 nm in the air and the silica
+            m = bf.mesh(stack, ex.WAVELENGTH, ppw=ex.WAVELENGTH / (ex.CORE_INDEX * 0.04), pml=PML, quantum=quantum,
                         refine=bf.Refine(dilation={"WG": 0.45}, material_cells={"silica": 0.08}))
-        else:  # mesh-auto or mesh-auto-<ppw>
+        else:  # <mesh|lattice>-auto or <mesh|lattice>-auto-<ppw>
             ppw = float(kind.split("-")[2]) if kind.count("-") == 2 else 14.0
-            m = bf.mesh(stack, ex.WAVELENGTH, ppw=ppw, pml=PML, refine=bf.Refine(dilation={"WG": 0.45}))
+            m = bf.mesh(stack, ex.WAVELENGTH, ppw=ppw, pml=PML, quantum=quantum, refine=bf.Refine(dilation={"WG": 0.45}))
         print(m.summary(time=ex.DURATION), flush=True)
         grid, bound = m.grid, m.boundary
     elif kind in GRADED:
@@ -105,7 +107,7 @@ def place(kind: str, checkpoints: int = 60):
         center_wave=wave, spectral_width=fdtdx.WaveCharacter(frequency=0.05 * wave.get_frequency())
     )
     te0 = {"mode_index": 0, "filter_pol": "te"}
-    on_grid = {"grid": config} if kind in GRADED or kind.startswith("mesh") else {}
+    on_grid = {"grid": config} if kind in GRADED or kind.startswith(("mesh", "lattice")) else {}
     volume, constraints = stack.get_simulation_volume()
     objects = [volume, stack]
     for obj, placing in (
