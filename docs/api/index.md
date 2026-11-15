@@ -11,6 +11,8 @@ Import as `import bifrost as bf`. For `Component`, cells, routing and PDKs see t
 | [`bf.apply_stack`][bifrost.stack.apply_stack] | writes the stacks into the permittivity arrays, in place of `fdtdx.apply_params` |
 | [`bf.init_stack_params`][bifrost.stack.init_stack_params] | the stacks' differentiable parameters (vertices, heights, thicknesses) |
 | [`bf.StackDiagnosticWarning`][bifrost.stack.StackDiagnosticWarning] | the warning for features the grid does not resolve |
+| [`bf.ModePlaneSource`][bifrost.stack.ModePlaneSource] | `fdtdx.ModePlaneSource` normalized to `min_spacing**2` across graded port planes |
+| [`bf.ModeOverlapDetector`][bifrost.stack.ModeOverlapDetector] | `fdtdx.ModeOverlapDetector` normalized to `min_spacing**2` across graded port planes |
 | [`bf.mesh`][bifrost.meshing.mesh] | a device's graded grid from its geometry, the band and where it may move |
 | [`bf.Refine`][bifrost.meshing.Refine] | where `bf.mesh` refines: the geometry's motion (dilation, z padding) and the tails |
 | [`bf.Mesh`][bifrost.meshing.Mesh] | `bf.mesh`'s result: the edges, the fdtdx grid and boundaries, a summary |

@@ -650,7 +650,9 @@ def _create_absolute(spec: ObjectSpec, settings: SimSettings,
     params = spec.params
     axis = int(params.get("axis", 2))
     center = tuple(float(v) for v in params["center"])  # validated by from_wire
-    cls = getattr(fdtdx, spec.type)
+    from .. import stack as _stack
+
+    cls = getattr(_stack, spec.type, None) or getattr(fdtdx, spec.type)
 
     real: list[float | None] = [None, None, None]
     grid: list[int | None] = [None, None, None]
@@ -891,7 +893,8 @@ def _absolute_lines(spec: ObjectSpec, kind: ObjectType, settings: SimSettings,
     axis = int(spec.params.get("axis", 2))
     center = [float(v) for v in spec.params["center"]]
     lines = [f"# {spec.name}: absolute placement (no create_*_at for it)"]
-    lines.append(f"{spec.name} = fdtdx.{spec.type}(")
+    owner = "bf.stack" if spec.type in ("ModePlaneSource", "ModeOverlapDetector") else "fdtdx"
+    lines.append(f"{spec.name} = {owner}.{spec.type}(")
     if kind.plane:
         size = spec.params.get("size") or (0.0, 0.0)
         real: list[str | None] = ["None", "None", "None"]

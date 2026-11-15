@@ -22,6 +22,11 @@
   interpolated to the columns, and finite-difference normals from the distances between cell centers. `bf.graded_edges` places graded edges (fine regions, a growth limit,
   interfaces on edges, uniform cells under the PML), `StackDevice.rectilinear_grid` builds the grid over the box, and
   the `create_*_at` methods take `grid=` to give port planes whole cells there. Uniform grids are unchanged, bit for bit.
+- `bf.ModePlaneSource` and `bf.ModeOverlapDetector` (returned by `create_mode_plane_source_at` and
+  `create_mode_overlap_detector_at`): on a non-uniform `RectilinearGrid`, normalize launched mode fields and overlap
+  area weights against the simulation-wide `min_spacing**2` instead of each port plane's own `mean(face_area)`, removing
+  `fdtdx`'s `mean(A_in) / mean(A_out)` bias between port planes of different paddings, widths, or orientations (such as
+  90-degree bends with non-identical x/y grading). Uniform grids are unchanged, bit for bit.
 - The viewer adopts results recorded on non-uniform grids (detectors at their physical extent, from the grid's
   edges) and draws their field planes resampled onto an even grid at each graded axis's finest cell.
 - `averaging="subpixel_full"`: a junction sub-cell whose two largest face directions weigh nearly the same (a polygon

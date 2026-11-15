@@ -849,3 +849,90 @@ def test_graded_x_full_averaging_closes_corners(angle: float):
     if angle == 0.0:
         exact = exact_areas(L_SHAPE, dual_cells(X_GRADED), dual_cells(Y_EDGES))
         np.testing.assert_allclose((1.0 / inv[2, 2, :, :, CORE_LAYER] - 1.0) / 11.0, exact, atol=1e-4)
+
+
+def test_mode_source_and_overlap_are_port_area_invariant_on_graded_grids():
+    """ModePlaneSource and ModeOverlapDetector normalize against min_spacing**2 on graded grids:
+    uniform grids stay bit-for-bit identical to fdtdx, while on graded grids two port planes with
+    different paddings (or orthogonal x/y slices on a 90-degree bend with dx != dy) agree on modal
+    power without fdtdx's mean(A_in)/mean(A_out) bias."""
+    c = gf.Component()
+    bend = c << gf.components.bend_euler(radius=1.8, width=0.45, layer=L.WG, allow_min_radius_violation=True)
+    c.add_port("o1", port=bend.ports["o1"])
+    c.add_port("o2", port=bend.ports["o2"])
+    b = c.bbox()
+    c.add_polygon(
+        [(b.left - 2.0, b.bottom - 2.0), (b.right + 2.0, b.bottom - 2.0),
+         (b.right + 2.0, b.top + 2.0), (b.left - 2.0, b.top + 2.0)],
+        layer=L.WAFER,
+    )
+    ls = LayerStack(layers={
+        "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
+        "box": LayerLevel(layer=L.WAFER, zmin=-1.5, thickness=1.5, material="sio2", mesh_order=2),
+    })
+    d = bf.StackDevice.from_layer_stack(
+        c, ls, MATERIALS, background="air", name="s", zrange_layers=["core"],
+        boundary_offset=(1.4, -1.2, 1.8, -1.2, 1.0, -1.2), extend_ports=(("o1", 0.6), ("o2", 0.6)),
+        diagnostics=False,
+    )
+    wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
+    volume, placing = d.get_simulation_volume()
+
+    # 1. UniformGrid: bit-for-bit identical to fdtdx's base classes
+    u_cfg = d.get_simulation_config(time=2e-15, grid=UniformGrid(spacing=0.05e-6))
+    src_u, sc_u = d.create_mode_plane_source_at("o1", (0.4, 0.3), wave_character=wave, port_offset=-0.2)
+    det_u, dc_u = d.create_mode_overlap_detector_at("o1", (0.4, 0.3), wave_characters=(wave,), direction="in")
+    assert isinstance(src_u, bf.ModePlaneSource) and isinstance(det_u, bf.ModeOverlapDetector)
+    raw_src, rsc = d._at_port(
+        fdtdx.ModePlaneSource, "o1", (0.4, 0.3), "mode_source", wavelengths_um=[1.55],
+        direction="in", level=None, port_offset=-0.2, name="raw_src", wave_character=wave, mode_index=0,
+    )
+    raw_det, rdc = d._at_port(
+        fdtdx.ModeOverlapDetector, "o1", (0.4, 0.3), "mode_detector", wavelengths_um=[1.55],
+        direction="in", level=None, port_offset=0.0, name="raw_det", wave_characters=(wave,), mode_index=0,
+    )
+    objs_u, arr_u, par_u, u_cfg, _ = fdtdx.place_objects(
+        object_list=[volume, d, src_u, det_u, raw_src, raw_det],
+        config=u_cfg, constraints=placing + sc_u + dc_u + rsc + rdc, key=jax.random.PRNGKey(0),
+    )
+    arr_u, objs_u, _ = bf.apply_stack(arr_u, objs_u, {**par_u, **bf.init_stack_params(objs_u)}, jax.random.PRNGKey(0))
+    np.testing.assert_array_equal(np.asarray(objs_u[src_u.name]._E), np.asarray(objs_u["raw_src"]._E))
+    np.testing.assert_array_equal(
+        np.asarray(objs_u[det_u.name]._cached_face_area_weights),
+        np.asarray(objs_u["raw_det"]._cached_face_area_weights),
+    )
+
+    # 2. Graded RectilinearGrid with unequal padding and 90-deg x/y ports:
+    #    launching amplitude=1 on either port gives physical flux == min_spacing**2 and |alpha| == 1
+    m = bf.mesh(d, 1.55, ppw=16, pml=0.6)
+    r_cfg = d.get_simulation_config(time=2e-15, grid=m.grid)
+    s1, s1c = d.create_mode_plane_source_at("o1", (0.35, 0.30), wave_character=wave, port_offset=-0.2, grid=m.grid)
+    s2, s2c = d.create_mode_plane_source_at("o2", (0.65, 0.50), wave_character=wave, port_offset=-0.2, grid=m.grid)
+    d1, d1c = d.create_mode_overlap_detector_at(
+        "o1", (0.35, 0.30), wave_characters=(wave,), direction="in", port_offset=-0.2, name="d1", grid=m.grid
+    )
+    d2, d2c = d.create_mode_overlap_detector_at(
+        "o2", (0.65, 0.50), wave_characters=(wave,), direction="in", port_offset=-0.2, name="d2", grid=m.grid
+    )
+    objs_r, arr_r, par_r, r_cfg, _ = fdtdx.place_objects(
+        object_list=[volume, d, s1, s2, d1, d2],
+        config=r_cfg, constraints=placing + s1c + s2c + d1c + d2c, key=jax.random.PRNGKey(0),
+    )
+    arr_r, objs_r, _ = bf.apply_stack(arr_r, objs_r, {**par_r, **bf.init_stack_params(objs_r)}, jax.random.PRNGKey(0))
+
+    a1 = np.asarray(bf.stack._plane_face_areas(objs_r["d1"]))
+    a2 = np.asarray(bf.stack._plane_face_areas(objs_r["d2"]))
+    assert a2.mean() / a1.mean() > 1.2  # genuinely different mean cell areas on the two port planes
+    ref_area = float(r_cfg.resolved_grid.min_spacing) ** 2
+
+    for s_name, d_name in ((s1.name, "d1"), (s2.name, "d2")):
+        src_obj, det_obj = objs_r[s_name], objs_r[d_name]
+        areas = np.asarray(bf.stack._plane_face_areas(src_obj))
+        # Physical Poynting flux of the source's mode fields equals min_spacing**2 on both ports
+        s_vec = 0.5 * np.real(np.cross(np.conj(np.asarray(src_obj._E)), np.asarray(src_obj._H), axis=0))
+        flux = abs(float(np.sum(s_vec[src_obj.propagation_axis] * areas)))
+        assert flux == pytest.approx(ref_area, rel=2e-5)
+        # Feeding a mode of physical power 2 * ref_area (2 * |src|) into compute_overlap gives |alpha|^2 == 2.0
+        phasor = jnp.concatenate([src_obj._E, src_obj._H], axis=0)[None, None] * math.sqrt(2.0)
+        alpha = complex(np.asarray(det_obj.compute_overlap({"phasor": phasor.astype(det_obj.dtype)}))[0])
+        assert abs(alpha) ** 2 == pytest.approx(2.0, rel=2e-5)

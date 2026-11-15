@@ -18,6 +18,8 @@ from .grids import AxisEdges, graded_edges, lattice_edges
 from .jitting import COMPILER_OPTIONS, compiler_options, jit
 from .meshing import CoarseVertices, Mesh, Refine, mesh
 from .stack import (
+    ModeOverlapDetector,
+    ModePlaneSource,
     StackDevice,
     StackDiagnosticWarning,
     StackOptions,
@@ -34,6 +36,8 @@ __all__ = [
     "AxisEdges",
     "CoarseVertices",
     "Mesh",
+    "ModeOverlapDetector",
+    "ModePlaneSource",
     "Refine",
     "StackDevice",
     "StackDiagnosticWarning",

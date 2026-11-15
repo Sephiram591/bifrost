@@ -177,6 +177,8 @@ Averaging = Literal["inverse", "subpixel", "subpixel_full"]
 PortDirection = Literal["in", "out"]  # into the component through the port, or out of it
 
 __all__ = [
+    "ModeOverlapDetector",
+    "ModePlaneSource",
     "PLANE_PORTS",
     "detector_plane_own_positions",
     "Z_CENTER_LEVEL",
@@ -5674,6 +5676,104 @@ def _complex_dtype(dtype: Any) -> Any:
     return jnp.complex128 if _same_dtype(dtype, np.float64) else jnp.complex64
 
 
+def _plane_face_areas(obj: Any) -> Array:
+    """Per-cell transverse areas (m^2) of a placed plane source or detector."""
+    calc_dtype = jnp.float64 if jax.config.jax_enable_x64 else obj._config.dtype
+    grid = obj._config.resolved_grid
+    if grid is not None:
+        return jnp.asarray(
+            grid.face_area(axis=obj.propagation_axis, slice_tuple=obj.grid_slice_tuple),
+            dtype=calc_dtype,
+        )
+    spacing = jnp.asarray(obj._config.uniform_spacing(), dtype=calc_dtype)
+    return jnp.full(obj.grid_shape, spacing * spacing, dtype=calc_dtype)
+
+
+def _reference_face_area(config: SimulationConfig, calc_dtype: Any) -> Array:
+    """Simulation-wide reference cell area ``min_spacing**2`` (m^2)."""
+    grid = config.resolved_grid
+    h = grid.min_spacing if grid is not None else config.uniform_spacing()
+    h_arr = jnp.asarray(h, dtype=calc_dtype)
+    return h_arr * h_arr
+
+
+@autoinit
+class ModePlaneSource(fdtdx.ModePlaneSource):
+    """Waveguide mode source with port-independent power normalization on graded grids.
+
+    On a non-uniform ``RectilinearGrid``, ``fdtdx.core.physics.modes.compute_mode``
+    normalizes its fields with ``area_weights / mean(area_weights)``, leaving the
+    launched Poynting flux proportional to each source plane's own ``mean(face_area)``.
+    Rescaling ``_E`` and ``_H`` by ``sqrt(mean(face_area) / min_spacing**2)`` keeps field
+    magnitudes ``O(1)`` in ``float32``, preserves uniform grids bit for bit, and launches
+    the same physical power ``min_spacing**2`` regardless of the source plane's padding,
+    width, or orientation.
+    """
+
+    def apply(
+        self: Self,
+        key: Array,
+        inv_permittivities: Array,
+        inv_permeabilities: Array | float,
+        dispersive_c1: Array | None = None,
+        dispersive_c2: Array | None = None,
+        dispersive_c3: Array | None = None,
+        electric_conductivity: Array | None = None,
+    ) -> Self:
+        applied = super().apply(
+            key=key,
+            inv_permittivities=inv_permittivities,
+            inv_permeabilities=inv_permeabilities,
+            dispersive_c1=dispersive_c1,
+            dispersive_c2=dispersive_c2,
+            dispersive_c3=dispersive_c3,
+            electric_conductivity=electric_conductivity,
+        )
+        if not applied._config.has_nonuniform_grid:
+            return applied
+        areas = _plane_face_areas(applied)
+        ref_area = _reference_face_area(applied._config, areas.dtype)
+        scale = jnp.sqrt(jnp.mean(areas) / ref_area).astype(applied._config.dtype)
+        applied = applied.aset("_E", applied._E / scale)
+        return applied.aset("_H", applied._H / scale)
+
+
+@autoinit
+class ModeOverlapDetector(fdtdx.ModeOverlapDetector):
+    """Waveguide mode-overlap detector with port-independent power normalization on graded grids.
+
+    On a non-uniform ``RectilinearGrid``, ``fdtdx.core.physics.modes.compute_mode`` scales
+    the reference mode by ``sqrt(mean(face_area))``, while
+    ``fdtdx.BaseModeOverlapDetector.place_on_grid`` divides the overlap area weights by
+    ``mean(face_area)`` a second time, biasing ``|alpha|^2`` by ``1 / mean(face_area)`` and
+    two-port ratios ``|alpha_out / alpha_in|^2`` by ``mean(A_in) / mean(A_out)`` whenever two
+    port planes span different cell-area distributions (for instance on 90-degree bends with
+    non-identical x/y grading, or ports with different widths or paddings). Weighting by
+    ``face_area / sqrt(mean(face_area) * min_spacing**2)`` cancels each detector plane's
+    ``mean(face_area)`` against the simulation-wide ``min_spacing**2`` reference while
+    leaving uniform grids unchanged bit for bit.
+    """
+
+    def place_on_grid(
+        self: Self,
+        grid_slice_tuple: Any,
+        config: SimulationConfig,
+        key: Array,
+    ) -> Self:
+        placed = super().place_on_grid(
+            grid_slice_tuple=grid_slice_tuple,
+            config=config,
+            key=key,
+        )
+        if not placed._config.has_nonuniform_grid:
+            return placed
+        real_dtype = jnp.float64 if _same_dtype(placed.dtype, np.complex128) else jnp.float32
+        areas = _plane_face_areas(placed)
+        ref_area = _reference_face_area(placed._config, areas.dtype)
+        weights = (areas / jnp.sqrt(jnp.mean(areas) * ref_area)).astype(real_dtype)
+        return placed.aset("_cached_face_area_weights", weights, create_new_ok=True)
+
+
 # ---------------------------------------------------------------- device
 
 
@@ -9249,7 +9349,7 @@ class StackDevice(StaticMultiMaterialObject):
         port_offset: float = 0.0,
         name: str | None = None,
         **kwargs: Any,
-    ) -> tuple[fdtdx.ModePlaneSource, list[PositionConstraint]]:
+    ) -> tuple[ModePlaneSource, list[PositionConstraint]]:
         """Waveguide mode source on a port.
 
         Args:
@@ -9275,7 +9375,7 @@ class StackDevice(StaticMultiMaterialObject):
         """
         fields = _given(temporal_profile=temporal_profile, filter_pol=filter_pol)
         return self._at_port(
-            fdtdx.ModePlaneSource, port, port_padding, "mode_source",
+            ModePlaneSource, port, port_padding, "mode_source",
             wavelengths_um=[wave_character.get_wavelength() * 1e6],
             direction=direction, level=level,
             port_offset=port_offset, name=name, wave_character=wave_character, mode_index=mode_index, **fields, **kwargs,
@@ -9504,7 +9604,7 @@ class StackDevice(StaticMultiMaterialObject):
         port_offset: float = 0.0,
         name: str | None = None,
         **kwargs: Any,
-    ) -> tuple[fdtdx.ModeOverlapDetector, list[PositionConstraint]]:
+    ) -> tuple[ModeOverlapDetector, list[PositionConstraint]]:
         """Mode overlap (mode amplitude) detector on a port.
 
         Args:
@@ -9531,7 +9631,7 @@ class StackDevice(StaticMultiMaterialObject):
         """
         fields = _given(filter_pol=filter_pol, scaling_mode=scaling_mode)
         return self._at_port(
-            fdtdx.ModeOverlapDetector, port, port_padding, "mode_detector",
+            ModeOverlapDetector, port, port_padding, "mode_detector",
             wavelengths_um=[w.get_wavelength() * 1e6 for w in wave_characters],
             direction=direction,
             level=level, port_offset=port_offset, name=name, wave_characters=tuple(wave_characters),
