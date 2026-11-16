@@ -234,6 +234,3 @@ docs/demo/viewer-demo.css
 
 # the Widget Demo notebook, exported at docs build time (make demo-notebook)
 docs/demo/notebook/
-
-# local agent-skill benchmark scratchpad
-benchmarks/agent_skill/
