@@ -121,17 +121,20 @@ def glyph_from_grid(
 
 
 def _spec_type_for(obj: Any, category: str) -> str:
-    """The viewer type name for a placed fdtdx source or detector (spec D18)."""
-    type_name = type(obj).__name__
-    if type_name in TYPES and TYPES[type_name].category == category:
-        return type_name
-    # a subclass the viewer does not name: fall back to the category's first
-    # type, so the spec stays listable (a phasor-family detector still shades
-    # through its "phasor" detector state, not its type name)
+    """The viewer type name for a placed fdtdx source or detector (spec D18).
+
+    Walks ``type(obj).__mro__`` so user or wrapper subclasses resolve to their
+    nearest known base type in :data:`TYPES` before falling back to the
+    category's first entry.
+    """
+    for cls in type(obj).__mro__:
+        type_name = cls.__name__
+        if type_name in TYPES and TYPES[type_name].category == category:
+            return type_name
     for kind in TYPES.values():
         if kind.category == category:
             return kind.name
-    return type_name
+    return type(obj).__name__
 
 
 def _absolute_params(

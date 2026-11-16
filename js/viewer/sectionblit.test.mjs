@@ -30,7 +30,7 @@ writeFileSync(
     })
   ).outputFiles[0].text,
 );
-const { fieldBlit } = await import(outfile);
+const { fieldBlit, sortLevelsForPaint } = await import(outfile);
 
 test("the field raster's row 0 lands at the low-v screen edge", () => {
   // a rect on screen: x0=10, x1=90 (u across), y0=20 (high v), y1=80 (low v)
@@ -52,4 +52,22 @@ test("the flip is a transform, not a negative height", () => {
   assert.equal(blit.scale[1], -1, "the y flip is carried by the transform");
   assert.deepEqual(blit.translate, [10, 80], "the transform starts at the low-v corner");
   assert.deepEqual(blit.dest, [0, 0, 80, 60], "the raster fills the rect");
+});
+
+test("sortLevelsForPaint draws higher mesh_order first so lower mesh_order foreground paints on top", () => {
+  const levels = [
+    { name: "wg", mesh_order: 1 },
+    { name: "cladding", mesh_order: 10 },
+    { name: "slab", mesh_order: 5 },
+  ];
+  const ordered = sortLevelsForPaint(levels);
+  assert.deepEqual(
+    ordered.map((level) => level.name),
+    ["cladding", "slab", "wg"],
+  );
+  assert.deepEqual(
+    levels.map((level) => level.name),
+    ["wg", "cladding", "slab"],
+    "input level array must not be mutated",
+  );
 });

@@ -208,19 +208,67 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
   sectionControls.append(planeToggle, position);
 
   // -- explorer -------------------------------------------------------------
+  // Coalesce high-rate spec edits (numeric sliders) to one update_spec per
+  // animation frame per spec while flushing immediately on structural edits or Run.
+  const pendingSpecs = new Map<string, { kind: "source" | "detector"; spec: Record<string, unknown> }>();
+  let specFrame = 0;
+  const cancelSpecs = (): void => {
+    if (specFrame !== 0 && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(specFrame);
+      specFrame = 0;
+    }
+    pendingSpecs.clear();
+  };
+  const flushSpecs = (): void => {
+    if (specFrame !== 0 && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(specFrame);
+      specFrame = 0;
+    }
+    if (pendingSpecs.size === 0) return;
+    for (const entry of pendingSpecs.values()) {
+      send(model, { event: "update_spec", kind: entry.kind, spec: entry.spec });
+    }
+    pendingSpecs.clear();
+  };
+  const queueSpec = (
+    kind: "source" | "detector",
+    id: string,
+    change: Record<string, unknown>,
+  ): void => {
+    const key = `${kind}:${id}`;
+    const existing = pendingSpecs.get(key);
+    const merged = existing ? { ...existing.spec, ...change } : { id, ...change };
+    pendingSpecs.set(key, { kind, spec: merged });
+    if ("type" in change || "port" in change || typeof requestAnimationFrame !== "function") {
+      flushSpecs();
+      return;
+    }
+    if (specFrame === 0) specFrame = requestAnimationFrame(flushSpecs);
+  };
+
   const explorer = new Explorer(meta, {
     onPatch: (patch) => sendPatch(model, patch),
     onActiveTab: (tab) => {
+      flushSpecs();
       // the render applies `result_styles` while the Result tab is active
       // (spec R17); patching it re-syncs the state, which re-renders
       sendPatch(model, { active_tab: tab });
     },
     onSelect: (selection) => sendPatch(model, { selection }),
-    onAddSource: (port) => send(model, { event: "add_source", port }),
-    onAddDetector: (port) => send(model, { event: "add_detector", port }),
-    onUpdateSpec: (kind, id, change) =>
-      send(model, { event: "update_spec", kind, spec: { id, ...change } }),
-    onRemoveSpec: (kind, id) => send(model, { event: "remove_spec", kind, id }),
+    onAddSource: (port) => {
+      flushSpecs();
+      send(model, { event: "add_source", port });
+    },
+    onAddDetector: (port) => {
+      flushSpecs();
+      send(model, { event: "add_detector", port });
+    },
+    onUpdateSpec: queueSpec,
+    onRemoveSpec: (kind, id) => {
+      pendingSpecs.delete(`${kind}:${id}`);
+      flushSpecs();
+      send(model, { event: "remove_spec", kind, id });
+    },
     onSettings: (settings) => send(model, { event: "set_settings", settings }),
     // playback and video export run in the browser, over the frames already
     // here (defined with the playback state below)
@@ -522,8 +570,12 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
   // stop is unwinding, the button disables and the phase reads "stopping…".
   run.addEventListener("click", () => {
     if (run.disabled) return;
-    if (currentState(model)?.running) send(model, { event: "stop" });
-    else send(model, { event: "run" });
+    if (currentState(model)?.running) {
+      send(model, { event: "stop" });
+    } else {
+      flushSpecs();
+      send(model, { event: "run" });
+    }
   });
 
   // -- double-click a port in 3D to add a detector (spec R12) ---------------
@@ -563,7 +615,7 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
     sceneRoot.hidden = settingsOpen || is2d;
     section.root.hidden = settingsOpen || !is2d;
     sectionControls.hidden = settingsOpen || !is2d;
-    scene.setViewportVisible(!settingsOpen);
+    scene.setViewportVisible(!settingsOpen && !is2d);
   };
   settings.addEventListener("click", () => {
     settingsOpen = !settingsOpen;
@@ -586,11 +638,13 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
   fullInput.addEventListener("change", () =>
     sendPatch(model, { show_full: fullInput.checked }),
   );
+  const fadeQueue = coalesceNumber((plane_fade_frac) => sendPatch(model, { plane_fade_frac }));
   fadeInput.addEventListener("input", () => {
     const value = Number(fadeInput.value);
     fadeValue.textContent = `${value.toFixed(2)}×`;
-    sendPatch(model, { plane_fade_frac: value });
+    fadeQueue.queue(value);
   });
+  fadeInput.addEventListener("change", () => fadeQueue.flush());
   to3d.addEventListener("click", () => {
     closeSettings();
     sendPatch(model, { active_viewport: "3d" });
@@ -654,28 +708,18 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
   });
 
   // The slider drags faster than the kernel can round trip (spec D10), so
-  // coalesce to one patch per frame, keeping the latest value (the pattern
-  // explorer.ts uses for opacity).
-  let pendingPosition: number | null = null;
-  let positionFrame = 0;
-  const flushPosition = (): void => {
-    positionFrame = 0;
-    if (pendingPosition === null) return;
-    sendPatch(model, { plane_position: pendingPosition });
-    pendingPosition = null;
-  };
-  const queuePosition = (value: number): void => {
-    pendingPosition = value;
-    if (positionFrame === 0) positionFrame = requestAnimationFrame(flushPosition);
-  };
+  // coalesce to one patch per frame, keeping the latest value.
+  const positionQueue = coalesceNumber((plane_position) => sendPatch(model, { plane_position }));
   positionSlider.addEventListener("input", () => {
     positionBox.value = positionSlider.value;
-    queuePosition(Number(positionSlider.value));
+    positionQueue.queue(Number(positionSlider.value));
   });
+  positionSlider.addEventListener("change", () => positionQueue.flush());
   positionBox.addEventListener("change", () => {
     const value = Number(positionBox.value);
     positionSlider.value = String(value);
-    queuePosition(value);
+    positionQueue.queue(value);
+    positionQueue.flush();
   });
 
   // -- state sync -----------------------------------------------------------
@@ -723,6 +767,7 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
       : null);
     section.setFields(shading ? fields : {});
     renderColorbar(state, fields, shading);
+    scene.requestRender();
   }
 
   // -- playback and video export of multi-frame detectors --------------------
@@ -759,6 +804,7 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
       shown.set(id, frame);
     }
     section.setFrames(shown);
+    scene.requestRender();
   };
   const shadeFrame = (id: string, frame: number): void => shadeFrames(new Map([[id, frame]]));
 
@@ -1078,10 +1124,7 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
     to3d.classList.toggle("gfx-active", !is2d);
     to2d.classList.toggle("gfx-active", is2d);
     // the settings screen replaces whichever viewport is active (spec R3)
-    sceneRoot.hidden = settingsOpen || is2d;
-    section.root.hidden = settingsOpen || !is2d;
-    sectionControls.hidden = settingsOpen || !is2d;
-    scene.setViewportVisible(!settingsOpen);
+    applySettingsVisibility();
     for (const [plane, planeButton] of planeButtons) {
       planeButton.classList.toggle("gfx-active", plane === state.plane);
     }
@@ -1141,6 +1184,7 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
     fadeValue.textContent = `${state.plane_fade_frac.toFixed(2)}×`;
     section.setState(state);
     explorer.render(state);
+    scene.requestRender();
   };
 
   const applySection = (): void => {
@@ -1297,18 +1341,20 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
     showToast(`downloaded ${filename}`);
   };
   model.on("msg:custom", onCustom);
-
-  model.on("change:state", applyState);
-  model.on("change:fields", applyNewFields);
-  model.on("change:progress", applyProgress);
-  model.on("change:phase", applyPhase);
-  model.on("change:stopping", applyRunControls);
-  model.on("change:section", applySection);
-  model.on("change:geometry", applyGeometry);
-  model.on("change:meta", applyGeometry);
-  model.on("change:save_result", applySaveResult);
-  model.on("change:run_result", applyRunResult);
-  model.on("change:save_dir", applySaveDir);
+  const changeListeners: Array<[string, () => void]> = [
+    ["change:state", applyState],
+    ["change:fields", applyNewFields],
+    ["change:progress", applyProgress],
+    ["change:phase", applyPhase],
+    ["change:stopping", applyRunControls],
+    ["change:section", applySection],
+    ["change:geometry", applyGeometry],
+    ["change:meta", applyGeometry],
+    ["change:save_result", applySaveResult],
+    ["change:run_result", applyRunResult],
+    ["change:save_dir", applySaveDir],
+  ];
+  for (const [event, handler] of changeListeners) model.on(event, handler);
   applySection();
   applyState();
   applyProgress();
@@ -1317,10 +1363,12 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
   applySaveFolderVisibility();
 
   return () => {
-    // a re-render (a new bundle, a re-run cell) must not leave a second
-    // video_ready listener behind
+    // a re-render (a new bundle, a re-run cell) must not leave duplicate listeners behind
     model.off("msg:custom", onCustom);
-    if (positionFrame !== 0) cancelAnimationFrame(positionFrame);
+    for (const [event, handler] of changeListeners) model.off(event, handler);
+    cancelSpecs();
+    fadeQueue.cancel();
+    positionQueue.cancel();
     if (playHandle !== 0) cancelAnimationFrame(playHandle);
     if (toastTimer !== 0) window.clearTimeout(toastTimer);
     section.dispose();
@@ -1328,6 +1376,35 @@ function render({ model, el }: { model: AnyModel; el: HTMLElement }): () => void
     disposeContent();
     planes.dispose();
   };
+}
+
+function coalesceNumber(
+  onFlush: (value: number) => void,
+): { queue(value: number): void; flush(): void; cancel(): void } {
+  let frame = 0;
+  let pending: number | null = null;
+  const cancel = (): void => {
+    if (frame !== 0 && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
+  };
+  const flush = (): void => {
+    cancel();
+    if (pending === null) return;
+    const value = pending;
+    pending = null;
+    onFlush(value);
+  };
+  const queue = (value: number): void => {
+    pending = value;
+    if (typeof requestAnimationFrame !== "function") {
+      flush();
+      return;
+    }
+    if (frame === 0) frame = requestAnimationFrame(flush);
+  };
+  return { queue, flush, cancel };
 }
 
 function sendPatch(model: AnyModel, patch: Record<string, unknown>): void {
@@ -1420,8 +1497,14 @@ function inlineStyledClone(node: Node): Node | null {
   let clone: Element = element.cloneNode(false) as Element;
   if (element instanceof HTMLCanvasElement) {
     try {
+      const rect = element.getBoundingClientRect();
       const image = document.createElement("img");
       image.src = element.toDataURL("image/png");
+      // preserve CSS logical dimensions so HiDPI canvas snapshots don't expand to backing pixels
+      if (rect.width > 0 && rect.height > 0) {
+        image.width = Math.round(rect.width);
+        image.height = Math.round(rect.height);
+      }
       clone = image;
     } catch {
       // tainted canvas: keep the empty clone rather than abort the capture
@@ -1505,30 +1588,32 @@ function loadSvg(svg: SVGSVGElement): Promise<HTMLImageElement> {
 async function captureShell(shell: HTMLElement, fallbackPng: string): Promise<string> {
   try {
     const rect = shell.getBoundingClientRect();
-    const width = Math.ceil(rect.width);
-    const height = Math.ceil(rect.height);
+    const width = Math.max(1, Math.ceil(rect.width));
+    const height = Math.max(1, Math.ceil(rect.height));
     const scale = window.devicePixelRatio || 1;
 
     const xmlns = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(xmlns, "svg");
-    svg.setAttribute("width", String(width * scale));
-    svg.setAttribute("height", String(height * scale));
+    svg.setAttribute("width", String(Math.floor(width * scale)));
+    svg.setAttribute("height", String(Math.floor(height * scale)));
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     const foreignObject = document.createElementNS(xmlns, "foreignObject");
     foreignObject.setAttribute("width", "100%");
     foreignObject.setAttribute("height", "100%");
-    foreignObject.setAttribute("x", String(scale));
-    foreignObject.setAttribute("y", String(scale));
+    foreignObject.setAttribute("x", "0");
+    foreignObject.setAttribute("y", "0");
     foreignObject.setAttribute("externalResourcesRequired", "true");
     foreignObject.appendChild(inlineStyledClone(shell)!);
     svg.appendChild(foreignObject);
     const image = await loadSvg(svg);
 
     const canvas = document.createElement("canvas");
-    canvas.width = Math.floor(width * scale);
-    canvas.height = Math.floor(height * scale);
+    canvas.width = Math.max(1, Math.floor(width * scale));
+    canvas.height = Math.max(1, Math.floor(height * scale));
     const context = canvas.getContext("2d")!;
     context.scale(scale, scale);
-    context.drawImage(image, 0, 0);
+    // SVG rasterizes at `scale` backing pixels, so draw into logical CSS bounds to avoid double-scaling
+    context.drawImage(image, 0, 0, width, height);
     return canvas.toDataURL("image/png");
   } catch (error) {
     console.warn("whole-widget capture failed; saving the viewport instead", error);

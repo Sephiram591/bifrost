@@ -1,4 +1,4 @@
-// node_modules/three/build/three.core.js
+// ../../../../js/node_modules/three/build/three.core.js
 var REVISION = "186";
 var MOUSE = { LEFT: 0, MIDDLE: 1, RIGHT: 2, ROTATE: 0, DOLLY: 1, PAN: 2 };
 var TOUCH = { ROTATE: 0, PAN: 1, DOLLY_PAN: 2, DOLLY_ROTATE: 3 };
@@ -17918,7 +17918,7 @@ if (typeof window !== "undefined") {
   }
 }
 
-// node_modules/three/build/three.module.js
+// ../../../../js/node_modules/three/build/three.module.js
 function WebGLAnimation() {
   let context = null;
   let isAnimating = false;
@@ -29418,6 +29418,14 @@ var WebGLRenderer = class {
 
 // viewer/fieldramp.ts
 var TOTAL_COMPONENT = "|E|";
+var ELECTRIC_COMPONENTS = /* @__PURE__ */ new Set(["Ex", "Ey", "Ez"]);
+function hasElectricComponent(components) {
+  return components.some((name) => ELECTRIC_COMPONENTS.has(name));
+}
+function componentOptions(components) {
+  const prependTotal = hasElectricComponent(components) && !components.includes(TOTAL_COMPONENT);
+  return ["", ...prependTotal ? [TOTAL_COMPONENT] : [], ...components];
+}
 var SIGNED_TRANSFORMS = /* @__PURE__ */ new Set(["real", "imag", "phase"]);
 function isSigned(transform) {
   return SIGNED_TRANSFORMS.has(transform);
@@ -29429,10 +29437,21 @@ function componentData(field, component, frame = 0) {
   const f = Math.min(Math.max(0, Math.floor(frame)), frameCount(field) - 1);
   const base = f * perFrame;
   const imagAt = (offset) => field.imag ? decodeFloat32(field.imag, offset, count) : new Float32Array(count);
+  const index = field.components.indexOf(component);
+  if (index >= 0) {
+    return {
+      real: decodeFloat32(field.real, base + index * count, count),
+      imag: imagAt(base + index * count)
+    };
+  }
   if (component === TOTAL_COMPONENT) {
-    const real = new Float32Array(count);
+    const indices = [];
     for (let i = 0; i < field.components.length; i += 1) {
-      if (!field.components[i].startsWith("E")) continue;
+      if (ELECTRIC_COMPONENTS.has(field.components[i])) indices.push(i);
+    }
+    if (indices.length === 0) return null;
+    const real = new Float32Array(count);
+    for (const i of indices) {
       const re = decodeFloat32(field.real, base + i * count, count);
       const im = imagAt(base + i * count);
       for (let k = 0; k < count; k += 1) real[k] += re[k] * re[k] + im[k] * im[k];
@@ -29440,12 +29459,7 @@ function componentData(field, component, frame = 0) {
     for (let k = 0; k < count; k += 1) real[k] = Math.sqrt(real[k]);
     return { real, imag: new Float32Array(count) };
   }
-  const index = field.components.indexOf(component);
-  if (index < 0) return null;
-  return {
-    real: decodeFloat32(field.real, base + index * count, count),
-    imag: imagAt(base + index * count)
-  };
+  return null;
 }
 function frameCount(field) {
   const [rows, cols] = field.grid;
@@ -29511,48 +29525,40 @@ function extent(values) {
   let min = Infinity;
   let max = -Infinity;
   for (const value of values) {
+    if (!Number.isFinite(value)) continue;
     if (value < min) min = value;
     if (value > max) max = value;
   }
   return [min, max];
 }
 function clampRange(min, max, transform, logRange) {
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 0];
+  if (isSigned(transform)) {
+    const vmax = Math.max(Math.abs(min), Math.abs(max));
+    return vmax === 0 ? [0, 0] : [-vmax, vmax];
+  }
   if (transform === "logabs") {
     const floor = max - Math.abs(logRange);
     if (min < floor) min = floor;
   }
+  if (min === 0 && max === 0) return [0, 0];
   if (max <= min) max = min + 1e-12;
   return [min, max];
 }
+function rampSample(value, range, transform, low, high) {
+  if (!Number.isFinite(value)) return [0, 0, 0, 0];
+  const span = range[1] - range[0];
+  if (!Number.isFinite(span) || span <= 0) return [0, 0, 0, 0];
+  return rampColor((value - range[0]) / span, transform, low, high);
+}
 function rampTexture(values, range, transform, low, high, opacity) {
-  const [min, max] = range;
-  const span = max - min;
-  const signed = isSigned(transform);
   const bytes = new Uint8Array(values.length * 4);
   for (let i = 0; i < values.length; i += 1) {
-    let t = span > 0 ? (values[i] - min) / span : 0;
-    t = t < 0 ? 0 : t > 1 ? 1 : t;
-    let r;
-    let g;
-    let b;
-    let a;
-    if (signed) {
-      r = mix(low[0], high[0], t);
-      g = mix(low[1], high[1], t);
-      b = mix(low[2], high[2], t);
-      a = Math.abs(2 * t - 1);
-    } else {
-      r = high[0];
-      g = high[1];
-      b = high[2];
-      a = t;
-    }
-    const alpha = a * opacity;
+    const [r, g, b, a] = rampSample(values[i], range, transform, low, high);
     bytes[i * 4] = r;
     bytes[i * 4 + 1] = g;
     bytes[i * 4 + 2] = b;
-    bytes[i * 4 + 3] = Math.round(alpha * 255);
+    bytes[i * 4 + 3] = Math.round(a * opacity * 255);
   }
   return bytes;
 }
@@ -29563,6 +29569,7 @@ function parseColor(text) {
   return [value >> 16 & 255, value >> 8 & 255, value & 255];
 }
 function rampColor(t, transform, low, high) {
+  if (!Number.isFinite(t)) return [0, 0, 0, 0];
   const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
   if (isSigned(transform)) {
     return [
@@ -29620,8 +29627,8 @@ var FIELD_HINTS = {
   axis: "the plane's normal axis: 0 = x (a yz plane), 1 = y (an xz plane), 2 = z (an xy plane)",
   center: "the plane's center (x, y, z) in \xB5m, in stack coordinates",
   size: "the plane's two in-plane sizes in \xB5m, along its lower then higher stack axes",
-  direction: "which way it faces relative to the component: in = into the component through the port, out = out of it",
-  port_offset: "shift along the port's injection direction in \xB5m; negative moves the plane out of the component, e.g. into a port extension",
+  direction: "which way it faces relative to the component: in = into the component through the port (or -axis on an xy / xz / yz plane), out = out of it",
+  port_offset: "shift in \xB5m along the 'in' direction (+port_offset moves along 'in', which is -axis on an xy / xz / yz plane; negative moves opposite)",
   port_padding: "how far the plane extends past the port's width (first) and the level's height (second) on each side, in mean wavelengths of this card; negative shrinks it",
   level: "the level whose height and middle set the plane's z; (auto) uses the z span of the levels that draw the port's layer, or the box's mid-height for a box plane; z_center pins it to the box's mid-height",
   wavelengths: "wavelengths in \xB5m, comma separated",
@@ -29642,16 +29649,16 @@ var VIDEO_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" st
 var SAVE_VIDEO_HINT = `save video: render every frame of the active viewport (3D or 2D) as an MP4; the settings screen's "Save to" picks download or server`;
 function specFieldHint(key, kind) {
   if (key === "direction") {
-    return kind === "source" ? "which way it launches: in = into the component through the port, out = out of it" : "which wave it measures: out = leaving the component through the port, in = entering it";
+    return kind === "source" ? "which way it launches: in = into the component through the port (or -axis on xy / xz / yz), out = out of it" : "which wave it measures: out = leaving the component through the port, in = entering it (or -axis on xy / xz / yz)";
   }
   return FIELD_HINTS[key];
 }
 function portHint(name) {
   if (name === "None") return "no port: place it by axis, center and size in stack coordinates";
   const planes = {
-    xy: "the plane through the box center normal to z",
-    xz: "the plane through the box center normal to y",
-    yz: "the plane through the box center normal to x"
+    xy: "the plane through the box center normal to z ('in' faces -z; +port_offset shifts along 'in')",
+    xz: "the plane through the box center normal to y ('in' faces -y; +port_offset shifts along 'in')",
+    yz: "the plane through the box center normal to x ('in' faces -x; +port_offset shifts along 'in')"
   };
   return planes[name] ?? `centered on the device port ${name} and normal to it`;
 }
@@ -30102,8 +30109,8 @@ var Explorer = class {
           "in",
           (value) => setParam("direction", value),
           (name2) => ({
-            in: "into the component through the port",
-            out: "out of the component through the port"
+            in: "into the component through the port (or -axis on xy / xz / yz)",
+            out: "out of the component through the port (or +axis on xy / xz / yz)"
           })[name2]
         ));
       }
@@ -30429,9 +30436,9 @@ var Explorer = class {
       const entry = this.fields[id];
       const components = entry?.components ?? [];
       const componentSelect = controls.get("field_component")?.element;
-      const hasE = components.some((name) => name.startsWith("E"));
-      const options = ["", ...components, ...hasE ? [TOTAL_COMPONENT] : []];
-      if (componentSelect.options.length !== options.length) {
+      const options = componentOptions(components);
+      const changed = componentSelect.options.length !== options.length || options.some((value, i) => componentSelect.options[i]?.value !== value);
+      if (changed) {
         componentSelect.replaceChildren(
           ...options.map((value) => {
             const option = document.createElement("option");
@@ -30648,8 +30655,8 @@ var Explorer = class {
     freq.addEventListener("input", () => {
       const playback = this.resultPlayback.get(id);
       if (playback?.playing) this.callbacks.onPlay(id, false, Number(playback.fps.value));
-      this.setParam(id, "field_freq", Number(freq.value));
     });
+    coalesce(freq, (value) => this.setParam(id, "field_freq", Number(value)));
     controls.set("field_freq", {
       element: freq,
       write: (value) => {
@@ -31084,7 +31091,9 @@ var Explorer = class {
     return section;
   }
   row(kind, name) {
-    return this.root.querySelector(`[data-kind="${kind}"][data-name="${name}"]`) ?? void 0;
+    return this.root.querySelector(
+      `[data-kind="${escapeAttr(kind)}"][data-name="${escapeAttr(name)}"]`
+    ) ?? void 0;
   }
   renderProperties(state) {
     const selected = state.selection;
@@ -31109,6 +31118,9 @@ function displayNumber(value) {
   const tolerance = Math.max(Math.abs(value), 1) * 1e-9;
   return Math.abs(value - rounded) <= tolerance ? rounded : value;
 }
+function escapeAttr(value) {
+  return typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(value) : value.replace(/["\\]/g, "\\$&");
+}
 function coalesce(input, handler) {
   let frame = 0;
   let pending = null;
@@ -31121,7 +31133,20 @@ function coalesce(input, handler) {
   };
   input.addEventListener("input", () => {
     pending = input.value;
+    if (typeof requestAnimationFrame !== "function") {
+      flush();
+      return;
+    }
     if (frame === 0) frame = requestAnimationFrame(flush);
+  });
+  input.addEventListener("change", () => {
+    if (frame !== 0 && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
+    if (pending === null) return;
+    pending = input.value;
+    flush();
   });
 }
 function formatDefault(key, value) {
@@ -31565,7 +31590,7 @@ var LevelMeshes = class {
   }
 };
 
-// node_modules/three/examples/jsm/controls/ArcballControls.js
+// ../../../../js/node_modules/three/examples/jsm/controls/ArcballControls.js
 var STATE = {
   IDLE: /* @__PURE__ */ Symbol(),
   ROTATE: /* @__PURE__ */ Symbol(),
@@ -33536,7 +33561,7 @@ function onWheel(event) {
   }
 }
 
-// node_modules/three/examples/jsm/controls/OrbitControls.js
+// ../../../../js/node_modules/three/examples/jsm/controls/OrbitControls.js
 var _changeEvent2 = { type: "change" };
 var _startEvent2 = { type: "start" };
 var _endEvent2 = { type: "end" };
@@ -34452,7 +34477,7 @@ function interceptControlUp(event) {
   }
 }
 
-// node_modules/three/examples/jsm/controls/TrackballControls.js
+// ../../../../js/node_modules/three/examples/jsm/controls/TrackballControls.js
 var _changeEvent3 = { type: "change" };
 var _startEvent3 = { type: "start" };
 var _endEvent3 = { type: "end" };
@@ -35032,6 +35057,30 @@ function formatTick(value) {
 
 // viewer/scene.ts
 var CONTROL_KINDS = ["trackball", "arcball", "orbit"];
+function bindControlEvents(dispatcher, hooks) {
+  dispatcher.addEventListener("start", hooks.onStart);
+  dispatcher.addEventListener("change", hooks.onChange);
+  dispatcher.addEventListener("end", hooks.onEnd);
+  return () => {
+    dispatcher.removeEventListener("start", hooks.onStart);
+    dispatcher.removeEventListener("change", hooks.onChange);
+    dispatcher.removeEventListener("end", hooks.onEnd);
+  };
+}
+function sameBounds(aSize, aOrigin, bSize, bOrigin, tol = 1e-6) {
+  for (let i = 0; i < 3; i += 1) {
+    if (Math.abs(aSize[i] - bSize[i]) > tol || Math.abs(aOrigin[i] - bOrigin[i]) > tol) {
+      return false;
+    }
+  }
+  return true;
+}
+function fitDistance(size, zExaggeration, fovDeg, aspect2) {
+  const radius = 0.5 * Math.hypot(size[0], size[1], size[2] * zExaggeration);
+  const halfFov = fovDeg * Math.PI / 360;
+  const span = Math.sin(halfFov) * Math.min(1, Math.max(aspect2, 1e-6));
+  return Math.max(radius, 1e-6) / Math.max(span, 1e-6);
+}
 var VIEW_DIRECTION = new Vector3(0, -1, 1).normalize();
 var OrbitControl = class {
   constructor(camera, dom) {
@@ -35054,9 +35103,12 @@ var OrbitControl = class {
     return this.inner.target;
   }
   update() {
-    this.inner.update();
+    return this.inner.update();
   }
   refreshLayout() {
+  }
+  bind(hooks) {
+    return bindControlEvents(this.inner, hooks);
   }
   dispose() {
     this.inner.dispose();
@@ -35084,9 +35136,13 @@ var TrackballControl = class {
   }
   update() {
     this.inner.update();
+    return false;
   }
   refreshLayout() {
     this.inner.handleResize();
+  }
+  bind(hooks) {
+    return bindControlEvents(this.inner, hooks);
   }
   dispose() {
     this.inner.dispose();
@@ -35114,8 +35170,12 @@ var ArcballControl = class {
   }
   update() {
     this.inner.update();
+    return false;
   }
   refreshLayout() {
+  }
+  bind(hooks) {
+    return bindControlEvents(this.inner, hooks);
   }
   dispose() {
     this.inner.dispose();
@@ -35135,10 +35195,17 @@ var Scene3D = class {
     //: own default, so a rebuilt control keeps whatever the user chose
     this.rotateSpeed = 1;
     this.target = new Vector3(0, 0, 0);
-    this.radius = 1;
+    this.boxSize = [1, 1, 1];
+    this.hasBounds = false;
     //: which way the camera looks from, as a unit vector from the target (spec R3)
     this.viewDirection = VIEW_DIRECTION.clone();
     this.zExaggeration = 1;
+    this.frameId = 0;
+    this.disposed = false;
+    this.needsRender = true;
+    this.controlsActive = false;
+    this.updatingControls = false;
+    this.unbindControls = null;
     //: the simulation region outline (the device box, spec R3); drawn in the
     //: content group so the vertical exaggeration scales it with the solids. Each
     //: edge is a separate line in its axis's color, so the box edges read as the
@@ -35155,9 +35222,22 @@ var Scene3D = class {
     //: `local + origin` to read in device (stack) coordinates, like the slider
     this.origin = [0, 0, 0];
     this.renderLoop = () => {
-      this.controls.update();
-      this.renderer.render(this.scene, this.camera);
-      requestAnimationFrame(this.renderLoop);
+      this.frameId = 0;
+      if (this.disposed) return;
+      if (!this.viewportVisible || document.hidden) {
+        this.needsRender = true;
+        return;
+      }
+      this.renderNow();
+    };
+    this.onVisibilityChange = () => {
+      if (!document.hidden && this.needsRender) this.requestRender();
+    };
+    this.onPointerCancel = () => {
+      if (this.controlsActive) {
+        this.controlsActive = false;
+        this.requestRender();
+      }
     };
     this.scene.background = new Color(1776415);
     this.scene.add(new HemisphereLight(16777215, 4473941, 2));
@@ -35170,35 +35250,58 @@ var Scene3D = class {
     const width = Math.max(container.clientWidth, 1);
     const height = Math.max(container.clientHeight, 1);
     this.camera = new PerspectiveCamera(45, width / height, 0.01, 1e5);
+    this.camera.up.set(0, 0, 1);
     this.camera.position.set(0, -2, 2);
     this.renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(width, height);
     container.appendChild(this.renderer.domElement);
-    this.controls = this.makeControls(this.controlKind);
+    this.controls = this.attachControls(this.controlKind);
+    this.renderer.domElement.addEventListener("pointercancel", this.onPointerCancel);
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
     this.scene.add(this.content);
     this.content.add(this.region);
     this.content.add(this.ticks);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
-    this.renderLoop();
+    this.requestRender();
   }
   /** Frames the given box (µm, local origin) and sets up the region + scale bar. */
   setBounds(size, origin = [0, 0, 0]) {
-    this.origin = origin;
-    this.target.set(0, 0, 0);
-    this.radius = 0.5 * Math.hypot(size[0], size[1], size[2]);
+    const unchanged = this.hasBounds && sameBounds(this.boxSize, this.origin, size, origin);
+    this.hasBounds = true;
+    this.boxSize = [...size];
+    this.origin = [...origin];
     const span = Math.max(size[0], size[1], size[2]);
     this.labelScale = 0.08 * span;
     this.buildRegion(size);
-    this.fit();
+    if (!unchanged) this.fit();
+    else this.requestRender();
   }
-  /** Builds the requested rotation control over the renderer's canvas. */
-  makeControls(kind) {
+  /** Builds the requested rotation control over the renderer's canvas and binds render hooks. */
+  attachControls(kind) {
+    if (kind === "orbit") this.camera.up.set(0, 0, 1);
     const dom = this.renderer.domElement;
-    if (kind === "trackball") return new TrackballControl(this.camera, dom);
-    if (kind === "arcball") return new ArcballControl(this.camera, dom, this.scene);
-    return new OrbitControl(this.camera, dom);
+    let controls;
+    if (kind === "trackball") controls = new TrackballControl(this.camera, dom);
+    else if (kind === "arcball") controls = new ArcballControl(this.camera, dom, this.scene);
+    else controls = new OrbitControl(this.camera, dom);
+    this.unbindControls = controls.bind({
+      onStart: () => {
+        this.controlsActive = true;
+        this.requestRender();
+      },
+      onChange: () => {
+        if (!this.updatingControls) this.requestRender();
+      },
+      onEnd: () => {
+        if (this.controlsActive) {
+          this.controlsActive = false;
+          this.requestRender();
+        }
+      }
+    });
+    return controls;
   }
   /** The active rotation style (spec R3, settings screen). */
   get control() {
@@ -35208,21 +35311,34 @@ var Scene3D = class {
   setControl(kind) {
     if (kind === this.controlKind) return;
     const previous = this.controls;
-    this.controls = this.makeControls(kind);
+    const prevUnbind = this.unbindControls;
+    this.target.copy(previous.target);
+    this.controls = this.attachControls(kind);
     this.controlKind = kind;
+    prevUnbind?.();
     previous.dispose();
     this.controls.target.copy(this.target);
     this.controls.enabled = this.viewportVisible;
     this.controls.rotateSpeed = this.rotateSpeed;
     this.controls.refreshLayout();
-    this.controls.update();
+    this.requestRender();
   }
   /** Hides the renderer while the settings screen replaces the viewport (spec R3). */
   setViewportVisible(visible) {
     this.viewportVisible = visible;
     this.renderer.domElement.style.visibility = visible ? "" : "hidden";
     this.controls.enabled = visible;
-    if (visible) this.controls.refreshLayout();
+    if (visible) {
+      this.controls.refreshLayout();
+      if (this.needsRender) this.requestRender();
+    } else {
+      this.controlsActive = false;
+      if (this.frameId !== 0) {
+        cancelAnimationFrame(this.frameId);
+        this.frameId = 0;
+        this.needsRender = true;
+      }
+    }
   }
   /** Drag rotation sensitivity (spec R3, settings screen). */
   get sensitivity() {
@@ -35259,11 +35375,7 @@ var Scene3D = class {
       [2, 6],
       [3, 7]
     ];
-    for (const child of [...this.region.children]) {
-      this.region.remove(child);
-      child.geometry.dispose();
-      child.material.dispose();
-    }
+    this.clearGroup(this.region);
     const points = [];
     for (const [a, b] of edges) points.push(corners[a], corners[b]);
     const outline = new LineSegments(
@@ -35276,7 +35388,7 @@ var Scene3D = class {
   }
   /** Tick marks and labels along the box's x, y and z edges (spec R3). */
   buildTicks(size) {
-    this.ticks.clear();
+    this.clearGroup(this.ticks);
     const half = size.map((s) => s / 2);
     const step = niceStep(Math.max(...size));
     const tick = 0.04 * Math.max(...size) * (2 / 3);
@@ -35338,19 +35450,33 @@ var Scene3D = class {
   }
   /** Frames the whole scene (spec R3, "fit to view").
    *
-   * The default view puts x horizontal and looks from -y, +z (the camera is
-   * above and in front of the device). With the default up (0, 1, 0), the
-   * camera's right axis is exactly +x, so x runs across the screen.
+   * Uses Z-up for turntable orbiting without gimbal lock; for the default view
+   * from (-y, +z) toward the box center, the camera's right axis is +x.
    */
   fit() {
-    const distance = this.radius / Math.sin(this.camera.fov * Math.PI / 360);
-    this.camera.up.set(0, 1, 0);
+    const distance = fitDistance(this.boxSize, this.zExaggeration, this.camera.fov, this.camera.aspect);
+    this.target.set(0, 0, 0);
+    if (this.controlKind === "orbit" || Math.abs(this.viewDirection.z) <= 0.999) {
+      this.camera.up.set(0, 0, 1);
+    } else {
+      this.camera.up.set(0, 1, 0);
+    }
     this.camera.position.copy(this.target).addScaledVector(this.viewDirection, distance);
     this.camera.near = Math.max(distance / 1e3, 1e-3);
     this.camera.far = distance * 100;
     this.camera.updateProjectionMatrix();
     this.controls.target.copy(this.target);
-    this.controls.update();
+    if (this.viewportVisible && !document.hidden) {
+      this.renderNow();
+    } else {
+      this.updatingControls = true;
+      try {
+        this.controls.update();
+      } finally {
+        this.updatingControls = false;
+      }
+      this.needsRender = true;
+    }
   }
   /** Sets the direction `fit` places the camera in (a vector from the target; need not be unit). */
   setViewDirection(direction) {
@@ -35361,36 +35487,86 @@ var Scene3D = class {
   setZExaggeration(factor) {
     this.zExaggeration = factor;
     this.content.scale.set(1, 1, factor);
+    this.requestRender();
   }
   get exaggeration() {
     return this.zExaggeration;
   }
+  /** Schedules a single frame on demand (skipped while hidden until visible again). */
+  requestRender() {
+    if (this.disposed) return;
+    if (!this.viewportVisible || document.hidden) {
+      this.needsRender = true;
+      return;
+    }
+    if (this.frameId !== 0) return;
+    this.frameId = requestAnimationFrame(this.renderLoop);
+  }
   /** The current frame as a PNG data URL (spec R3, "save image"). */
   toPng() {
-    this.renderer.render(this.scene, this.camera);
+    this.renderNow();
     return this.renderer.domElement.toDataURL("image/png");
   }
   /** Renders now and returns the canvas, so a video frame captures this state. */
   captureCanvas() {
-    this.renderer.render(this.scene, this.camera);
+    this.renderNow();
     return this.renderer.domElement;
   }
   resize() {
-    const width = Math.max(this.container.clientWidth, 1);
-    const height = Math.max(this.container.clientHeight, 1);
+    const width = this.container.clientWidth;
+    const height = this.container.clientHeight;
+    if (width <= 0 || height <= 0) return;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
     this.controls.refreshLayout();
+    if (this.viewportVisible && !document.hidden) this.renderNow();
+    else this.needsRender = true;
+  }
+  renderNow() {
+    if (this.disposed) return;
+    if (this.frameId !== 0) {
+      cancelAnimationFrame(this.frameId);
+      this.frameId = 0;
+    }
+    this.needsRender = false;
+    let moved = false;
+    this.updatingControls = true;
+    try {
+      moved = this.controls.update();
+    } finally {
+      this.updatingControls = false;
+    }
+    this.renderer.render(this.scene, this.camera);
+    if (moved || this.controlsActive) this.requestRender();
+  }
+  clearGroup(group) {
+    for (const child of [...group.children]) {
+      group.remove(child);
+      if (child instanceof Sprite) {
+        child.material.map?.dispose();
+        child.material.dispose();
+      } else if (child instanceof LineSegments || child instanceof Mesh) {
+        child.geometry.dispose();
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) material.dispose();
+      }
+    }
   }
   dispose() {
-    this.resizeObserver.disconnect();
-    this.controls.dispose();
-    for (const child of this.region.children) {
-      const line = child;
-      line.geometry.dispose();
-      line.material.dispose();
+    this.disposed = true;
+    if (this.frameId !== 0) {
+      cancelAnimationFrame(this.frameId);
+      this.frameId = 0;
     }
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    this.renderer.domElement.removeEventListener("pointercancel", this.onPointerCancel);
+    this.resizeObserver.disconnect();
+    this.unbindControls?.();
+    this.unbindControls = null;
+    this.controls.dispose();
+    this.clearGroup(this.region);
+    this.clearGroup(this.ticks);
     this.renderer.dispose();
   }
 };
@@ -35411,6 +35587,9 @@ var PORT_FILL_ALPHA = 0.25;
 var GLYPH_CUT_HALF = 0.5;
 function fieldBlit(x0, y1, x1, y0) {
   return { translate: [x0, y1], scale: [1, -1], dest: [0, 0, x1 - x0, y1 - y0] };
+}
+function sortLevelsForPaint(levels) {
+  return [...levels].sort((a, b) => b.mesh_order - a.mesh_order);
 }
 var Section2D = class {
   constructor(meta, onPortSelect) {
@@ -35434,6 +35613,7 @@ var Section2D = class {
     //: set once the user zooms or pans; until then the view re-fits on every
     //: resize and payload change (the container starts hidden at zero size)
     this.userAdjusted = false;
+    this.stopPan = null;
     this.root = document.createElement("div");
     this.root.className = "gfx-cross-section";
     this.canvas = document.createElement("canvas");
@@ -35546,6 +35726,8 @@ var Section2D = class {
     this.draw();
   }
   dispose() {
+    this.stopPan?.();
+    this.stopPan = null;
     this.resizeObserver.disconnect();
   }
   // ------------------------------------------------------------------ drawing
@@ -35598,7 +35780,7 @@ var Section2D = class {
     const payload = this.payload;
     const state = this.state;
     if (!payload || !state) return;
-    const ordered = [...this.meta.levels].sort((a, b) => a.mesh_order - b.mesh_order);
+    const ordered = sortLevelsForPaint(this.meta.levels);
     for (const level of ordered) {
       const style = state.styles[level.name];
       const rings = payload.rings[level.name];
@@ -35660,17 +35842,15 @@ var Section2D = class {
     const [rows, cols] = field.grid;
     const image = this.fieldCanvas(cols, rows);
     const pixels = image.getContext("2d").createImageData(cols, rows);
-    const span = range[1] - range[0];
-    const low = parseColor(settings.field_color_low);
-    const high = parseColor(settings.field_color_high);
-    for (let i = 0; i < values.length; i += 1) {
-      const t = span > 0 ? (values[i] - range[0]) / span : 0;
-      const [r, g, b, a] = rampColor(t, settings.field_transform, low, high);
-      pixels.data[i * 4] = r;
-      pixels.data[i * 4 + 1] = g;
-      pixels.data[i * 4 + 2] = b;
-      pixels.data[i * 4 + 3] = Math.round(a * 255);
-    }
+    const bytes = rampTexture(
+      values,
+      range,
+      settings.field_transform,
+      parseColor(settings.field_color_low),
+      parseColor(settings.field_color_high),
+      1
+    );
+    pixels.data.set(bytes.length <= pixels.data.length ? bytes : bytes.subarray(0, pixels.data.length));
     image.getContext("2d").putImageData(pixels, 0, 0);
     const [au, av] = { xy: [0, 1], xz: [0, 2], yz: [1, 2] }[this.payload.plane];
     const [shiftU, shiftV] = field.shift ?? [0, 0];
@@ -35998,7 +36178,7 @@ var Section2D = class {
     const payload = this.payload;
     const state = this.state;
     if (!payload || !state) return null;
-    const ordered = [...this.meta.levels].sort((a, b) => b.mesh_order - a.mesh_order);
+    const ordered = sortLevelsForPaint(this.meta.levels).reverse();
     for (const level of ordered) {
       const style = state.styles[level.name];
       const rings = payload.rings[level.name];
@@ -36047,6 +36227,7 @@ var Section2D = class {
   }
   onPanStart(event) {
     event.preventDefault();
+    this.stopPan?.();
     const startX = event.clientX;
     const startY = event.clientY;
     const startDx = this.view.dx;
@@ -36060,7 +36241,9 @@ var Section2D = class {
     const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
+      if (this.stopPan === up) this.stopPan = null;
     };
+    this.stopPan = up;
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
   }
@@ -36162,32 +36345,40 @@ async function encodeFrames(count, fps, draw, onProgress) {
       failure = error2;
     }
   });
-  encoder.configure(config.config);
-  const staging = document.createElement("canvas");
-  staging.width = width;
-  staging.height = height;
-  const context = staging.getContext("2d");
-  if (!context) throw new Error("no 2D canvas context for the video frames");
-  const keyEvery = Math.max(1, Math.round(2 * fps));
-  for (let i = 0; i < count; i += 1) {
-    if (failure) break;
-    const source = i === 0 ? first : draw(i);
-    context.fillStyle = "#000000";
-    context.fillRect(0, 0, width, height);
-    context.drawImage(source, 0, 0, width, height, 0, 0, width, height);
-    const frame = new VideoFrame(staging, {
-      timestamp: Math.round(i * 1e6 / fps),
-      duration: Math.round(1e6 / fps)
-    });
-    encoder.encode(frame, { keyFrame: i % keyEvery === 0 });
-    frame.close();
-    while (encoder.encodeQueueSize > 4 && !failure) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+  try {
+    encoder.configure(config.config);
+    const staging = document.createElement("canvas");
+    staging.width = width;
+    staging.height = height;
+    const context = staging.getContext("2d");
+    if (!context) throw new Error("no 2D canvas context for the video frames");
+    const keyEvery = Math.max(1, Math.round(2 * fps));
+    for (let i = 0; i < count; i += 1) {
+      if (failure) break;
+      const source = i === 0 ? first : draw(i);
+      context.fillStyle = "#000000";
+      context.fillRect(0, 0, width, height);
+      context.drawImage(source, 0, 0, width, height, 0, 0, width, height);
+      const frame = new VideoFrame(staging, {
+        timestamp: Math.round(i * 1e6 / fps),
+        duration: Math.round(1e6 / fps)
+      });
+      try {
+        encoder.encode(frame, { keyFrame: i % keyEvery === 0 });
+      } finally {
+        frame.close();
+      }
+      while (encoder.encodeQueueSize > 4 && !failure) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      onProgress?.(i, count);
     }
-    onProgress?.(i, count);
+    if (!failure) await encoder.flush();
+  } catch (err) {
+    throw failure ?? err;
+  } finally {
+    if (encoder.state !== "closed") encoder.close();
   }
-  if (!failure) await encoder.flush();
-  encoder.close();
   if (failure) throw failure;
   const bytes = config.kind === "h264" ? concat(chunks) : ivf(chunks, config.kind, width, height, fps);
   return { codec: config.kind, bytes, width, height, fps, frames: chunks.length };
@@ -36344,16 +36535,58 @@ function render({ model, el }) {
   positionBox.className = "gfx-numeric";
   position.append(positionSlider, positionBox);
   sectionControls.append(planeToggle, position);
+  const pendingSpecs = /* @__PURE__ */ new Map();
+  let specFrame = 0;
+  const cancelSpecs = () => {
+    if (specFrame !== 0 && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(specFrame);
+      specFrame = 0;
+    }
+    pendingSpecs.clear();
+  };
+  const flushSpecs = () => {
+    if (specFrame !== 0 && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(specFrame);
+      specFrame = 0;
+    }
+    if (pendingSpecs.size === 0) return;
+    for (const entry of pendingSpecs.values()) {
+      send(model, { event: "update_spec", kind: entry.kind, spec: entry.spec });
+    }
+    pendingSpecs.clear();
+  };
+  const queueSpec = (kind, id, change) => {
+    const key = `${kind}:${id}`;
+    const existing = pendingSpecs.get(key);
+    const merged = existing ? { ...existing.spec, ...change } : { id, ...change };
+    pendingSpecs.set(key, { kind, spec: merged });
+    if ("type" in change || "port" in change || typeof requestAnimationFrame !== "function") {
+      flushSpecs();
+      return;
+    }
+    if (specFrame === 0) specFrame = requestAnimationFrame(flushSpecs);
+  };
   const explorer = new Explorer(meta, {
     onPatch: (patch) => sendPatch(model, patch),
     onActiveTab: (tab) => {
+      flushSpecs();
       sendPatch(model, { active_tab: tab });
     },
     onSelect: (selection) => sendPatch(model, { selection }),
-    onAddSource: (port) => send(model, { event: "add_source", port }),
-    onAddDetector: (port) => send(model, { event: "add_detector", port }),
-    onUpdateSpec: (kind, id, change) => send(model, { event: "update_spec", kind, spec: { id, ...change } }),
-    onRemoveSpec: (kind, id) => send(model, { event: "remove_spec", kind, id }),
+    onAddSource: (port) => {
+      flushSpecs();
+      send(model, { event: "add_source", port });
+    },
+    onAddDetector: (port) => {
+      flushSpecs();
+      send(model, { event: "add_detector", port });
+    },
+    onUpdateSpec: queueSpec,
+    onRemoveSpec: (kind, id) => {
+      pendingSpecs.delete(`${kind}:${id}`);
+      flushSpecs();
+      send(model, { event: "remove_spec", kind, id });
+    },
     onSettings: (settings2) => send(model, { event: "set_settings", settings: settings2 }),
     // playback and video export run in the browser, over the frames already
     // here (defined with the playback state below)
@@ -36584,8 +36817,12 @@ function render({ model, el }) {
   rebuildContent();
   run.addEventListener("click", () => {
     if (run.disabled) return;
-    if (currentState(model)?.running) send(model, { event: "stop" });
-    else send(model, { event: "run" });
+    if (currentState(model)?.running) {
+      send(model, { event: "stop" });
+    } else {
+      flushSpecs();
+      send(model, { event: "run" });
+    }
   });
   const raycaster = new Raycaster();
   scene.renderer.domElement.addEventListener("dblclick", (event) => {
@@ -36617,7 +36854,7 @@ function render({ model, el }) {
     sceneRoot.hidden = settingsOpen || is2d;
     section.root.hidden = settingsOpen || !is2d;
     sectionControls.hidden = settingsOpen || !is2d;
-    scene.setViewportVisible(!settingsOpen);
+    scene.setViewportVisible(!settingsOpen && !is2d);
   };
   settings.addEventListener("click", () => {
     settingsOpen = !settingsOpen;
@@ -36640,11 +36877,13 @@ function render({ model, el }) {
     "change",
     () => sendPatch(model, { show_full: fullInput.checked })
   );
+  const fadeQueue = coalesceNumber((plane_fade_frac) => sendPatch(model, { plane_fade_frac }));
   fadeInput.addEventListener("input", () => {
     const value = Number(fadeInput.value);
     fadeValue.textContent = `${value.toFixed(2)}\xD7`;
-    sendPatch(model, { plane_fade_frac: value });
+    fadeQueue.queue(value);
   });
+  fadeInput.addEventListener("change", () => fadeQueue.flush());
   to3d.addEventListener("click", () => {
     closeSettings();
     sendPatch(model, { active_viewport: "3d" });
@@ -36688,26 +36927,17 @@ function render({ model, el }) {
     }
     navigator.clipboard.writeText(code).then(() => showToast("copied launch code to the clipboard")).catch(() => showToast("copy failed: clipboard blocked or unsupported"));
   });
-  let pendingPosition = null;
-  let positionFrame = 0;
-  const flushPosition = () => {
-    positionFrame = 0;
-    if (pendingPosition === null) return;
-    sendPatch(model, { plane_position: pendingPosition });
-    pendingPosition = null;
-  };
-  const queuePosition = (value) => {
-    pendingPosition = value;
-    if (positionFrame === 0) positionFrame = requestAnimationFrame(flushPosition);
-  };
+  const positionQueue = coalesceNumber((plane_position) => sendPatch(model, { plane_position }));
   positionSlider.addEventListener("input", () => {
     positionBox.value = positionSlider.value;
-    queuePosition(Number(positionSlider.value));
+    positionQueue.queue(Number(positionSlider.value));
   });
+  positionSlider.addEventListener("change", () => positionQueue.flush());
   positionBox.addEventListener("change", () => {
     const value = Number(positionBox.value);
     positionSlider.value = String(value);
-    queuePosition(value);
+    positionQueue.queue(value);
+    positionQueue.flush();
   });
   function applyFields() {
     const fields = model.get("fields") ?? {};
@@ -36749,6 +36979,7 @@ function render({ model, el }) {
     } : null);
     section.setFields(shading ? fields : {});
     renderColorbar(state, fields, shading);
+    scene.requestRender();
   }
   function currentFields() {
     return model.get("fields") ?? {};
@@ -36769,6 +37000,7 @@ function render({ model, el }) {
       shown.set(id, frame);
     }
     section.setFrames(shown);
+    scene.requestRender();
   };
   const shadeFrame = (id, frame) => shadeFrames(/* @__PURE__ */ new Map([[id, frame]]));
   const tick = (now) => {
@@ -37016,10 +37248,7 @@ function render({ model, el }) {
     const is2d = state.active_viewport === "2d";
     to3d.classList.toggle("gfx-active", !is2d);
     to2d.classList.toggle("gfx-active", is2d);
-    sceneRoot.hidden = settingsOpen || is2d;
-    section.root.hidden = settingsOpen || !is2d;
-    sectionControls.hidden = settingsOpen || !is2d;
-    scene.setViewportVisible(!settingsOpen);
+    applySettingsVisibility();
     for (const [plane, planeButton] of planeButtons) {
       planeButton.classList.toggle("gfx-active", plane === state.plane);
     }
@@ -37064,6 +37293,7 @@ function render({ model, el }) {
     fadeValue.textContent = `${state.plane_fade_frac.toFixed(2)}\xD7`;
     section.setState(state);
     explorer.render(state);
+    scene.requestRender();
   };
   const applySection = () => {
     const payload = model.get("section");
@@ -37185,17 +37415,20 @@ function render({ model, el }) {
     showToast(`downloaded ${filename}`);
   };
   model.on("msg:custom", onCustom);
-  model.on("change:state", applyState);
-  model.on("change:fields", applyNewFields);
-  model.on("change:progress", applyProgress);
-  model.on("change:phase", applyPhase);
-  model.on("change:stopping", applyRunControls);
-  model.on("change:section", applySection);
-  model.on("change:geometry", applyGeometry);
-  model.on("change:meta", applyGeometry);
-  model.on("change:save_result", applySaveResult);
-  model.on("change:run_result", applyRunResult);
-  model.on("change:save_dir", applySaveDir);
+  const changeListeners = [
+    ["change:state", applyState],
+    ["change:fields", applyNewFields],
+    ["change:progress", applyProgress],
+    ["change:phase", applyPhase],
+    ["change:stopping", applyRunControls],
+    ["change:section", applySection],
+    ["change:geometry", applyGeometry],
+    ["change:meta", applyGeometry],
+    ["change:save_result", applySaveResult],
+    ["change:run_result", applyRunResult],
+    ["change:save_dir", applySaveDir]
+  ];
+  for (const [event, handler] of changeListeners) model.on(event, handler);
   applySection();
   applyState();
   applyProgress();
@@ -37204,7 +37437,10 @@ function render({ model, el }) {
   applySaveFolderVisibility();
   return () => {
     model.off("msg:custom", onCustom);
-    if (positionFrame !== 0) cancelAnimationFrame(positionFrame);
+    for (const [event, handler] of changeListeners) model.off(event, handler);
+    cancelSpecs();
+    fadeQueue.cancel();
+    positionQueue.cancel();
     if (playHandle !== 0) cancelAnimationFrame(playHandle);
     if (toastTimer !== 0) window.clearTimeout(toastTimer);
     section.dispose();
@@ -37212,6 +37448,32 @@ function render({ model, el }) {
     disposeContent();
     planes.dispose();
   };
+}
+function coalesceNumber(onFlush) {
+  let frame = 0;
+  let pending = null;
+  const cancel = () => {
+    if (frame !== 0 && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
+  };
+  const flush = () => {
+    cancel();
+    if (pending === null) return;
+    const value = pending;
+    pending = null;
+    onFlush(value);
+  };
+  const queue = (value) => {
+    pending = value;
+    if (typeof requestAnimationFrame !== "function") {
+      flush();
+      return;
+    }
+    if (frame === 0) frame = requestAnimationFrame(flush);
+  };
+  return { queue, flush, cancel };
 }
 function sendPatch(model, patch) {
   model.send({ event: "set_state", patch });
@@ -37265,8 +37527,13 @@ function inlineStyledClone(node) {
   let clone = element.cloneNode(false);
   if (element instanceof HTMLCanvasElement) {
     try {
+      const rect = element.getBoundingClientRect();
       const image = document.createElement("img");
       image.src = element.toDataURL("image/png");
+      if (rect.width > 0 && rect.height > 0) {
+        image.width = Math.round(rect.width);
+        image.height = Math.round(rect.height);
+      }
       clone = image;
     } catch {
     }
@@ -37315,28 +37582,29 @@ function loadSvg(svg) {
 async function captureShell(shell, fallbackPng) {
   try {
     const rect = shell.getBoundingClientRect();
-    const width = Math.ceil(rect.width);
-    const height = Math.ceil(rect.height);
+    const width = Math.max(1, Math.ceil(rect.width));
+    const height = Math.max(1, Math.ceil(rect.height));
     const scale = window.devicePixelRatio || 1;
     const xmlns = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(xmlns, "svg");
-    svg.setAttribute("width", String(width * scale));
-    svg.setAttribute("height", String(height * scale));
+    svg.setAttribute("width", String(Math.floor(width * scale)));
+    svg.setAttribute("height", String(Math.floor(height * scale)));
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     const foreignObject = document.createElementNS(xmlns, "foreignObject");
     foreignObject.setAttribute("width", "100%");
     foreignObject.setAttribute("height", "100%");
-    foreignObject.setAttribute("x", String(scale));
-    foreignObject.setAttribute("y", String(scale));
+    foreignObject.setAttribute("x", "0");
+    foreignObject.setAttribute("y", "0");
     foreignObject.setAttribute("externalResourcesRequired", "true");
     foreignObject.appendChild(inlineStyledClone(shell));
     svg.appendChild(foreignObject);
     const image = await loadSvg(svg);
     const canvas = document.createElement("canvas");
-    canvas.width = Math.floor(width * scale);
-    canvas.height = Math.floor(height * scale);
+    canvas.width = Math.max(1, Math.floor(width * scale));
+    canvas.height = Math.max(1, Math.floor(height * scale));
     const context = canvas.getContext("2d");
     context.scale(scale, scale);
-    context.drawImage(image, 0, 0);
+    context.drawImage(image, 0, 0, width, height);
     return canvas.toDataURL("image/png");
   } catch (error2) {
     console.warn("whole-widget capture failed; saving the viewport instead", error2);

@@ -21,7 +21,7 @@ import type {
   StatePayload,
   TypeMeta,
 } from "./wire";
-import { TOTAL_COMPONENT, frameCount, shadeRange } from "./fieldramp";
+import { componentOptions, frameCount, shadeRange } from "./fieldramp";
 
 //: The ``level`` value naming the simulation volume's own mid-height, offered
 //: alongside the level names (spec R12). Mirrors ``Z_CENTER_LEVEL`` in
@@ -160,9 +160,9 @@ const FIELD_HINTS: Record<string, string> = {
   center: "the plane's center (x, y, z) in µm, in stack coordinates",
   size: "the plane's two in-plane sizes in µm, along its lower then higher stack axes",
   direction: "which way it faces relative to the component: in = into the component through "
-    + "the port, out = out of it",
-  port_offset: "shift along the port's injection direction in µm; negative moves the plane "
-    + "out of the component, e.g. into a port extension",
+    + "the port (or -axis on an xy / xz / yz plane), out = out of it",
+  port_offset: "shift in µm along the 'in' direction (+port_offset moves along 'in', "
+    + "which is -axis on an xy / xz / yz plane; negative moves opposite)",
   port_padding: "how far the plane extends past the port's width (first) and the level's height "
     + "(second) on each side, in mean wavelengths of this card; negative shrinks it",
   level: "the level whose height and middle set the plane's z; (auto) uses the z span of the "
@@ -201,8 +201,8 @@ const SAVE_VIDEO_HINT = "save video: render every frame of the active viewport (
 function specFieldHint(key: string, kind: "source" | "detector"): string | undefined {
   if (key === "direction") {
     return kind === "source"
-      ? "which way it launches: in = into the component through the port, out = out of it"
-      : "which wave it measures: out = leaving the component through the port, in = entering it";
+      ? "which way it launches: in = into the component through the port (or -axis on xy / xz / yz), out = out of it"
+      : "which wave it measures: out = leaving the component through the port, in = entering it (or -axis on xy / xz / yz)";
   }
   return FIELD_HINTS[key];
 }
@@ -211,9 +211,9 @@ function specFieldHint(key: string, kind: "source" | "detector"): string | undef
 function portHint(name: string): string {
   if (name === "None") return "no port: place it by axis, center and size in stack coordinates";
   const planes: Record<string, string> = {
-    xy: "the plane through the box center normal to z",
-    xz: "the plane through the box center normal to y",
-    yz: "the plane through the box center normal to x",
+    xy: "the plane through the box center normal to z ('in' faces -z; +port_offset shifts along 'in')",
+    xz: "the plane through the box center normal to y ('in' faces -y; +port_offset shifts along 'in')",
+    yz: "the plane through the box center normal to x ('in' faces -x; +port_offset shifts along 'in')",
   };
   return planes[name] ?? `centered on the device port ${name} and normal to it`;
 }
@@ -763,8 +763,8 @@ export class Explorer {
           ["in", "out"], "in",
           (value) => setParam("direction", value),
           (name) => ({
-            in: "into the component through the port",
-            out: "out of the component through the port",
+            in: "into the component through the port (or -axis on xy / xz / yz)",
+            out: "out of the component through the port (or +axis on xy / xz / yz)",
           })[name],
         ));
       }
@@ -1109,9 +1109,11 @@ export class Explorer {
       const entry = this.fields[id];
       const components = entry?.components ?? [];
       const componentSelect = controls.get("field_component")?.element as HTMLSelectElement;
-      const hasE = components.some((name) => name.startsWith("E"));
-      const options = ["", ...components, ...(hasE ? [TOTAL_COMPONENT] : [])];
-      if (componentSelect.options.length !== options.length) {
+      const options = componentOptions(components);
+      const changed =
+        componentSelect.options.length !== options.length ||
+        options.some((value, i) => componentSelect.options[i]?.value !== value);
+      if (changed) {
         componentSelect.replaceChildren(
           ...options.map((value) => {
             const option = document.createElement("option");
@@ -1354,11 +1356,11 @@ export class Explorer {
     freq.step = "1";
     freq.className = "gfx-opacity";
     freq.addEventListener("input", () => {
-      // scrubbing takes over from playback
+      // scrubbing takes over from playback immediately
       const playback = this.resultPlayback.get(id);
       if (playback?.playing) this.callbacks.onPlay(id, false, Number(playback.fps.value));
-      this.setParam(id, "field_freq", Number(freq.value));
     });
+    coalesce(freq, (value) => this.setParam(id, "field_freq", Number(value)));
     controls.set("field_freq", {
       element: freq,
       write: (value) => {
@@ -1832,7 +1834,9 @@ export class Explorer {
   }
 
   private row(kind: string, name: string): HTMLElement | undefined {
-    return this.root.querySelector<HTMLElement>(`[data-kind="${kind}"][data-name="${name}"]`) ?? undefined;
+    return this.root.querySelector<HTMLElement>(
+      `[data-kind="${escapeAttr(kind)}"][data-name="${escapeAttr(name)}"]`,
+    ) ?? undefined;
   }
 
   private renderProperties(state: StatePayload): void {
@@ -1873,7 +1877,13 @@ function displayNumber(value: number): number | string {
   return Math.abs(value - rounded) <= tolerance ? rounded : value;
 }
 
-/** Reports `input` events at most once per frame, with the latest value. */
+function escapeAttr(value: string): string {
+  return typeof CSS !== "undefined" && typeof CSS.escape === "function"
+    ? CSS.escape(value)
+    : value.replace(/["\\]/g, "\\$&");
+}
+
+/** Reports `input` events at most once per frame with the latest value, flushing on `change`. */
 function coalesce(input: HTMLInputElement, handler: (value: string) => void): void {
   let frame = 0;
   let pending: string | null = null;
@@ -1886,7 +1896,20 @@ function coalesce(input: HTMLInputElement, handler: (value: string) => void): vo
   };
   input.addEventListener("input", () => {
     pending = input.value;
+    if (typeof requestAnimationFrame !== "function") {
+      flush();
+      return;
+    }
     if (frame === 0) frame = requestAnimationFrame(flush);
+  });
+  input.addEventListener("change", () => {
+    if (frame !== 0 && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
+    if (pending === null) return;
+    pending = input.value;
+    flush();
   });
 }
 

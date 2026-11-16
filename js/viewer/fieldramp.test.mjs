@@ -121,11 +121,11 @@ test("a real-valued recording reads as imaginary zero, frame by frame", () => {
   assert.deepEqual([...ramp.componentData(field, "Ey", 99).real], [5, 6]);
 });
 
-test("the default scale spans every frame, not just the one shown", () => {
+test("the default scale spans every frame symmetrically for signed transforms", () => {
   const field = timeField([[1, 2], [3, -4], [5, 6]]);
-  // frame 0 alone spans [1, 2]; the recording spans [-4, 6]
-  assert.deepEqual(ramp.valueRange(new Float32Array([1, 2]), "real", 6), [1, 2]);
-  assert.deepEqual(ramp.frameRange(field, "Ey", "real", 6), [-4, 6]);
+  // signed transforms keep [-vmax, +vmax] symmetric around transparent zero
+  assert.deepEqual(ramp.valueRange(new Float32Array([1, 2]), "real", 6), [-2, 2]);
+  assert.deepEqual(ramp.frameRange(field, "Ey", "real", 6), [-6, 6]);
   assert.deepEqual(ramp.frameRange(field, "Ey", "abs", 6), [1, 6]);
 });
 
@@ -140,9 +140,9 @@ test("a fixed field_range overrides the recording's range", () => {
   const field = timeField([[1, 2], [3, -4], [5, 6]]);
   const settings = { field_component: "Ey", field_transform: "real", field_range: [-1, 1] };
   assert.deepEqual(ramp.shadeRange(field, settings, 6), [-1, 1]);
-  assert.deepEqual(ramp.shadeRange(field, { ...settings, field_range: null }, 6), [-4, 6]);
+  assert.deepEqual(ramp.shadeRange(field, { ...settings, field_range: null }, 6), [-6, 6]);
   // an unusable range (min >= max) falls back to the recording's
-  assert.deepEqual(ramp.shadeRange(field, { ...settings, field_range: [2, 2] }, 6), [-4, 6]);
+  assert.deepEqual(ramp.shadeRange(field, { ...settings, field_range: [2, 2] }, 6), [-6, 6]);
 });
 
 test("rampTexture honors the map's alpha, scaled by opacity", () => {
@@ -152,4 +152,55 @@ test("rampTexture honors the map's alpha, scaled by opacity", () => {
   assert.equal(bytes[3], 0, "low end transparent");
   assert.equal(bytes[7], Math.round(0.5 * 0.5 * 255), "midpoint at half opacity");
   assert.equal(bytes[11], Math.round(1 * 0.5 * 255), "high end at half opacity");
+});
+
+test("|E| options and componentData reject H-only or non-Ex/Ey/Ez names and never duplicate", () => {
+  assert.deepEqual(ramp.componentOptions(["Ex", "Ey", "Ez"]), ["", "|E|", "Ex", "Ey", "Ez"]);
+  assert.deepEqual(ramp.componentOptions(["|E|", "Ex", "Ey"]), ["", "|E|", "Ex", "Ey"]);
+  assert.deepEqual(ramp.componentOptions(["Hx", "Hy", "Hz"]), ["", "Hx", "Hy", "Hz"]);
+  assert.deepEqual(ramp.componentOptions(["Efield", "Energy"]), ["", "Efield", "Energy"]);
+
+  const hOnly = {
+    id: "h", name: "h", components: ["Hx", "Hy"], grid: [1, 1],
+    real: new Float32Array([3, 4]).buffer, imag: new Float32Array([0, 0]).buffer,
+  };
+  assert.equal(ramp.componentData(hOnly, ramp.TOTAL_COMPONENT), null);
+
+  const nonCartesianE = {
+    id: "e0", name: "e0", components: ["Efield"], grid: [1, 1],
+    real: new Float32Array([5]).buffer, imag: new Float32Array([0]).buffer,
+  };
+  assert.equal(ramp.componentData(nonCartesianE, ramp.TOTAL_COMPONENT), null);
+
+  const precomputedTotal = {
+    id: "tot", name: "tot", components: ["|E|", "Ex"], grid: [1, 1],
+    real: new Float32Array([9, 3]).buffer, imag: new Float32Array([0, 0]).buffer,
+  };
+  assert.equal(ramp.componentData(precomputedTotal, ramp.TOTAL_COMPONENT).real[0], 9);
+});
+
+test("all-zero signed fields and non-finite samples stay transparent (alpha = 0)", () => {
+  for (const transform of ["real", "imag", "phase"]) {
+    const zeroRange = ramp.valueRange(new Float32Array([0, 0]), transform, 6);
+    assert.deepEqual(zeroRange, [0, 0]);
+    const zeroBytes = ramp.rampTexture(new Float32Array([0, 0]), zeroRange, transform, LOW, HIGH, 1);
+    assert.equal(zeroBytes[3], 0, `${transform} zero field must have alpha=0 at cell 0`);
+    assert.equal(zeroBytes[7], 0, `${transform} zero field must have alpha=0 at cell 1`);
+  }
+
+  const signedValues = new Float32Array([0, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2]);
+  assert.deepEqual(ramp.valueRange(signedValues, "real", 6), [-2, 2]);
+  const signedBytes = ramp.rampTexture(signedValues, [-2, 2], "real", LOW, HIGH, 1);
+  assert.equal(signedBytes[3], 0, "signed zero maps to transparent midpoint");
+  assert.equal(signedBytes[7], 0, "NaN maps to transparent");
+  assert.equal(signedBytes[11], 0, "+Infinity maps to transparent");
+  assert.equal(signedBytes[15], 0, "-Infinity maps to transparent");
+  assert.equal(signedBytes[19], 255, "finite peak stays opaque");
+
+  const absValues = new Float32Array([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 1]);
+  const absBytes = ramp.rampTexture(absValues, [0, 1], "abs", LOW, HIGH, 1);
+  assert.equal(absBytes[3], 0);
+  assert.equal(absBytes[7], 0);
+  assert.equal(absBytes[11], 0);
+  assert.equal(absBytes[15], 255);
 });

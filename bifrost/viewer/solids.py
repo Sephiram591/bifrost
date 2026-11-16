@@ -285,20 +285,32 @@ def _literal_sloped(
 # ------------------------------------------------------------------ expression solids
 
 
-def _literals(expr: tuple, sign: float = 1.0) -> list[tuple[int, float, float]]:
-    """(layer index, grow, shift sign) of every non-fill literal of an expression.
+def _literals(expr: tuple, sign: float = 1.0, bias: float = 0.0) -> list[tuple[int, float, float]]:
+    """(layer index, net grow, shift sign) of every non-fill literal of an expression.
 
-    The subtracted operand of a ``not`` is evaluated at the flipped offset (spec
-    C2), so its literal carries ``sign = -1``.
+    Under a ``not``'s right branch or the subtracted overlap of ``xor``, both
+    ``wall_shift`` (``sign``) and accumulated parent sizings (``bias``) negate;
+    ``_split_zs`` reads these to split intervals wherever a literal's edge
+    offset ``grow - sign * wall_shift`` changes sign (spec D3 step 4).
     """
     kind = expr[0]
     if kind == "fill":
         return []
     if kind == "layer":
-        return [(int(expr[1]), float(expr[2]), sign)]
+        return [(int(expr[1]), float(expr[2]) - bias, sign)]
+    eff = bias - float(expr[3])
     if kind == "not":
-        return _literals(expr[1], sign) + _literals(expr[2], -sign)
-    return _literals(expr[1], sign) + _literals(expr[2], sign)
+        return _literals(expr[1], sign, eff) + _literals(expr[2], -sign, -eff)
+    if kind == "xor":
+        return (
+            _literals(expr[1], sign, eff)
+            + _literals(expr[2], sign, eff)
+            + _literals(expr[1], -sign, -eff)
+            + _literals(expr[2], -sign, -eff)
+        )
+    if kind in ("or", "and"):
+        return _literals(expr[1], sign, eff) + _literals(expr[2], sign, eff)
+    raise ValueError(f"Unknown layer operation {kind!r}")
 
 
 def _split_zs(level: Any, lo: float, hi: float) -> list[float]:
@@ -330,6 +342,7 @@ def _expr_solid(
     sign: float,
     z0: float,
     z1: float,
+    bias: float = 0.0,
 ) -> m3.Manifold:
     """A level expression's solid over one interval (spec D3 steps 4-5)."""
     kind = expr[0]
@@ -339,29 +352,28 @@ def _expr_solid(
         cs = union_cs.get(int(expr[1]))
         if cs is None or cs.is_empty():
             return m3.Manifold()
-        grow = float(expr[2])
+        grow = float(expr[2]) - bias
         r0 = grow - sign * wall_shift(level, z0)
         r1 = grow - sign * wall_shift(level, z1)
         if abs(r0 - r1) <= _EPS:
             return _prism(_offset_cs(cs, r0), z0, z1)
         return _literal_sloped(cs, r0, r1, z0, z1)
-    grow = float(expr[3])
-    if grow:
-        raise NotImplementedError(
-            f"Level {level.name!r} has a sloped wall and a sizing on a derived-layer "
-            f"operation ({grow} um); only sizings inside the literals are supported"
-        )
-    a = _expr_solid(level, expr[1], unions, union_cs, box_cs, sign, z0, z1)
-    b_sign = -sign if kind == "not" else sign
-    b = _expr_solid(level, expr[2], unions, union_cs, box_cs, b_sign, z0, z1)
+    eff = bias - float(expr[3])
+    if kind == "xor":
+        a_pos = _expr_solid(level, expr[1], unions, union_cs, box_cs, sign, z0, z1, eff)
+        b_pos = _expr_solid(level, expr[2], unions, union_cs, box_cs, sign, z0, z1, eff)
+        a_neg = _expr_solid(level, expr[1], unions, union_cs, box_cs, -sign, z0, z1, -eff)
+        b_neg = _expr_solid(level, expr[2], unions, union_cs, box_cs, -sign, z0, z1, -eff)
+        return _difference(_union(a_pos, b_pos), _intersect(a_neg, b_neg))
+    a = _expr_solid(level, expr[1], unions, union_cs, box_cs, sign, z0, z1, eff)
+    if kind == "not":
+        b = _expr_solid(level, expr[2], unions, union_cs, box_cs, -sign, z0, z1, -eff)
+        return _difference(a, b)
+    b = _expr_solid(level, expr[2], unions, union_cs, box_cs, sign, z0, z1, eff)
     if kind == "or":
         return _union(a, b)
     if kind == "and":
         return _intersect(a, b)
-    if kind == "not":
-        return _difference(a, b)
-    if kind == "xor":
-        return _union(_difference(a, b), _difference(b, a))
     raise ValueError(f"Unknown layer operation {kind!r}")
 
 
@@ -524,12 +536,13 @@ def analytic_solids(device: Any) -> SolidSet:
 
 
 def _mesh(man: m3.Manifold, origin: tuple[float, float, float]) -> SolidMesh:
-    """A manifold as a float32 local-origin mesh (spec C5, D5)."""
+    """A manifold as a little-endian float32 local-origin mesh (spec C5, D5)."""
     mesh = man.to_mesh()
-    vertices = np.asarray(mesh.vert_properties)[:, :3].astype(np.float32)
-    vertices -= np.asarray(origin, dtype=np.float32)
-    indices = np.asarray(mesh.tri_verts).astype(np.uint32)
-    return SolidMesh(positions=vertices, indices=indices)
+    vertices = np.asarray(mesh.vert_properties, dtype=np.float64)[:, :3]
+    vertices = vertices - np.asarray(origin, dtype=np.float64)
+    positions = np.ascontiguousarray(vertices, dtype="<f4")
+    indices = np.ascontiguousarray(mesh.tri_verts, dtype="<u4")
+    return SolidMesh(positions=positions, indices=indices)
 
 
 def level_solids(device: Any, solids: SolidSet) -> list[LevelSolid]:

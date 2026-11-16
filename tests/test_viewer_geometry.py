@@ -218,3 +218,78 @@ def test_f2_top_width_is_exact() -> None:
     w_top = top.bounds[3] - top.bounds[1]
     assert abs(w_bottom - 0.5) < 1e-4
     assert abs((w_bottom - w_top) - 2 * 0.22 * math.tan(math.radians(10.0))) < 1e-4
+
+
+def _xor_derived_stack() -> bf.stack.StackDevice:
+    """Fixture with XOR, sloped sidewalls, bias, and non-zero derived-op grow."""
+    c = gf.Component()
+    c.add_polygon([(0.0, -0.3), (2.0, -0.3), (2.0, 0.3), (0.0, 0.3)], layer=WG)
+    c.add_polygon([(0.5, -0.5), (1.5, -0.5), (1.5, 0.5), (0.5, 0.5)], layer=SLAB)
+    c.add_polygon([(0.9, -0.2), (1.2, -0.2), (1.2, 0.2), (0.9, 0.2)], layer=ETCH)
+    ls = LayerStack(
+        layers={
+            "xor_sloped": LayerLevel(
+                layer=LogicalLayer(layer=WG) ^ LogicalLayer(layer=SLAB),
+                derived_layer=LogicalLayer(layer=WG),
+                zmin=0.0, thickness=0.22, sidewall_angle=15.0, bias=0.04, material="si", mesh_order=1,
+            ),
+            "grow_and": LayerLevel(
+                layer=LogicalLayer(layer=WG) & LogicalLayer(layer=SLAB),
+                derived_layer=LogicalLayer(layer=WG),
+                zmin=0.0, thickness=0.22, sidewall_angle=12.0, material="si", mesh_order=2,
+            ),
+            "grow_not": LayerLevel(
+                layer=LogicalLayer(layer=WG) - LogicalLayer(layer=ETCH),
+                derived_layer=LogicalLayer(layer=WG),
+                zmin=0.0, thickness=0.22, material="si", mesh_order=3,
+            ),
+        }
+    )
+    device = bf.stack.StackDevice.from_layer_stack(
+        c, ls, MATERIALS, background="air", name="xor_stack",
+        zrange_layers=["xor_sloped"],
+        boundary_offset=(0.4, -0.4, 0.4, -0.4, 0.0, 0.0),
+    )
+    updated = tuple(
+        lvl._replace(expr=(*lvl.expr[:3], 0.05))
+        if lvl.name in ("xor_sloped", "grow_and", "grow_not")
+        else lvl
+        for lvl in device.levels
+    )
+    return device.aset("levels", updated)
+
+
+def test_xor_and_derived_grow_model_parity() -> None:
+    """E-BF-17: sloped xor and derived-op grow agree with ``_eval_expr`` across z."""
+    device = _xor_derived_stack()
+    for i, z in enumerate((0.02, 0.11, 0.20)):
+        _check_parity(device, z, seed=20 + i)
+
+
+def test_zero_thickness_z_to_bias_no_nan() -> None:
+    """E-BF-17: ``wall_shift`` and ``level_regions`` handle ``thickness == 0`` with ``z_to_bias``."""
+    c = gf.Component()
+    c.add_ref(gf.components.straight(length=2.0, width=0.5))
+    ls = LayerStack(
+        layers={
+            "box": LayerLevel(layer="WAFER", zmin=-0.2, thickness=0.4, material="sio2", mesh_order=9),
+            "sheet": LayerLevel(
+                layer=WG, zmin=0.0, thickness=0.1, material="si", mesh_order=1,
+                z_to_bias=([0.0, 1.0], [0.02, 0.10]),
+            ),
+        }
+    )
+    device = bf.stack.StackDevice.from_layer_stack(
+        c, ls, MATERIALS, background="air", name="zero_t",
+        zrange_layers=["box"],
+        boundary_offset=(0.3, -0.3, 0.3, -0.3, 0.0, 0.0),
+    )
+    device = device.aset(
+        "levels",
+        tuple(lvl._replace(thickness=0.0) if lvl.name == "sheet" else lvl for lvl in device.levels),
+    )
+    sheet = next(lvl for lvl in device.levels if lvl.name == "sheet")
+    shift = bf.viewer.geometry.wall_shift(sheet, 0.0)
+    assert math.isfinite(shift)
+    regions = bf.viewer.geometry.level_regions(device, 0.0)
+    assert not regions["sheet"].is_empty

@@ -208,6 +208,8 @@ def field_payload(result: Any, name: str, spec_id: str) -> dict[str, Any] | None
     frames, kind = found
     complex_valued = kind == "freq"
     recorded = int(frames.shape[0])
+    if recorded <= 0:
+        raise ValueError(f"detector {name!r}: recorded 0 frames; cannot build field payload")
     # on a non-uniform grid, the in-plane axes whose cells differ are resampled onto even grids
     plane_axes = [i for i in range(2, frames.ndim) if frames.shape[i] > 1]
     resample = _even_axes(result, name, [i - 2 for i in plane_axes]) if len(plane_axes) == 2 else []
@@ -240,7 +242,7 @@ def field_payload(result: Any, name: str, spec_id: str) -> dict[str, Any] | None
     # order would swap the axes of any non-square plane — a 450x75 xz plane
     # would read as 75x450.
     ordered = np.ascontiguousarray(np.swapaxes(plane, 2, 3))
-    real = np.ascontiguousarray(ordered.real, dtype=np.float32)
+    real = np.ascontiguousarray(ordered.real, dtype="<f4")
     entry: dict[str, Any] = {
         "id": spec_id,
         "name": name,
@@ -256,7 +258,7 @@ def field_payload(result: Any, name: str, spec_id: str) -> dict[str, Any] | None
     }
     if complex_valued:
         entry["freqs"] = _detector_freqs(result, name, recorded)[::stride]
-        entry["imag"] = np.ascontiguousarray(ordered.imag, dtype=np.float32).data
+        entry["imag"] = np.ascontiguousarray(ordered.imag, dtype="<f4").data
     else:
         steps = _detector_steps(result, name, recorded)
         clock = _solve_clock(result)
@@ -356,15 +358,25 @@ def validate_result(state: Any, result: Any) -> None:
             "recorded on a different device"
         )
 
+    from .adopt import config_edges_um
+
+    objects = getattr(result, "objects", None)
+    config = getattr(result, "config", None)
     resolution = _result_resolution(result)
-    if resolution is None:
-        raise ValueError("the result has no grid resolution (.config.grid.spacing)")
+    edges = config_edges_um(config) if resolution is None else None
+    if (resolution is None or not resolution > 0) and edges is None:
+        raise ValueError(
+            "the result has no grid resolution (.config.grid.spacing or .config.resolved_grid)"
+        )
+    _validate_box_extent(state, objects, resolution, edges)
 
     for name, spec in expected.items():
         found = _detector_frames(result, name)
         if found is None:
             continue  # no field recorded: nothing to mis-shade
         frames = found[0]
+        if int(frames.shape[0]) <= 0:
+            raise ValueError(f"detector {name!r}: recorded 0 frames; cannot validate or shade")
         components = _detector_components(result, name)
         if components and frames.shape[1] != len(components):
             raise ValueError(
@@ -372,11 +384,194 @@ def validate_result(state: Any, result: Any) -> None:
                 f"the detector records {len(components)}"
             )
         grid = tuple(int(v) for v in frames.shape[2:])
-        if not _grid_matches(state, spec, grid, resolution):
+        _validate_detector_grid(state, spec, name, grid, objects, resolution, edges)
+
+
+def _placed_detector(objects: Any, name: str) -> Any | None:
+    """Returns the placed detector named ``name`` from ``objects``, if available."""
+    if objects is None:
+        return None
+    if hasattr(objects, "__getitem__"):
+        try:
+            return objects[name]
+        except (KeyError, TypeError, IndexError):
+            pass
+    for det in getattr(objects, "detectors", ()):
+        if getattr(det, "name", None) == name:
+            return det
+    return None
+
+
+def _slice_cell_tol(
+    edges: tuple[np.ndarray, np.ndarray, np.ndarray],
+    grid_slice: tuple[slice, slice, slice],
+    axis: int,
+) -> float:
+    """Local cell-width tolerance (µm) around a placed slice along ``axis``."""
+    widths = np.diff(edges[axis])
+    if not widths.size:
+        return 0.0
+    sl = grid_slice[axis]
+    lo = max(0, int(sl.start) - 1)
+    hi = min(len(widths), int(sl.stop) + 1)
+    return float(np.max(widths[lo:hi]))
+
+
+def _unsnapped_normal_center(state: Any, spec: Any, axis: int) -> float | None:
+    """Target normal-axis center (µm in local box frame) before uniform-grid snapping."""
+    origin_axis = float(state.origin[axis])
+    if spec.absolute:
+        center = spec.params.get("center") or (0.0, 0.0, 0.0)
+        return float(center[axis]) - origin_axis
+    try:
+        center = state.stack._port_frame(
+            spec.port, spec.params.get("level"), float(spec.params.get("port_offset", 0.0))
+        )[3]
+    except (KeyError, ValueError):
+        return None
+    return float(center[axis]) - origin_axis
+
+
+def _validate_box_extent(
+    state: Any,
+    objects: Any,
+    resolution_um: float | None,
+    edges: tuple[np.ndarray, np.ndarray, np.ndarray] | None,
+) -> None:
+    """Verifies grid spacing/extents match the setup's settings and box (spec Q23)."""
+    shape = getattr(state.stack, "partial_real_shape", None)
+    has_box = shape is not None and None not in tuple(shape)
+    real_shape_um = tuple(float(v) * 1e6 for v in shape) if has_box else ()
+    if edges is not None:
+        frame = getattr(state.stack, "grid_frame", None)
+        if frame is not None and not all(frame.uniform):
+            for i in range(3):
+                expected = np.asarray(frame.edges[i], dtype=np.float64) * float(frame.h_um)
+                if len(edges[i]) != len(expected) or not np.allclose(edges[i], expected, rtol=1e-4, atol=1e-4):
+                    raise ValueError(
+                        f"the result's rectilinear grid along axis {i} does not match the setup's grid_frame"
+                    )
+        if has_box:
+            for i in range(3):
+                grid_um = float(edges[i][-1])
+                cell_um = float(np.max(np.diff(edges[i]))) if edges[i].size > 1 else 0.0
+                if abs(grid_um - real_shape_um[i]) > cell_um + 1e-6:
+                    raise ValueError(
+                        f"the result's grid extent along axis {i} ({grid_um:g} µm) does not "
+                        f"match the setup box ({real_shape_um[i]:g} µm)"
+                    )
+        return
+    if not np.isclose(float(resolution_um), state.settings.resolution_um, rtol=_SPACING_RTOL):
+        raise ValueError(
+            f"the result's grid resolution ({resolution_um:g} µm) does not match "
+            f"the setup's ({state.settings.resolution_um:g} µm)"
+        )
+    volume = getattr(objects, "volume", None)
+    vol_shape = getattr(volume, "grid_shape", None)
+    if has_box and vol_shape is not None:
+        for i in range(3):
+            grid_um = int(vol_shape[i]) * float(resolution_um)
+            if abs(grid_um - real_shape_um[i]) > float(resolution_um) + 1e-6:
+                raise ValueError(
+                    f"the result's volume extent along axis {i} ({grid_um:g} µm) does not "
+                    f"match the setup box ({real_shape_um[i]:g} µm)"
+                )
+
+
+def _validate_detector_grid(
+    state: Any,
+    spec: Any,
+    name: str,
+    grid: tuple[int, ...],
+    objects: Any,
+    resolution_um: float | None,
+    edges: tuple[np.ndarray, np.ndarray, np.ndarray] | None,
+) -> None:
+    """Checks ordered shape, extents, and plane center of one detector (spec Q23)."""
+    from .adopt import _sampled_center, grid_bounds_um
+    from .sim import _IN_PLANE, TYPES, spec_glyph
+
+    kind = TYPES[spec.type]
+    placed = _placed_detector(objects, name)
+    if placed is not None and hasattr(placed, "grid_slice"):
+        placed_widths = tuple(int(s.stop - s.start) for s in placed.grid_slice)
+        if placed_widths != grid:
             raise ValueError(
-                f"detector {name!r}: the result's {grid} grid does not match the "
-                "current setup; it was recorded on a different device"
+                f"detector {name!r}: field shape {grid} disagrees with placed grid_slice {placed_widths}"
             )
+    if not kind.plane:
+        return
+
+    glyph = spec_glyph(state.stack, spec, state.origin, state.settings)
+    if glyph.get("error"):
+        raise ValueError(f"detector {name!r}: setup glyph has no valid port frame")
+    axis = int(glyph["axis"])
+    u_axis, v_axis = _IN_PLANE[axis]
+    if edges is None and not _grid_matches(state, spec, grid, float(resolution_um)):
+        raise ValueError(
+            f"detector {name!r}: the result's {grid} grid does not match the "
+            "current setup; it was recorded on a different device"
+        )
+    if len(grid) != 3 or grid[axis] != 1:
+        raise ValueError(
+            f"detector {name!r}: expected normal axis {axis} singleton in grid {grid}"
+        )
+
+    volume = getattr(objects, "volume", None)
+    vol_shape = getattr(volume, "grid_shape", None)
+    if placed is None or not hasattr(placed, "grid_slice") or vol_shape is None:
+        return
+
+    res_arg: Any = edges if edges is not None else float(resolution_um) * 1e-6
+    lo_local, hi_local = grid_bounds_um(
+        tuple(placed.grid_slice), res_arg, tuple(int(v) for v in vol_shape), (0.0, 0.0, 0.0)
+    )
+    placed_center = _sampled_center(lo_local, hi_local, axis, "detector", True)
+    placed_u_half = 0.5 * (hi_local[u_axis] - lo_local[u_axis])
+    placed_v_half = 0.5 * (hi_local[v_axis] - lo_local[v_axis])
+
+    box_um = (
+        [float(edges[i][-1]) for i in range(3)]
+        if edges is not None
+        else [int(vol_shape[i]) * float(resolution_um) for i in range(3)]
+    )
+    target_u_half = min(float(glyph["u_half"]), 0.5 * box_um[u_axis])
+    target_v_half = min(float(glyph["v_half"]), 0.5 * box_um[v_axis])
+    max_u = max(0.0, 0.5 * box_um[u_axis] - target_u_half)
+    max_v = max(0.0, 0.5 * box_um[v_axis] - target_v_half)
+    target_u = float(np.clip(glyph["center"][u_axis], -max_u, max_u))
+    target_v = float(np.clip(glyph["center"][v_axis], -max_v, max_v))
+
+    if edges is not None:
+        tol_u = _slice_cell_tol(edges, placed.grid_slice, u_axis) + 1e-5
+        tol_v = _slice_cell_tol(edges, placed.grid_slice, v_axis) + 1e-5
+        tol_n = _slice_cell_tol(edges, placed.grid_slice, axis) + 1e-5
+        if abs(placed_u_half - target_u_half) > tol_u or abs(placed_v_half - target_v_half) > tol_v:
+            raise ValueError(
+                f"detector {name!r}: plane extents ({2 * placed_u_half:g}, {2 * placed_v_half:g}) µm "
+                f"do not match setup ({2 * target_u_half:g}, {2 * target_v_half:g}) µm"
+            )
+        raw_n = _unsnapped_normal_center(state, spec, axis)
+        half_n = 0.5 * box_um[axis]
+        target_n = None if raw_n is None else float(np.clip(raw_n, -half_n, half_n))
+    else:
+        tol_u = tol_v = tol_n = float(resolution_um) + 1e-5
+        target_n = float(glyph["center"][axis])
+
+    if (
+        abs(placed_center[u_axis] - target_u) > tol_u
+        or abs(placed_center[v_axis] - target_v) > tol_v
+        or (target_n is not None and abs(placed_center[axis] - target_n) > tol_n)
+    ):
+        expected = [
+            target_n if i == axis else (target_u if i == u_axis else target_v)
+            for i in range(3)
+        ]
+        raise ValueError(
+            f"detector {name!r}: plane center {placed_center} µm does not match "
+            f"setup center {expected} µm"
+        )
+
 
 def _result_resolution(result: Any) -> float | None:
     """The result's grid spacing in µm, or None (spec Q23).
@@ -390,17 +585,11 @@ def _result_resolution(result: Any) -> float | None:
 
 
 def _grid_matches(state: Any, spec: Any, grid: tuple[int, ...], resolution_um: float) -> bool:
-    """Whether a recorded grid fits the spec's current plane (spec Q23).
-
-    Checks the spacing against the settings and each in-plane extent against the
-    detector's plane size from its port frame — the same frame the glyph uses
-    (spec D11) — so a result recorded at another resolution, or on a detector
-    whose plane has since been resized, is refused.
-    """
+    """Whether a recorded uniform grid fits the spec's current plane in exact (u, v) order."""
     settings = state.settings
     if not np.isclose(resolution_um, settings.resolution_um, rtol=_SPACING_RTOL):
         return False
-    from .sim import TYPES, spec_glyph
+    from .sim import _IN_PLANE, TYPES, spec_glyph
 
     kind = TYPES[spec.type]
     if not kind.plane:
@@ -408,14 +597,13 @@ def _grid_matches(state: Any, spec: Any, grid: tuple[int, ...], resolution_um: f
     glyph = spec_glyph(state.stack, spec, state.origin, settings)
     if glyph.get("error"):
         return False
-    # the two in-plane extents, in grid points at the settings resolution
-    in_plane = [g for g in grid if g > 1]
-    expected = sorted(
-        int(round(2 * half / resolution_um)) for half in (glyph["u_half"], glyph["v_half"])
-    )
-    return len(in_plane) == 2 and all(
-        abs(a - b) <= _GRID_TOL for a, b in zip(sorted(in_plane), expected)
-    )
+    axis = int(glyph["axis"])
+    if len(grid) != 3 or grid[axis] != 1:
+        return False
+    u_axis, v_axis = _IN_PLANE[axis]
+    exp_u = int(round(2 * glyph["u_half"] / resolution_um))
+    exp_v = int(round(2 * glyph["v_half"] / resolution_um))
+    return abs(grid[u_axis] - exp_u) <= _GRID_TOL and abs(grid[v_axis] - exp_v) <= _GRID_TOL
 
 
 def _config_spacing(config: Any) -> float | None:

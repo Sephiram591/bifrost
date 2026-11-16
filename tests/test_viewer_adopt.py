@@ -16,7 +16,6 @@ from ``test_viewer_fields.py``.
 
 from __future__ import annotations
 
-import copy
 from typing import Any
 
 import numpy as np
@@ -748,3 +747,34 @@ def test_synthetic_spec_round_trips_as_a_payload() -> None:
     assert back.port == spec.port
     assert back.params["name"] == spec.params["name"]
     assert back.params["center"] == spec.params["center"]
+
+
+def test_spec_type_for_resolves_by_mro_and_preserves_components() -> None:
+    """E-BF-21: user subclasses of fdtdx sources/detectors resolve via MRO, not category fallback."""
+    FieldDetector = type("FieldDetector", (), {})
+    CustomField = type("CustomField", (FieldDetector,), {})
+    GaussianPlaneSource = type("GaussianPlaneSource", (), {})
+    CustomGaussian = type("CustomGaussian", (GaussianPlaneSource,), {})
+    PoyntingFluxDetector = type("PoyntingFluxDetector", (), {})
+    CustomPoynting = type("CustomPoynting", (PoyntingFluxDetector,), {})
+    UnrelatedDet = type("UnrelatedDet", (), {})
+
+    assert bf.viewer.adopt._spec_type_for(CustomField(), "detector") == "FieldDetector"
+    assert bf.viewer.adopt._spec_type_for(CustomPoynting(), "detector") == "PoyntingFluxDetector"
+    assert bf.viewer.adopt._spec_type_for(CustomGaussian(), "source") == "GaussianPlaneSource"
+    assert bf.viewer.adopt._spec_type_for(UnrelatedDet(), "detector") == "ModeOverlapDetector"
+
+    mode_det = object.__new__(bf.ModeOverlapDetector)
+    assert bf.viewer.adopt._spec_type_for(mode_det, "detector") == "ModeOverlapDetector"
+
+    class _AdoptedSub(CustomField):
+        name = "sub_field"
+        components = ("Ex", "Hy")
+        grid_slice = (slice(0, 4), slice(1, 2), slice(0, 3))
+
+    state = bf.viewer.state.ViewerState(f1_stack())
+    spec = bf.viewer.adopt._adopt_object(
+        state, _AdoptedSub(), "detector", True, 0.1e-6, (10, 10, 6), tuple(state.origin)
+    )
+    assert spec.type == "FieldDetector"
+    assert spec.params["components"] == ["Ex", "Hy"]

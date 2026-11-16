@@ -17,6 +17,7 @@ rebuild the typed arrays without a length probe.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -36,15 +37,29 @@ __all__ = ["build_field_payload", "build_payload", "build_section_payload"]
 
 
 def _mesh_payload(mesh: SolidMesh) -> dict[str, Any]:
-    """One mesh as a JSON header plus two contiguous binary buffers."""
-    positions = np.ascontiguousarray(mesh.positions, dtype=np.float32)
-    indices = np.ascontiguousarray(mesh.indices, dtype=np.uint32)
+    """One mesh as a JSON header plus two contiguous little-endian binary buffers."""
+    positions = np.ascontiguousarray(mesh.positions, dtype="<f4")
+    indices = np.ascontiguousarray(mesh.indices, dtype="<u4")
     return {
         "positions": positions.data,
         "count": int(positions.shape[0]),
         "indices": indices.data,
         "tris": int(indices.shape[0]),
     }
+
+
+def _assert_finite(value: Any, label: str = "payload") -> None:
+    """Raises ValueError if any JSON-bound scalar in ``value`` is NaN or Inf."""
+    if isinstance(value, (float, np.floating)):
+        if not math.isfinite(float(value)):
+            raise ValueError(f"Non-finite float in {label}: {value!r}")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(item, memoryview):
+                _assert_finite(item, f"{label}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _assert_finite(item, label)
 
 
 def _level_meta(level: Any) -> dict[str, Any]:
@@ -118,6 +133,7 @@ def build_payload(viewer_state: ViewerState) -> tuple[dict[str, Any], dict[str, 
         "types": _types_meta(),
         "settings_defaults": SimSettings().to_wire(),
     }
+    _assert_finite(meta, "meta")
     return geometry, meta
 
 
@@ -143,7 +159,13 @@ def _types_meta() -> dict[str, Any]:
 
 def _rings(rings: tuple[np.ndarray, ...]) -> list[list[list[float]]]:
     """A section's rings as nested JSON lists (spec R4, C5)."""
-    return [[[float(x), float(y)] for x, y in ring] for ring in rings]
+    out = []
+    for ring in rings:
+        arr = np.asarray(ring, dtype=float)
+        if arr.size and not np.all(np.isfinite(arr)):
+            raise ValueError("Non-finite coordinate in section ring payload")
+        out.append([[float(x), float(y)] for x, y in arr])
+    return out
 
 
 def build_field_payload(viewer_state: ViewerState, result: Any) -> dict[str, Any]:
@@ -169,6 +191,7 @@ def build_field_payload(viewer_state: ViewerState, result: Any) -> dict[str, Any
             continue
         entry = field_payload(result, spec.name, spec.id)
         if entry is not None:
+            _assert_finite(entry, f"fields.{spec.name}")
             fields[spec.id] = entry
     return fields
 
@@ -192,7 +215,7 @@ def build_section_payload(viewer_state: ViewerState) -> dict[str, Any]:
     """
     sliced = section(viewer_state.solids, viewer_state.plane, viewer_state.plane_position)
     u_bounds, v_bounds = section_bounds(viewer_state.size, viewer_state.plane)
-    return {
+    payload = {
         "plane": viewer_state.plane,
         "position": float(viewer_state.plane_position),
         "axis_u": section_axis_names(viewer_state.plane)[0],
@@ -203,3 +226,7 @@ def build_section_payload(viewer_state: ViewerState) -> dict[str, Any]:
         "rings": {name: _rings(rings) for name, rings in sliced.rings.items()},
         "background": _rings(sliced.background),
     }
+    _assert_finite(payload["position"], "section.position")
+    _assert_finite(payload["origin"], "section.origin")
+    _assert_finite(payload["bounds"], "section.bounds")
+    return payload

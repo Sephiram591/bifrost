@@ -346,3 +346,93 @@ def test_display_settings_survive_a_rerun() -> None:
     )
     _run(viewer)
     assert viewer.state["field_settings"][spec.id]["field_transform"] == "phase"
+
+
+def test_field_payload_guards_zero_frames_and_uses_little_endian() -> None:
+    """E-BF-18 / I-BF-07: 0-frame detectors raise ValueError; payloads emit <f4 buffers."""
+    viewer = _detector_viewer()
+    result = _run(viewer)
+    det_name = next(s.name for s in viewer.specs if s.category == "detector")
+    payload = bf.viewer.fields.field_payload(result, det_name, "d0")
+    assert payload is not None
+    assert np.frombuffer(payload["real"], dtype="<f4").dtype == np.dtype("<f4")
+    assert np.frombuffer(payload["imag"], dtype="<f4").dtype == np.dtype("<f4")
+
+    empty_phasor = np.zeros((0, 2, 1, 8, 8), dtype=np.complex64)
+    fake = type("Empty", (), {})()
+    fake.arrays = type("Arr", (), {"detector_states": {det_name: {"phasor": empty_phasor}}})()
+    fake.objects = result.objects
+    fake.config = result.config
+    with pytest.raises(ValueError, match="0 frames"):
+        bf.viewer.fields.field_payload(fake, det_name, "d0")
+    with pytest.raises(ValueError, match="0 frames"):
+        bf.viewer.fields.validate_result(viewer._viewer_state, fake)
+
+
+def test_validate_result_accepts_rectilinear_grid() -> None:
+    """E-BF-18: validate_result / show_result supports graded RectilinearGrid results."""
+    import jax
+    import jax.numpy as jnp
+    from fdtdx.core.grid import RectilinearGrid
+
+    def _graded_edges_um(span_um: float, n_cells: int = 16) -> np.ndarray:
+        weights = np.array([1.0 if i % 2 == 0 else 1.5 for i in range(n_cells)], dtype=np.float64)
+        steps = weights * (span_um / weights.sum())
+        return np.concatenate([[0.0], np.cumsum(steps)])
+
+    viewer = _detector_viewer()
+    sx, sy, sz = (float(v) * 1e6 for v in viewer.stack.partial_real_shape)
+    grid = RectilinearGrid(
+        x_edges=jnp.asarray(_graded_edges_um(sx, 24) * 1e-6, dtype=jnp.float32),
+        y_edges=jnp.asarray(_graded_edges_um(sy, 16) * 1e-6, dtype=jnp.float32),
+        z_edges=jnp.asarray(_graded_edges_um(sz, 12) * 1e-6, dtype=jnp.float32),
+    )
+    objects, _cfg, constraints = viewer._prepare()
+    config = viewer.stack.get_simulation_config(time=viewer.settings.time_s, grid=grid)
+    placed_objs, placed_arrays, _params, placed_cfg, _ = fdtdx.place_objects(
+        objects, config, constraints, jax.random.PRNGKey(0)
+    )
+    rect_result = bf.viewer.sim.RunResult(objects=placed_objs, arrays=placed_arrays, config=placed_cfg)
+    viewer.show_result(rect_result)
+    assert viewer.last_result is rect_result
+    assert viewer.fields
+
+
+def test_validate_result_refuses_shifted_or_transposed_plane() -> None:
+    """E-BF-18 / Q23: rejects shifted-box planes and transposed (u, v) grids."""
+    viewer = _detector_viewer()
+    result = _run(viewer)
+    det_name = next(s.name for s in viewer.specs if s.category == "detector")
+    phasor = np.asarray(result.arrays.detector_states[det_name]["phasor"])
+
+    # Transposed in-plane shape (swap ny and nz) on a non-square plane must fail
+    assert phasor.shape[3] != phasor.shape[4]
+    swapped = np.swapaxes(phasor, 3, 4)
+    bad_t = type("Transposed", (), {})()
+    bad_t.arrays = type("Arr", (), {"detector_states": {det_name: {"phasor": swapped}}})()
+    bad_t.objects = result.objects
+    bad_t.config = result.config
+    with pytest.raises(ValueError):
+        bf.viewer.fields.validate_result(viewer._viewer_state, bad_t)
+
+    # Asymmetric re-box shifts box origin while keeping the same box dimensions and detector grid shape
+    reboxed = bf.viewer.widget.view(f1_stack())
+    _coarse(reboxed)
+    reboxed._on_msg(None, {"event": "add_source", "port": "o1"}, [])
+    reboxed._on_msg(
+        None,
+        {"event": "add_detector", "port": "o1",
+         "spec": {"type": "PhasorDetector", "port": "o1", "params": {"components": ["Ex", "Ey"]}}},
+        [],
+    )
+    base = list(reboxed.settings.boundary_offset)
+    shifted = [base[0] + 0.5, base[1] + 0.5, base[2], base[3], base[4], base[5]]
+    reboxed._on_msg(None, {"event": "set_settings", "settings": {"boundary_offset": shifted}}, [])
+    with pytest.raises(ValueError, match="plane center"):
+        reboxed.show_result(result)
+
+
+def test_payload_rejects_non_finite_json_scalars() -> None:
+    """E-BF-20: payload helpers reject NaN/Inf before sending JSON over widget traitlets."""
+    with pytest.raises(ValueError, match="Non-finite"):
+        bf.viewer.payload._assert_finite({"nested": [1.0, float("nan")]}, "meta")

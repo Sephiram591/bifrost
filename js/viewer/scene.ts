@@ -12,18 +12,73 @@ import { REGION_COLOR, formatTick, niceStep, tickValues } from "./ticks";
 export type ControlKind = "trackball" | "arcball" | "orbit";
 export const CONTROL_KINDS: ControlKind[] = ["trackball", "arcball", "orbit"];
 
+interface ControlHooks {
+  onStart: () => void;
+  onChange: () => void;
+  onEnd: () => void;
+}
+
 /** The small surface the scene needs from a three.js control. */
 interface Controls {
   enabled: boolean;
   //: drag rotation sensitivity; all three controls spell it `rotateSpeed`
   rotateSpeed: number;
   target: THREE.Vector3;
-  update(): void;
+  update(): boolean;
   //: re-read the canvas's on-screen size. TrackballControls caches it in its
   //: constructor and divides by it when rotating, so a control built while the
   //: canvas is hidden (the settings screen is up) would stay broken forever
   refreshLayout(): void;
+  bind(hooks: ControlHooks): () => void;
   dispose(): void;
+}
+
+interface ControlDispatcher {
+  addEventListener(type: "start" | "change" | "end", listener: () => void): void;
+  removeEventListener(type: "start" | "change" | "end", listener: () => void): void;
+}
+
+function bindControlEvents(
+  dispatcher: ControlDispatcher,
+  hooks: ControlHooks,
+): () => void {
+  dispatcher.addEventListener("start", hooks.onStart);
+  dispatcher.addEventListener("change", hooks.onChange);
+  dispatcher.addEventListener("end", hooks.onEnd);
+  return () => {
+    dispatcher.removeEventListener("start", hooks.onStart);
+    dispatcher.removeEventListener("change", hooks.onChange);
+    dispatcher.removeEventListener("end", hooks.onEnd);
+  };
+}
+
+/** Whether two bounding boxes match within `tol` (µm). */
+export function sameBounds(
+  aSize: readonly [number, number, number],
+  aOrigin: readonly [number, number, number],
+  bSize: readonly [number, number, number],
+  bOrigin: readonly [number, number, number],
+  tol = 1e-6,
+): boolean {
+  for (let i = 0; i < 3; i += 1) {
+    if (Math.abs(aSize[i] - bSize[i]) > tol || Math.abs(aOrigin[i] - bOrigin[i]) > tol) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Camera distance that frames the z-exaggerated box vertically and horizontally even in narrow viewports. */
+export function fitDistance(
+  size: readonly [number, number, number],
+  zExaggeration: number,
+  fovDeg: number,
+  aspect: number,
+): number {
+  const radius = 0.5 * Math.hypot(size[0], size[1], size[2] * zExaggeration);
+  const halfFov = (fovDeg * Math.PI) / 360;
+  const span = Math.sin(halfFov) * Math.min(1, Math.max(aspect, 1e-6));
+  return Math.max(radius, 1e-6) / Math.max(span, 1e-6);
 }
 
 //: The default view direction: x horizontal, camera at -y, +z (spec R3).
@@ -50,10 +105,13 @@ class OrbitControl implements Controls {
   get target(): THREE.Vector3 {
     return this.inner.target;
   }
-  update(): void {
-    this.inner.update();
+  update(): boolean {
+    return this.inner.update();
   }
   refreshLayout(): void {}
+  bind(hooks: ControlHooks): () => void {
+    return bindControlEvents(this.inner, hooks);
+  }
   dispose(): void {
     this.inner.dispose();
   }
@@ -82,11 +140,15 @@ class TrackballControl implements Controls {
   get target(): THREE.Vector3 {
     return this.inner.target;
   }
-  update(): void {
+  update(): boolean {
     this.inner.update();
+    return false;
   }
   refreshLayout(): void {
     this.inner.handleResize();
+  }
+  bind(hooks: ControlHooks): () => void {
+    return bindControlEvents(this.inner, hooks);
   }
   dispose(): void {
     this.inner.dispose();
@@ -116,10 +178,14 @@ class ArcballControl implements Controls {
     // ArcballControls has a `target` at runtime, but @types/three omits it
     return (this.inner as unknown as { target: THREE.Vector3 }).target;
   }
-  update(): void {
+  update(): boolean {
     this.inner.update();
+    return false;
   }
   refreshLayout(): void {}
+  bind(hooks: ControlHooks): () => void {
+    return bindControlEvents(this.inner, hooks);
+  }
   dispose(): void {
     this.inner.dispose();
   }
@@ -141,10 +207,17 @@ export class Scene3D {
   private rotateSpeed = 1;
   private readonly resizeObserver: ResizeObserver;
   private target = new THREE.Vector3(0, 0, 0);
-  private radius = 1;
+  private boxSize: [number, number, number] = [1, 1, 1];
+  private hasBounds = false;
   //: which way the camera looks from, as a unit vector from the target (spec R3)
   private viewDirection = VIEW_DIRECTION.clone();
   private zExaggeration = 1;
+  private frameId = 0;
+  private disposed = false;
+  private needsRender = true;
+  private controlsActive = false;
+  private updatingControls = false;
+  private unbindControls: (() => void) | null = null;
   //: the simulation region outline (the device box, spec R3); drawn in the
   //: content group so the vertical exaggeration scales it with the solids. Each
   //: edge is a separate line in its axis's color, so the box edges read as the
@@ -176,6 +249,8 @@ export class Scene3D {
     const width = Math.max(container.clientWidth, 1);
     const height = Math.max(container.clientHeight, 1);
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 1e5);
+    // Z-up must be set before constructing OrbitControls so its turntable axis matches stack coordinates
+    this.camera.up.set(0, 0, 1);
     this.camera.position.set(0, -2, 2);
 
     // preserveDrawingBuffer keeps the frame readable after compositing, so a
@@ -186,7 +261,9 @@ export class Scene3D {
     this.renderer.setSize(width, height);
     container.appendChild(this.renderer.domElement);
 
-    this.controls = this.makeControls(this.controlKind);
+    this.controls = this.attachControls(this.controlKind);
+    this.renderer.domElement.addEventListener("pointercancel", this.onPointerCancel);
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
 
     this.scene.add(this.content);
     this.content.add(this.region);
@@ -194,26 +271,46 @@ export class Scene3D {
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
-    this.renderLoop();
+    this.requestRender();
   }
 
   /** Frames the given box (µm, local origin) and sets up the region + scale bar. */
   setBounds(size: [number, number, number], origin: [number, number, number] = [0, 0, 0]): void {
-    this.origin = origin;
-    this.target.set(0, 0, 0);
-    this.radius = 0.5 * Math.hypot(size[0], size[1], size[2]);
+    const unchanged = this.hasBounds && sameBounds(this.boxSize, this.origin, size, origin);
+    this.hasBounds = true;
+    this.boxSize = [...size] as [number, number, number];
+    this.origin = [...origin] as [number, number, number];
     const span = Math.max(size[0], size[1], size[2]);
     this.labelScale = 0.08 * span;
     this.buildRegion(size);
-    this.fit();
+    if (!unchanged) this.fit();
+    else this.requestRender();
   }
 
-  /** Builds the requested rotation control over the renderer's canvas. */
-  private makeControls(kind: ControlKind): Controls {
+  /** Builds the requested rotation control over the renderer's canvas and binds render hooks. */
+  private attachControls(kind: ControlKind): Controls {
+    if (kind === "orbit") this.camera.up.set(0, 0, 1);
     const dom = this.renderer.domElement;
-    if (kind === "trackball") return new TrackballControl(this.camera, dom);
-    if (kind === "arcball") return new ArcballControl(this.camera, dom, this.scene);
-    return new OrbitControl(this.camera, dom);
+    let controls: Controls;
+    if (kind === "trackball") controls = new TrackballControl(this.camera, dom);
+    else if (kind === "arcball") controls = new ArcballControl(this.camera, dom, this.scene);
+    else controls = new OrbitControl(this.camera, dom);
+    this.unbindControls = controls.bind({
+      onStart: () => {
+        this.controlsActive = true;
+        this.requestRender();
+      },
+      onChange: () => {
+        if (!this.updatingControls) this.requestRender();
+      },
+      onEnd: () => {
+        if (this.controlsActive) {
+          this.controlsActive = false;
+          this.requestRender();
+        }
+      },
+    });
+    return controls;
   }
 
   /** The active rotation style (spec R3, settings screen). */
@@ -227,14 +324,17 @@ export class Scene3D {
     // TrackballControls leaves its event listeners on the document, so build
     // the replacement first and only then tear the old one down
     const previous = this.controls;
-    this.controls = this.makeControls(kind);
+    const prevUnbind = this.unbindControls;
+    this.target.copy(previous.target);
+    this.controls = this.attachControls(kind);
     this.controlKind = kind;
+    prevUnbind?.();
     previous.dispose();
     this.controls.target.copy(this.target);
     this.controls.enabled = this.viewportVisible;
     this.controls.rotateSpeed = this.rotateSpeed;
     this.controls.refreshLayout();
-    this.controls.update();
+    this.requestRender();
   }
 
   /** Hides the renderer while the settings screen replaces the viewport (spec R3). */
@@ -243,7 +343,17 @@ export class Scene3D {
     this.renderer.domElement.style.visibility = visible ? "" : "hidden";
     this.controls.enabled = visible;
     // the canvas has a real size again; trackball caches it, so re-read it
-    if (visible) this.controls.refreshLayout();
+    if (visible) {
+      this.controls.refreshLayout();
+      if (this.needsRender) this.requestRender();
+    } else {
+      this.controlsActive = false;
+      if (this.frameId !== 0) {
+        cancelAnimationFrame(this.frameId);
+        this.frameId = 0;
+        this.needsRender = true;
+      }
+    }
   }
 
   /** Drag rotation sensitivity (spec R3, settings screen). */
@@ -275,11 +385,7 @@ export class Scene3D {
       [0, 4], [1, 5], [2, 6], [3, 7],
     ];
 
-    for (const child of [...this.region.children]) {
-      this.region.remove(child);
-      (child as THREE.LineSegments).geometry.dispose();
-      ((child as THREE.LineSegments).material as THREE.Material).dispose();
-    }
+    this.clearGroup(this.region);
     const points: THREE.Vector3[] = [];
     for (const [a, b] of edges) points.push(corners[a], corners[b]);
     const outline = new THREE.LineSegments(
@@ -294,7 +400,7 @@ export class Scene3D {
 
   /** Tick marks and labels along the box's x, y and z edges (spec R3). */
   private buildTicks(size: [number, number, number]): void {
-    this.ticks.clear();
+    this.clearGroup(this.ticks);
     const half = size.map((s) => s / 2);
     const step = niceStep(Math.max(...size));
     const tick = 0.04 * Math.max(...size) * (2 / 3);
@@ -377,20 +483,35 @@ export class Scene3D {
 
   /** Frames the whole scene (spec R3, "fit to view").
    *
-   * The default view puts x horizontal and looks from -y, +z (the camera is
-   * above and in front of the device). With the default up (0, 1, 0), the
-   * camera's right axis is exactly +x, so x runs across the screen.
+   * Uses Z-up for turntable orbiting without gimbal lock; for the default view
+   * from (-y, +z) toward the box center, the camera's right axis is +x.
    */
   fit(): void {
-    const distance = this.radius / Math.sin((this.camera.fov * Math.PI) / 360);
-    // trackball/arcball can roll `up`, so fit restores the upright frame too
-    this.camera.up.set(0, 1, 0);
+    const distance = fitDistance(this.boxSize, this.zExaggeration, this.camera.fov, this.camera.aspect);
+    this.target.set(0, 0, 0);
+    // keep Z-up for OrbitControls turntable rotation; fall back to +Y up only
+    // when looking straight along Z under trackball/arcball to avoid lookAt degeneracy
+    if (this.controlKind === "orbit" || Math.abs(this.viewDirection.z) <= 0.999) {
+      this.camera.up.set(0, 0, 1);
+    } else {
+      this.camera.up.set(0, 1, 0);
+    }
     this.camera.position.copy(this.target).addScaledVector(this.viewDirection, distance);
     this.camera.near = Math.max(distance / 1000, 1e-3);
     this.camera.far = distance * 100;
     this.camera.updateProjectionMatrix();
     this.controls.target.copy(this.target);
-    this.controls.update();
+    if (this.viewportVisible && !document.hidden) {
+      this.renderNow();
+    } else {
+      this.updatingControls = true;
+      try {
+        this.controls.update();
+      } finally {
+        this.updatingControls = false;
+      }
+      this.needsRender = true;
+    }
   }
 
   /** Sets the direction `fit` places the camera in (a vector from the target; need not be unit). */
@@ -403,48 +524,117 @@ export class Scene3D {
   setZExaggeration(factor: number): void {
     this.zExaggeration = factor;
     this.content.scale.set(1, 1, factor);
+    this.requestRender();
   }
 
   get exaggeration(): number {
     return this.zExaggeration;
   }
 
+  /** Schedules a single frame on demand (skipped while hidden until visible again). */
+  requestRender(): void {
+    if (this.disposed) return;
+    if (!this.viewportVisible || document.hidden) {
+      this.needsRender = true;
+      return;
+    }
+    if (this.frameId !== 0) return;
+    this.frameId = requestAnimationFrame(this.renderLoop);
+  }
+
   /** The current frame as a PNG data URL (spec R3, "save image"). */
   toPng(): string {
-    this.renderer.render(this.scene, this.camera);
+    this.renderNow();
     return this.renderer.domElement.toDataURL("image/png");
   }
 
   /** Renders now and returns the canvas, so a video frame captures this state. */
   captureCanvas(): HTMLCanvasElement {
-    this.renderer.render(this.scene, this.camera);
+    this.renderNow();
     return this.renderer.domElement;
   }
 
   private resize(): void {
-    const width = Math.max(this.container.clientWidth, 1);
-    const height = Math.max(this.container.clientHeight, 1);
+    const width = this.container.clientWidth;
+    const height = this.container.clientHeight;
+    if (width <= 0 || height <= 0) return;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
     // trackball caches the canvas rect, so hand it the new one
     this.controls.refreshLayout();
+    if (this.viewportVisible && !document.hidden) this.renderNow();
+    else this.needsRender = true;
   }
 
   private renderLoop = (): void => {
-    this.controls.update();
-    this.renderer.render(this.scene, this.camera);
-    requestAnimationFrame(this.renderLoop);
+    this.frameId = 0;
+    if (this.disposed) return;
+    if (!this.viewportVisible || document.hidden) {
+      this.needsRender = true;
+      return;
+    }
+    this.renderNow();
   };
 
-  dispose(): void {
-    this.resizeObserver.disconnect();
-    this.controls.dispose();
-    for (const child of this.region.children) {
-      const line = child as THREE.LineSegments;
-      line.geometry.dispose();
-      (line.material as THREE.Material).dispose();
+  private renderNow(): void {
+    if (this.disposed) return;
+    if (this.frameId !== 0) {
+      cancelAnimationFrame(this.frameId);
+      this.frameId = 0;
     }
+    this.needsRender = false;
+    let moved = false;
+    this.updatingControls = true;
+    try {
+      moved = this.controls.update();
+    } finally {
+      this.updatingControls = false;
+    }
+    this.renderer.render(this.scene, this.camera);
+    if (moved || this.controlsActive) this.requestRender();
+  }
+
+  private readonly onVisibilityChange = (): void => {
+    if (!document.hidden && this.needsRender) this.requestRender();
+  };
+
+  private readonly onPointerCancel = (): void => {
+    if (this.controlsActive) {
+      this.controlsActive = false;
+      this.requestRender();
+    }
+  };
+
+  private clearGroup(group: THREE.Group): void {
+    for (const child of [...group.children]) {
+      group.remove(child);
+      if (child instanceof THREE.Sprite) {
+        // THREE.Sprite shares a global module-level _geometry: only dispose material and CanvasTexture
+        child.material.map?.dispose();
+        child.material.dispose();
+      } else if (child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) material.dispose();
+      }
+    }
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    if (this.frameId !== 0) {
+      cancelAnimationFrame(this.frameId);
+      this.frameId = 0;
+    }
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    this.renderer.domElement.removeEventListener("pointercancel", this.onPointerCancel);
+    this.resizeObserver.disconnect();
+    this.unbindControls?.();
+    this.unbindControls = null;
+    this.controls.dispose();
+    this.clearGroup(this.region);
+    this.clearGroup(this.ticks);
     this.renderer.dispose();
   }
 }

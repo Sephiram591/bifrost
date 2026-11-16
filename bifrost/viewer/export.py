@@ -16,13 +16,9 @@ have sent, as files, and ``js/viewer/static.ts`` plays them back.
 
 A *world* is what the viewer calls it (spec R17): ``editor`` (the device with its
 setup) and ``result`` (the loaded result, with its detectors adopted). Fields are
-loaded on demand, and so are the slices, one plane at a time.
-
-The viewer shades one field component at a time, and in a bend the dominant
-in-plane component rotates, so every plane field gets one extra *derived*
-component first in its list, ``|E|``: the square root of the summed squared
-magnitudes of its recorded ``E`` components. The manifest says which components
-are derived; every other component is exactly what the solver recorded.
+loaded on demand, and so are the slices, one plane at a time. Only the raw
+recorded solver components are serialized; the browser computes derived views
+such as ``|E|`` on the fly from ``Ex``/``Ey``/``Ez``.
 """
 
 from __future__ import annotations
@@ -64,7 +60,7 @@ def _uncheck(wire_state: dict[str, Any], names: Any) -> None:
 
 def _write_json(path: Path, value: Any) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(value, separators=(",", ":"))
+    text = json.dumps(value, separators=(",", ":"), allow_nan=False)
     path.write_text(text)
     return len(text.encode())
 
@@ -111,40 +107,20 @@ def _export_meshes(geometry: dict[str, Any], base: Path) -> tuple[dict[str, Any]
 
 def _quantize(values: Any) -> tuple[bytes, float, float]:
     """float32 samples as uint16 against their own (min, max)."""
-    array = np.asarray(values, dtype=np.float32)
+    array = np.asarray(values, dtype="<f4")
+    if array.size and not np.all(np.isfinite(array)):
+        raise ValueError("Cannot export non-finite field values")
     low, high = float(array.min()), float(array.max())
     scale = (high - low) or 1.0
     quantized = np.round((array - low) / scale * 65535.0).astype("<u2")
     return quantized.tobytes(), low, high
 
 
-MAGNITUDE = "|E|"
-
-
-def _with_magnitude(entry: dict[str, Any]) -> dict[str, Any]:
-    """The field with a derived ``|E|`` component put first, or unchanged without two E components."""
-    components = list(entry["components"])
-    electric = [i for i, name in enumerate(components) if name in ("Ex", "Ey", "Ez")]
-    if len(electric) < 2:
-        return entry
-    frames, (rows, cols) = len(entry.get("freqs") or entry.get("times") or [0]), entry["grid"]
-    shape = (frames, len(components), rows, cols)
-    real = np.frombuffer(entry["real"], dtype=np.float32).reshape(shape)
-    imag = np.frombuffer(entry["imag"], dtype=np.float32).reshape(shape) if "imag" in entry else None
-    power = real[:, electric] ** 2 + (imag[:, electric] ** 2 if imag is not None else 0.0)
-    magnitude = np.sqrt(power.sum(axis=1, keepdims=True)).astype(np.float32)
-    derived = dict(entry, components=[MAGNITUDE, *components], derived=[MAGNITUDE])
-    derived["real"] = np.concatenate([magnitude, real], axis=1)
-    if imag is not None:
-        derived["imag"] = np.concatenate([np.zeros_like(magnitude), imag], axis=1)  # a magnitude has no phase
-    return derived
-
-
 def _peak_frame(entry: dict[str, Any]) -> int:
     """The recorded frame with the most field energy: where a still of a movie shows the most."""
     components = len(entry["components"])
     frames = len(entry.get("freqs") or entry.get("times") or [0])
-    real = np.frombuffer(entry["real"], dtype=np.float32).reshape(frames, components, -1)
+    real = np.frombuffer(entry["real"], dtype="<f4").reshape(frames, components, -1)
     return int(np.argmax((real**2).sum(axis=(1, 2))))
 
 
@@ -157,7 +133,7 @@ def _export_field(entry: dict[str, Any], out: Path) -> dict[str, Any]:
     for part in ("real", "imag"):
         if part not in entry:
             continue
-        data, low, high = _quantize(np.asarray(entry[part], dtype=np.float32))
+        data, low, high = _quantize(np.asarray(entry[part], dtype="<f4"))
         sizes[part] = _write_bytes(out / "fields" / f"{spec_id}.{part}.bin", data)
         quant[part] = [low, high]
     meta["quant"] = quant
@@ -249,9 +225,7 @@ def export_demo(
     worlds: dict[str, Any] = {}
     total = 0
 
-    fields = {
-        spec_id: _with_magnitude(entry) for spec_id, entry in build_field_payload(result, viewer._run_result).items()
-    }
+    fields = build_field_payload(result, viewer._run_result)
     shown: dict[str, dict[str, Any]] = {}  # the opening display settings, by spec id
     for spec_id, entry in fields.items():
         settings: dict[str, Any] = {}

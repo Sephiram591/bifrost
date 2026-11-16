@@ -50,3 +50,133 @@ test("ivf: VP8 streams carry the VP80 fourcc", () => {
 test("no WebCodecs in node: the export reports itself unsupported", () => {
   assert.equal(video.videoSupported(), typeof VideoEncoder !== "undefined");
 });
+
+async function withVideoGlobals(MockEncoder, run) {
+  const keys = ["VideoEncoder", "VideoFrame", "document"];
+  const saved = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  let frameClosedCount = 0;
+  try {
+    Object.defineProperty(globalThis, "VideoEncoder", { value: MockEncoder, configurable: true, writable: true });
+    Object.defineProperty(globalThis, "VideoFrame", {
+      value: class {
+        close() {
+          frameClosedCount += 1;
+        }
+      },
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "document", {
+      value: {
+        createElement: () => ({
+          width: 0,
+          height: 0,
+          getContext: () => ({ fillStyle: "", fillRect() {}, drawImage() {} }),
+        }),
+      },
+      configurable: true,
+      writable: true,
+    });
+    return await run(() => frameClosedCount);
+  } finally {
+    for (const key of keys) {
+      const desc = saved.get(key);
+      if (desc) Object.defineProperty(globalThis, key, desc);
+      else delete globalThis[key];
+    }
+  }
+}
+
+function makeMockEncoder({ onEncode, onFlush, onClose } = {}) {
+  return class MockVideoEncoder {
+    static async isConfigSupported(config) {
+      return { supported: true, config };
+    }
+    constructor(init) {
+      this.init = init;
+      this.state = "unconfigured";
+      this.encodeQueueSize = 0;
+    }
+    configure() {
+      this.state = "configured";
+    }
+    encode() {
+      onEncode?.(this);
+    }
+    async flush() {
+      await onFlush?.(this);
+    }
+    close() {
+      onClose?.(this);
+      this.state = "closed";
+    }
+  };
+}
+
+test("encodeFrames reports codec error without masking it by closing an already-closed VideoEncoder", async () => {
+  let closeCalls = 0;
+  const Encoder = makeMockEncoder({
+    onEncode(enc) {
+      enc.state = "closed";
+      enc.init.error(new Error("codec failure"));
+    },
+    onClose(enc) {
+      if (enc.state === "closed") throw new Error("InvalidStateError: Cannot close a closed VideoEncoder");
+      closeCalls += 1;
+    },
+  });
+
+  const closedFrames = await withVideoGlobals(Encoder, async (getClosed) => {
+    await assert.rejects(
+      () => video.encodeFrames(2, 24, () => ({ width: 4, height: 4 })),
+      /codec failure/,
+    );
+    return getClosed();
+  });
+  assert.equal(closeCalls, 0);
+  assert.equal(closedFrames, 1);
+});
+
+test("encodeFrames surfaces async codec failure when flush rejects after encoder closes", async () => {
+  let closeCalls = 0;
+  const Encoder = makeMockEncoder({
+    onEncode(enc) {
+      enc.init.output({ byteLength: 2, copyTo: (dst) => dst.set([1, 2]) });
+    },
+    async onFlush(enc) {
+      enc.state = "closed";
+      enc.init.error(new Error("async codec failure"));
+      throw new Error("InvalidStateError");
+    },
+    onClose(enc) {
+      if (enc.state === "closed") throw new Error("InvalidStateError");
+      closeCalls += 1;
+    },
+  });
+
+  await withVideoGlobals(Encoder, async () => {
+    await assert.rejects(
+      () => video.encodeFrames(1, 24, () => ({ width: 4, height: 4 })),
+      /async codec failure/,
+    );
+  });
+  assert.equal(closeCalls, 0);
+});
+
+test("encodeFrames closes an open encoder once after successful flush", async () => {
+  let closeCalls = 0;
+  const Encoder = makeMockEncoder({
+    onEncode(enc) {
+      enc.init.output({ byteLength: 3, copyTo: (dst) => dst.set([7, 8, 9]) });
+    },
+    onClose() {
+      closeCalls += 1;
+    },
+  });
+
+  const result = await withVideoGlobals(Encoder, () =>
+    video.encodeFrames(1, 24, () => ({ width: 4, height: 4 })),
+  );
+  assert.equal(closeCalls, 1);
+  assert.deepEqual([...result.bytes], [7, 8, 9]);
+});

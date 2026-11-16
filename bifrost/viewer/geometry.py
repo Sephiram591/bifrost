@@ -126,22 +126,21 @@ def wall_shift(level: Any, z: float) -> float:
     shift = (z - z_ref) * math.tan(math.radians(level.sidewall_angle)) - level.bias
     if level.z_to_bias is not None:
         zs, bs = level.z_to_bias
-        shift -= float(np.interp((z - level.zmin) / level.thickness, zs, bs))
+        frac = 0.0 if level.thickness == 0 else (z - level.zmin) / level.thickness
+        shift -= float(np.interp(frac, zs, bs))
     return shift
 
 
 def _expr_region(expr: tuple, unions: dict[int, Any], shift: float, box: Any) -> Any:
     """The level region ``{F + shift < 0}`` of one expression node at wall shift ``shift`` (um).
 
-    ``or`` / ``and`` / ``xor`` are the union / intersection / symmetric
-    difference of their operands with the same offset (spec C2). ``not`` is
-    ``A - B``: ``{max(F_a, -F_b) + shift < 0}`` is ``{F_a + shift < 0}`` and
-    ``{F_b - shift < 0}``, so the subtracted operand ``B`` is evaluated at the
-    *flipped* offset ``-shift`` -- matching the model, which negates a
-    subtracted literal's boundary with the offset's sign flipped. Each literal's
-    sizing grow ``g`` buffers its layer's union by ``g - shift``; the node's own
-    grow (the level's sizing) buffers the result. Fill literals are the whole
-    plane, layers without polygons are empty.
+    A literal ``("layer", index, grow)`` thresholds ``{d_index < grow - shift}``.
+    A boolean node ``(op, u, v, grow)`` thresholds ``{op(F_u, F_v) + (shift -
+    grow) < 0}``; propagating ``eff_shift = shift - grow`` to children matches
+    ``StackDevice._eval_expr`` (spec C2) for every operator, including ``not``
+    (right branch sees ``-eff_shift``) and ``xor`` (``(A(eff) | B(eff)) -
+    (A(-eff) & B(-eff))``). Fill literals are the whole plane, layers without
+    polygons are empty.
     """
     kind = expr[0]
     if kind == "fill":
@@ -151,22 +150,25 @@ def _expr_region(expr: tuple, unions: dict[int, Any], shift: float, box: Any) ->
         if union.is_empty:
             return _EMPTY
         return _buffer(union, float(expr[2]) - shift)
-    a = _expr_region(expr[1], unions, shift, box)
+    eff_shift = shift - float(expr[3])
+    if kind == "xor":
+        a_pos = _expr_region(expr[1], unions, eff_shift, box)
+        b_pos = _expr_region(expr[2], unions, eff_shift, box)
+        if eff_shift == 0.0:
+            return a_pos.symmetric_difference(b_pos)
+        a_neg = _expr_region(expr[1], unions, -eff_shift, box)
+        b_neg = _expr_region(expr[2], unions, -eff_shift, box)
+        return a_pos.union(b_pos).difference(a_neg.intersection(b_neg))
+    a = _expr_region(expr[1], unions, eff_shift, box)
     if kind == "not":
-        b = _expr_region(expr[2], unions, -shift, box)
-        region = a.difference(b)
-    else:
-        b = _expr_region(expr[2], unions, shift, box)
-        if kind == "or":
-            region = a.union(b)
-        elif kind == "and":
-            region = a.intersection(b)
-        elif kind == "xor":
-            region = a.symmetric_difference(b)
-        else:
-            raise ValueError(f"Unknown layer operation {kind!r}")
-    grow = float(expr[3])
-    return _buffer(region, grow) if grow else region
+        b = _expr_region(expr[2], unions, -eff_shift, box)
+        return a.difference(b)
+    b = _expr_region(expr[2], unions, eff_shift, box)
+    if kind == "or":
+        return a.union(b)
+    if kind == "and":
+        return a.intersection(b)
+    raise ValueError(f"Unknown layer operation {kind!r}")
 
 
 def _painted(device: Any, z: float) -> tuple[dict[int, Any], dict[str, Any], Any]:

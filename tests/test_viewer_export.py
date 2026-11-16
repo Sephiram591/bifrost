@@ -41,41 +41,26 @@ def test_quantize_handles_a_constant_field() -> None:
     assert (low, high) == (0.0, 0.0) and np.frombuffer(data, dtype="<u2").tolist() == [0, 0, 0, 0]
 
 
+def test_write_json_and_quantize_refuse_non_finite_values(tmp_path: Path) -> None:
+    """E-BF-20: non-finite values are refused rather than emitting invalid JSON."""
+    with pytest.raises(ValueError):
+        export._write_json(tmp_path / "bad.json", {"metric": float("nan")})
+    with pytest.raises(ValueError):
+        export._write_json(tmp_path / "bad_inf.json", {"metric": float("inf")})
+    with pytest.raises(ValueError, match="non-finite"):
+        export._quantize(np.array([0.0, np.nan], dtype=np.float32))
+
+
 def _entry(real, imag=None, components=("Ex", "Ey", "Ez")) -> dict:
     frames, comps, rows, cols = real.shape
     entry = {
         "id": "d", "name": "field", "components": list(components), "grid": [rows, cols],
-        "real": np.ascontiguousarray(real, dtype=np.float32).data,
+        "real": np.ascontiguousarray(real, dtype="<f4").data,
         "freqs": [1.0] * frames,
     }
     if imag is not None:
-        entry["imag"] = np.ascontiguousarray(imag, dtype=np.float32).data
+        entry["imag"] = np.ascontiguousarray(imag, dtype="<f4").data
     return entry
-
-
-def test_the_derived_magnitude_is_first_and_the_rest_is_untouched() -> None:
-    real = np.random.default_rng(0).normal(size=(2, 3, 4, 5)).astype(np.float32)
-    imag = np.random.default_rng(1).normal(size=(2, 3, 4, 5)).astype(np.float32)
-    derived = export._with_magnitude(_entry(real, imag))
-    assert derived["components"] == ["|E|", "Ex", "Ey", "Ez"] and derived["derived"] == ["|E|"]
-    out_real = np.asarray(derived["real"]).reshape(2, 4, 4, 5)
-    out_imag = np.asarray(derived["imag"]).reshape(2, 4, 4, 5)
-    np.testing.assert_allclose(out_real[:, 1:], real)
-    np.testing.assert_allclose(out_real[:, 0], np.sqrt((real**2 + imag**2).sum(axis=1)), rtol=1e-5)
-    assert not out_imag[:, 0].any(), "a magnitude has no phase"
-
-
-def test_a_real_valued_field_gets_its_magnitude_from_the_real_samples() -> None:
-    real = np.random.default_rng(2).normal(size=(3, 2, 4, 4)).astype(np.float32)
-    derived = export._with_magnitude(_entry(real, components=("Ex", "Ey")))
-    np.testing.assert_allclose(np.asarray(derived["real"]).reshape(3, 3, 4, 4)[:, 0], np.sqrt((real**2).sum(axis=1)), rtol=1e-5)
-    assert "imag" not in derived
-
-
-def test_a_field_without_two_electric_components_is_left_alone() -> None:
-    real = np.ones((1, 2, 3, 3), dtype=np.float32)
-    assert export._with_magnitude(_entry(real, components=("Hx", "Hy")))["components"] == ["Hx", "Hy"]
-    assert export._with_magnitude(_entry(real[:, :1], components=("Ex",)))["components"] == ["Ex"]
 
 
 def test_the_peak_frame_is_the_most_energetic() -> None:
@@ -143,7 +128,8 @@ def test_export_demo_writes_every_file_the_browser_reads(tmp_path: Path) -> None
         rows, cols = meta["grid"]
         samples = meta["frames"] * len(meta["components"]) * rows * cols
         assert (tmp_path / "fields" / f"{spec_id}.real.bin").stat().st_size == samples * 2
-        assert entry["derived"] == ["|E|"] and meta["components"][0] == "|E|"
+        assert entry["derived"] == [] and "|E|" not in meta["components"]
+        assert meta["components"] == ["Ex", "Ey"]
         assert meta["quant"]["real"][0] <= meta["quant"]["real"][1]
 
     state = json.loads((tmp_path / "result.json").read_text())["state"]

@@ -1,7 +1,9 @@
 /* Style every non-code occurrence of the word "bifrost" in regular Eczar (.bf-word). */
 (() => {
   const SKIP =
-    "code,pre,kbd,samp,var,script,style,noscript,template,textarea,svg,math,.highlight,.arithmatex,.mjx-container,.bf-word,.md-header__topic:first-child,.md-nav__title[for='__drawer'],.md-source";
+    "code,pre,kbd,samp,var,script,style,noscript,template,textarea,svg,math,[contenteditable],.highlight,.arithmatex,.mjx-container,.bf-word,.md-header__topic:first-child,.md-nav__title[for='__drawer'],.md-source";
+  const NON_TEXT_SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "TEXTAREA", "SVG"]);
+  const OBSERVE_OPTS = { childList: true, subtree: true, characterData: true };
   const BLOCKS = new Set([
     "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "DD", "DETAILS", "DIV", "DL", "DT",
     "FIGCAPTION", "FIGURE", "FOOTER", "FORM", "H1", "H2", "H3", "H4", "H5", "H6",
@@ -9,6 +11,29 @@
     "SUMMARY", "TABLE", "TD", "TH", "TR", "UL",
   ]);
   const WORD = /(?<![\w/@-])(?<!\w\.)bifrost(?![\w/-]|\.\w)/gi;
+
+  let observer = null;
+  let mutating = false;
+
+  function skipMarker(node) {
+    if (NON_TEXT_SKIP.has(node.tagName.toUpperCase())) return " ";
+    const t = node.textContent || "";
+    if (!t) return " ";
+    const edge = t.length <= 4 ? t : t.slice(0, 2) + " " + t.slice(-2);
+    return edge.replace(/\w/g, "x");
+  }
+
+  function withoutObserving(fn) {
+    if (mutating) return fn();
+    mutating = true;
+    if (observer) observer.disconnect();
+    try {
+      return fn();
+    } finally {
+      if (observer && document.body) observer.observe(document.body, OBSERVE_OPTS);
+      mutating = false;
+    }
+  }
 
   function blockAncestor(node) {
     let cur = node instanceof Element ? node : node.parentElement;
@@ -50,20 +75,24 @@
               list.push([lo - seg.start, hi - seg.start]);
             }
           }
-          for (const [node, ranges] of edits) {
-            const text = node.nodeValue;
-            const frag = document.createDocumentFragment();
-            let pos = 0;
-            for (const [start, end] of ranges) {
-              if (start > pos) frag.append(document.createTextNode(text.slice(pos, start)));
-              const span = document.createElement("span");
-              span.className = "bf-word";
-              span.textContent = text.slice(start, end);
-              frag.append(span);
-              pos = end;
-            }
-            if (pos < text.length) frag.append(document.createTextNode(text.slice(pos)));
-            node.replaceWith(frag);
+          if (edits.size) {
+            withoutObserving(() => {
+              for (const [node, ranges] of edits) {
+                const text = node.nodeValue;
+                const frag = document.createDocumentFragment();
+                let pos = 0;
+                for (const [start, end] of ranges) {
+                  if (start > pos) frag.append(document.createTextNode(text.slice(pos, start)));
+                  const span = document.createElement("span");
+                  span.className = "bf-word";
+                  span.textContent = text.slice(start, end);
+                  frag.append(span);
+                  pos = end;
+                }
+                if (pos < text.length) frag.append(document.createTextNode(text.slice(pos)));
+                node.replaceWith(frag);
+              }
+            });
           }
         }
       }
@@ -81,12 +110,12 @@
         return;
       }
       if (node.nodeType !== Node.ELEMENT_NODE) return;
-      if (node.matches(SKIP)) {
-        buf += " ";
-        return;
-      }
       const isBlock = BLOCKS.has(node.tagName);
       if (isBlock) flush();
+      if (node.matches(SKIP)) {
+        if (!isBlock) buf += skipMarker(node);
+        return;
+      }
       for (const child of [...node.childNodes]) walk(child);
       if (isBlock) flush();
     }
@@ -96,15 +125,14 @@
   }
 
   function applyAll() {
-    if (document.body) styleRoot(document.body);
+    if (document.body) withoutObserving(() => styleRoot(document.body));
   }
 
-  let observing = false;
   function boot() {
     applyAll();
-    if (!observing && document.body) {
-      observing = true;
-      const observer = new MutationObserver((records) => {
+    if (!observer && document.body) {
+      observer = new MutationObserver((records) => {
+        if (mutating) return;
         const roots = new Set();
         for (const r of records) {
           if (r.type === "characterData") {
@@ -121,11 +149,14 @@
             }
           }
         }
-        for (const root of roots) {
-          if (root.isConnected) styleRoot(root);
-        }
+        if (!roots.size) return;
+        withoutObserving(() => {
+          for (const root of roots) {
+            if (root.isConnected) styleRoot(root);
+          }
+        });
       });
-      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      observer.observe(document.body, OBSERVE_OPTS);
     }
     if (typeof document$ !== "undefined" && document$ && typeof document$.subscribe === "function") {
       document$.subscribe(applyAll);

@@ -378,10 +378,14 @@ def test_save_video_writes_under_the_save_folder(tmp_path: Path) -> None:
     message = {"event": "save_video", "filename": "d-Ey-real", "codec": "h264", "fps": 10,
                "target": "server"}
     viewer._on_msg(None, message, [memoryview(stream)])
+    assert viewer._video_thread is not None
+    viewer._video_thread.join(timeout=30)
     first = Path(viewer.save_result["path"])
     assert first == (tmp_path / "d-Ey-real.mp4").resolve()
     assert first.read_bytes()[4:8] == b"ftyp"
     viewer._on_msg(None, message, [memoryview(stream)])
+    assert viewer._video_thread is not None
+    viewer._video_thread.join(timeout=30)
     assert Path(viewer.save_result["path"]).name == "d-Ey-real-1.mp4"
 
 
@@ -398,6 +402,8 @@ def test_save_video_for_the_browser_sends_the_mp4_back(
         {"event": "save_video", "filename": "d", "codec": "h264", "fps": 10, "target": "browser"},
         [memoryview(stream)],
     )
+    assert viewer._video_thread is not None
+    viewer._video_thread.join(timeout=30)
     assert len(sent) == 1
     content, buffers = sent[0]
     assert content == {"event": "video_ready", "filename": "d.mp4"}
@@ -411,4 +417,54 @@ def test_a_failed_video_save_reports_an_error(tmp_path: Path) -> None:
     viewer._on_msg(None, message, [])
     assert "no video data" in viewer.save_result["error"]
     viewer._on_msg(None, message, [memoryview(b"not a video")])
+    assert viewer._video_thread is not None
+    viewer._video_thread.join(timeout=30)
     assert "ffmpeg" in viewer.save_result["error"]
+
+
+def test_save_video_runs_in_background_and_sanitizes_filename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """E-BF-19: save_video offloads wrap_video and confines filenames to save_dir."""
+    import threading
+    import time
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_wrap(_stream: bytes, _codec: str, _fps: int) -> bytes:
+        started.set()
+        release.wait(5)
+        return b"\x00\x00\x00\x18ftypisom"
+
+    monkeypatch.setattr(bf.viewer.widget, "wrap_video", slow_wrap)
+    viewer = bf.viewer.widget.view(f1_stack(), save_dir=tmp_path)
+
+    t0 = time.monotonic()
+    viewer._on_msg(
+        None,
+        {"event": "save_video", "filename": "../../d-Ey.v1", "codec": "h264", "fps": 10,
+         "target": "server"},
+        [memoryview(b"stream")],
+    )
+    elapsed = time.monotonic() - t0
+    try:
+        assert elapsed < 0.2
+        assert started.wait(timeout=2)
+        assert viewer._video_thread is not None
+        assert viewer._video_thread is not threading.main_thread()
+    finally:
+        release.set()
+        if viewer._video_thread is not None:
+            viewer._video_thread.join(timeout=10)
+
+    assert Path(viewer.save_result["path"]) == (tmp_path / "d-Ey.v1.mp4").resolve()
+
+    viewer._on_msg(
+        None,
+        {"event": "save_video", "filename": "..", "codec": "h264", "fps": 10, "target": "server"},
+        [memoryview(b"stream")],
+    )
+    assert viewer._video_thread is not None
+    viewer._video_thread.join(timeout=10)
+    assert Path(viewer.save_result["path"]) == (tmp_path / "detector.mp4").resolve()

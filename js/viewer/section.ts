@@ -4,7 +4,7 @@
 // section is sharp at any zoom and always agrees with the 3D view. Here the
 // rings are filled with Canvas2D's even-odd rule (holes come for free) and
 // zoom/pan are a screen transform applied on redraw, so nothing is resampled.
-import { componentData, parseColor, rampColor, shadeRange, transformValues } from "./fieldramp";
+import { componentData, parseColor, rampTexture, shadeRange, transformValues } from "./fieldramp";
 import { REGION_COLOR, formatTick, niceStep, tickValues } from "./ticks";
 import type {
   FieldPayload,
@@ -69,6 +69,11 @@ export function fieldBlit(
   return { translate: [x0, y1], scale: [1, -1], dest: [0, 0, x1 - x0, y1 - y0] };
 }
 
+/** Painter order for levels: higher ``mesh_order`` (background/cladding) draws first, lower (foreground) draws last. */
+export function sortLevelsForPaint<T extends { mesh_order: number }>(levels: readonly T[]): T[] {
+  return [...levels].sort((a, b) => b.mesh_order - a.mesh_order);
+}
+
 export class Section2D {
   readonly root: HTMLElement;
   private readonly canvas: HTMLCanvasElement;
@@ -92,6 +97,7 @@ export class Section2D {
   //: set once the user zooms or pans; until then the view re-fits on every
   //: resize and payload change (the container starts hidden at zero size)
   private userAdjusted = false;
+  private stopPan: (() => void) | null = null;
   private readonly resizeObserver: ResizeObserver;
 
   constructor(
@@ -225,6 +231,8 @@ export class Section2D {
   }
 
   dispose(): void {
+    this.stopPan?.();
+    this.stopPan = null;
     this.resizeObserver.disconnect();
   }
 
@@ -285,8 +293,8 @@ export class Section2D {
     const state = this.state;
     if (!payload || !state) return;
 
-    // levels, in mesh_order so a higher-priority level draws last (spec Q13)
-    const ordered = [...this.meta.levels].sort((a, b) => a.mesh_order - b.mesh_order);
+    // levels in descending mesh_order so lower-order foreground waveguides draw last (on top) (spec Q13)
+    const ordered = sortLevelsForPaint(this.meta.levels);
     for (const level of ordered) {
       const style = state.styles[level.name];
       const rings = payload.rings[level.name];
@@ -362,17 +370,15 @@ export class Section2D {
     const [rows, cols] = field.grid;
     const image = this.fieldCanvas(cols, rows);
     const pixels = image.getContext("2d")!.createImageData(cols, rows);
-    const span = range[1] - range[0];
-    const low = parseColor(settings.field_color_low);
-    const high = parseColor(settings.field_color_high);
-    for (let i = 0; i < values.length; i += 1) {
-      const t = span > 0 ? (values[i] - range[0]) / span : 0;
-      const [r, g, b, a] = rampColor(t, settings.field_transform, low, high);
-      pixels.data[i * 4] = r;
-      pixels.data[i * 4 + 1] = g;
-      pixels.data[i * 4 + 2] = b;
-      pixels.data[i * 4 + 3] = Math.round(a * 255);
-    }
+    const bytes = rampTexture(
+      values,
+      range,
+      settings.field_transform,
+      parseColor(settings.field_color_low),
+      parseColor(settings.field_color_high),
+      1,
+    );
+    pixels.data.set(bytes.length <= pixels.data.length ? bytes : bytes.subarray(0, pixels.data.length));
     image.getContext("2d")!.putImageData(pixels, 0, 0);
 
     // the rectangle's two corners in the section's local (u, v). The raster is
@@ -781,7 +787,8 @@ export class Section2D {
     const payload = this.payload;
     const state = this.state;
     if (!payload || !state) return null;
-    const ordered = [...this.meta.levels].sort((a, b) => b.mesh_order - a.mesh_order);
+    // reverse paint order so the visually topmost level matches first
+    const ordered = sortLevelsForPaint(this.meta.levels).reverse();
     for (const level of ordered) {
       const style = state.styles[level.name];
       const rings = payload.rings[level.name];
@@ -837,6 +844,7 @@ export class Section2D {
 
   private onPanStart(event: MouseEvent): void {
     event.preventDefault();
+    this.stopPan?.();
     const startX = event.clientX;
     const startY = event.clientY;
     const startDx = this.view.dx;
@@ -850,7 +858,9 @@ export class Section2D {
     const up = (): void => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
+      if (this.stopPan === up) this.stopPan = null;
     };
+    this.stopPan = up;
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
   }

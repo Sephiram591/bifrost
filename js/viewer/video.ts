@@ -74,36 +74,46 @@ export async function encodeFrames(
       failure = error;
     },
   });
-  encoder.configure(config.config);
+  try {
+    encoder.configure(config.config);
 
-  // a staging canvas of exactly the encoded size, so an odd-sized viewport is
-  // cropped rather than scaled, and the frame is opaque
-  const staging = document.createElement("canvas");
-  staging.width = width;
-  staging.height = height;
-  const context = staging.getContext("2d");
-  if (!context) throw new Error("no 2D canvas context for the video frames");
-  const keyEvery = Math.max(1, Math.round(2 * fps));
-  for (let i = 0; i < count; i += 1) {
-    if (failure) break;
-    const source = i === 0 ? first : draw(i);
-    context.fillStyle = "#000000";
-    context.fillRect(0, 0, width, height);
-    context.drawImage(source, 0, 0, width, height, 0, 0, width, height);
-    const frame = new VideoFrame(staging, {
-      timestamp: Math.round((i * 1e6) / fps),
-      duration: Math.round(1e6 / fps),
-    });
-    encoder.encode(frame, { keyFrame: i % keyEvery === 0 });
-    frame.close();
-    // backpressure: let the encoder drain before queuing more frames
-    while (encoder.encodeQueueSize > 4 && !failure) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+    // a staging canvas of exactly the encoded size, so an odd-sized viewport is
+    // cropped rather than scaled, and the frame is opaque
+    const staging = document.createElement("canvas");
+    staging.width = width;
+    staging.height = height;
+    const context = staging.getContext("2d");
+    if (!context) throw new Error("no 2D canvas context for the video frames");
+    const keyEvery = Math.max(1, Math.round(2 * fps));
+    for (let i = 0; i < count; i += 1) {
+      if (failure) break;
+      const source = i === 0 ? first : draw(i);
+      context.fillStyle = "#000000";
+      context.fillRect(0, 0, width, height);
+      context.drawImage(source, 0, 0, width, height, 0, 0, width, height);
+      const frame = new VideoFrame(staging, {
+        timestamp: Math.round((i * 1e6) / fps),
+        duration: Math.round(1e6 / fps),
+      });
+      try {
+        encoder.encode(frame, { keyFrame: i % keyEvery === 0 });
+      } finally {
+        frame.close();
+      }
+      // backpressure: let the encoder drain before queuing more frames
+      while (encoder.encodeQueueSize > 4 && !failure) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      onProgress?.(i, count);
     }
-    onProgress?.(i, count);
+    if (!failure) await encoder.flush();
+  } catch (err) {
+    // if an async codec error already arrived and closed the encoder, surface
+    // it rather than a secondary InvalidStateError/AbortError from encode/flush
+    throw failure ?? err;
+  } finally {
+    if (encoder.state !== "closed") encoder.close();
   }
-  if (!failure) await encoder.flush();
-  encoder.close();
   if (failure) throw failure;
 
   const bytes = config.kind === "h264"

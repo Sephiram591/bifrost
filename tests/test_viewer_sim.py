@@ -19,6 +19,7 @@ The F1 fixture comes from ``test_viewer_geometry`` (M0).
 
 from __future__ import annotations
 
+import ast
 import threading
 import time
 from typing import Any, ClassVar
@@ -875,7 +876,7 @@ def test_a_stop_during_placing_raises_at_the_next_boundary(
 def test_a_discarded_stop_raises_and_a_kept_one_returns(monkeypatch: pytest.MonkeyPatch) -> None:
     """D17: ``keep_partial`` decides between raising and returning the arrays."""
     flag = threading.Event()
-    captured = _stub_pipeline(monkeypatch, on_step=flag.set)
+    _stub_pipeline(monkeypatch, on_step=flag.set)
 
     with pytest.raises(bf.viewer.sim.RunStopped):
         bf.viewer.sim.run(object(), object(), cancel=flag)
@@ -1080,3 +1081,71 @@ def test_every_extra_has_a_default_and_the_meta_carries_them() -> None:
     _geometry, payload_meta = bf.viewer.payload.build_payload(bf.viewer.state.ViewerState(f1_stack()))
     assert payload_meta["settings_defaults"]["port_padding"] == [3.0, 2.0]
     assert payload_meta["settings_defaults"]["wavelength_um"] == 1.55
+
+
+def test_launch_code_sanitizes_keywords_collisions_and_injection() -> None:
+    """E-BF-16: object names that are Python keywords, locals, or unsafe strings stay valid Python."""
+    viewer = bf.viewer.widget.view(f1_stack())
+    _coarse(viewer)
+    for event, port, name in (
+        ("add_source", "o1", "in"),
+        ("add_detector", "o2", "stack"),
+        ("add_detector", "o2", "det-1 2"),
+        ("add_detector", "o2", "3d_det"),
+    ):
+        viewer._on_msg(None, {"event": event, "port": port}, [])
+        spec = viewer.specs[-1]
+        viewer._on_msg(
+            None, {"event": "update_spec", "kind": spec.category, "spec": {"id": spec.id, "params": {"name": name}}}, []
+        )
+    # absolute ModeOverlapDetector also tests top-level bf.* emission + newline-escaping comment
+    assert viewer.launch_code == bf.viewer.sim.launch_code(viewer.stack, viewer._viewer_state)
+    center = [float(viewer.stack.center[0]), float(viewer.stack.center[1]), float(viewer.stack.z_center)]
+    abs_spec = bf.viewer.sim.ObjectSpec(
+        type="ModeOverlapDetector",
+        port="None",
+        params={"name": "bad\nraise RuntimeError('x')", "axis": 1, "center": center, "size": [6.0, 2.0]},
+    )
+    viewer._viewer_state.specs.append(abs_spec)
+    code = bf.viewer.sim.launch_code(viewer.stack, viewer._viewer_state)
+    ast.parse(code)
+    assert "bf.ModeOverlapDetector(" in code
+    assert "bf.stack.ModeOverlapDetector(" not in code
+    assert "\nraise RuntimeError" not in code
+    namespace: dict[str, Any] = {"stack": viewer.stack}
+    exec(compile(code.split("# --- run:")[0], "<launch_code>", "exec"), namespace)
+    names = [o.name for o in namespace["objects"] if getattr(o, "name", None)]
+    for expected in ("in", "stack", "det-1 2", "3d_det", "bad\nraise RuntimeError('x')"):
+        assert expected in names
+
+
+def test_plane_port_vs_absolute_direction_and_offset() -> None:
+    """E-BF-13 M2-A: PLANE_PORTS move along -axis for +port_offset ('in' -> '-'); port='None' uses '+'."""
+    viewer = bf.viewer.widget.view(f1_stack())
+    _coarse(viewer)
+    viewer._on_msg(None, {"event": "add_source", "port": "xy"}, [])
+    port_spec = viewer.specs[-1]
+    viewer._on_msg(
+        None,
+        {"event": "update_spec", "kind": "source",
+         "spec": {"id": port_spec.id, "params": {"direction": "in", "port_offset": 0.2}}},
+        [],
+    )
+    origin = tuple(viewer._viewer_state.origin)
+    glyph_offset = bf.viewer.sim.spec_glyph(viewer.stack, port_spec, origin, viewer.settings)
+    glyph_zero = bf.viewer.sim.spec_glyph(
+        viewer.stack, bf.viewer.sim.ObjectSpec(type="ModePlaneSource", port="xy", params={}), origin, viewer.settings
+    )
+    assert glyph_offset["center"][2] < glyph_zero["center"][2]
+
+    center = [float(viewer.stack.center[0]), float(viewer.stack.center[1]), float(viewer.stack.z_center)]
+    abs_spec = bf.viewer.sim.ObjectSpec(
+        type="ModePlaneSource",
+        port="None",
+        params={"name": "abs_z", "axis": 2, "center": center, "size": [4.0, 4.0], "direction": "in"},
+    )
+    viewer._viewer_state.specs.append(abs_spec)
+    objects, _cfg, _cons = bf.viewer.sim.build_objects(viewer.stack, viewer._viewer_state)
+    by_name = {getattr(o, "name", None): o for o in objects}
+    assert by_name[port_spec.name].direction == "-"
+    assert by_name["abs_z"].direction == "+"

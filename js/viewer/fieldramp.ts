@@ -25,6 +25,19 @@ export type Transform = FieldSettings["field_transform"];
 //: detector can be shaded by the field's strength rather than one polarization.
 export const TOTAL_COMPONENT = "|E|";
 
+const ELECTRIC_COMPONENTS: ReadonlySet<string> = new Set(["Ex", "Ey", "Ez"]);
+
+/** Whether any electric-field Cartesian component (Ex, Ey, Ez) is recorded. */
+export function hasElectricComponent(components: readonly string[]): boolean {
+  return components.some((name) => ELECTRIC_COMPONENTS.has(name));
+}
+
+/** Component dropdown choices: prepends ``|E|`` only when E components exist and it is not already present. */
+export function componentOptions(components: readonly string[]): string[] {
+  const prependTotal = hasElectricComponent(components) && !components.includes(TOTAL_COMPONENT);
+  return ["", ...(prependTotal ? [TOTAL_COMPONENT] : []), ...components];
+}
+
 //: the three transforms whose values straddle zero (spec D16)
 const SIGNED_TRANSFORMS: ReadonlySet<Transform> = new Set(["real", "imag", "phase"]);
 
@@ -37,7 +50,8 @@ export function isSigned(transform: Transform): boolean {
  *
  * ``TOTAL_COMPONENT`` returns the total electric-field magnitude as a real
  * value (imaginary part zero): the Cartesian components are orthogonal, so
- * ``|E|^2 = |Ex|^2 + |Ey|^2 + |Ez|^2``. Only the ``E`` components contribute.
+ * ``|E|^2 = |Ex|^2 + |Ey|^2 + |Ez|^2``. Only ``Ex``, ``Ey``, ``Ez`` contribute;
+ * returns null if none are recorded.
  *
  * The buffers are frame-major stacks (spec R17): one frame per recorded
  * frequency or time step. ``frame`` selects one, clamped to what the buffers
@@ -56,10 +70,21 @@ export function componentData(
   const base = f * perFrame;
   const imagAt = (offset: number): Float32Array =>
     field.imag ? decodeFloat32(field.imag, offset, count) : new Float32Array(count);
+  const index = field.components.indexOf(component);
+  if (index >= 0) {
+    return {
+      real: decodeFloat32(field.real, base + index * count, count),
+      imag: imagAt(base + index * count),
+    };
+  }
   if (component === TOTAL_COMPONENT) {
-    const real = new Float32Array(count);
+    const indices: number[] = [];
     for (let i = 0; i < field.components.length; i += 1) {
-      if (!field.components[i].startsWith("E")) continue;
+      if (ELECTRIC_COMPONENTS.has(field.components[i])) indices.push(i);
+    }
+    if (indices.length === 0) return null;
+    const real = new Float32Array(count);
+    for (const i of indices) {
       const re = decodeFloat32(field.real, base + i * count, count);
       const im = imagAt(base + i * count);
       for (let k = 0; k < count; k += 1) real[k] += re[k] * re[k] + im[k] * im[k];
@@ -67,12 +92,7 @@ export function componentData(
     for (let k = 0; k < count; k += 1) real[k] = Math.sqrt(real[k]);
     return { real, imag: new Float32Array(count) };
   }
-  const index = field.components.indexOf(component);
-  if (index < 0) return null;
-  return {
-    real: decodeFloat32(field.real, base + index * count, count),
-    imag: imagAt(base + index * count),
-  };
+  return null;
 }
 
 /** How many frames a payload's buffers hold (at least 1). */
@@ -172,28 +192,50 @@ export function valueRange(values: Float32Array, transform: Transform, logRange:
   return clampRange(min, max, transform, logRange);
 }
 
-/** The min and max of some values (±Infinity when there are none). */
+/** The min and max of finite values (±Infinity when there are none). */
 function extent(values: Float32Array): [number, number] {
   let min = Infinity;
   let max = -Infinity;
   for (const value of values) {
+    if (!Number.isFinite(value)) continue;
     if (value < min) min = value;
     if (value > max) max = value;
   }
   return [min, max];
 }
 
-/** A raw min/max made into a usable ramp range (logabs floor, non-empty span). */
+/** A raw min/max made into a usable ramp range (symmetric signed zero, logabs floor, empty/zero guard). */
 function clampRange(min: number, max: number, transform: Transform, logRange: number): [number, number] {
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 0];
+  if (isSigned(transform)) {
+    // signed ramps place transparent zero at t = 0.5, so keep [-vmax, +vmax]
+    // symmetric and return [0, 0] for an all-zero plane so alpha stays 0
+    const vmax = Math.max(Math.abs(min), Math.abs(max));
+    return vmax === 0 ? [0, 0] : [-vmax, vmax];
+  }
   if (transform === "logabs") {
     // the floor is `log_range` decades below the maximum (spec D16); the span
     // never shrinks below it, so a weak plane still reads across the ramp
     const floor = max - Math.abs(logRange);
     if (min < floor) min = floor;
   }
+  if (min === 0 && max === 0) return [0, 0];
   if (max <= min) max = min + 1e-12;
   return [min, max];
+}
+
+/** Sample one transformed scalar on ``range`` into RGBA, keeping non-finite or zero-span cells transparent. */
+export function rampSample(
+  value: number,
+  range: [number, number],
+  transform: Transform,
+  low: [number, number, number],
+  high: [number, number, number],
+): [number, number, number, number] {
+  if (!Number.isFinite(value)) return [0, 0, 0, 0];
+  const span = range[1] - range[0];
+  if (!Number.isFinite(span) || span <= 0) return [0, 0, 0, 0];
+  return rampColor((value - range[0]) / span, transform, low, high);
 }
 
 /**
@@ -210,37 +252,13 @@ export function rampTexture(
   high: [number, number, number],
   opacity: number,
 ): Uint8Array {
-  const [min, max] = range;
-  const span = max - min;
-  const signed = isSigned(transform);
   const bytes = new Uint8Array(values.length * 4);
   for (let i = 0; i < values.length; i += 1) {
-    let t = span > 0 ? (values[i] - min) / span : 0;
-    t = t < 0 ? 0 : t > 1 ? 1 : t;
-    let r: number;
-    let g: number;
-    let b: number;
-    let a: number;
-    if (signed) {
-      // color runs low -> high across the whole range, alpha punches out the
-      // middle, so zero reads as "nothing here" and the two signs take the two
-      // colors (spec D16's prose; its formula transposes low/high at the ends)
-      r = mix(low[0], high[0], t);
-      g = mix(low[1], high[1], t);
-      b = mix(low[2], high[2], t);
-      a = Math.abs(2 * t - 1);
-    } else {
-      // transparent → color: the hue is the high end, alpha rises with t
-      r = high[0];
-      g = high[1];
-      b = high[2];
-      a = t;
-    }
-    const alpha = a * opacity;
+    const [r, g, b, a] = rampSample(values[i], range, transform, low, high);
     bytes[i * 4] = r;
     bytes[i * 4 + 1] = g;
     bytes[i * 4 + 2] = b;
-    bytes[i * 4 + 3] = Math.round(alpha * 255);
+    bytes[i * 4 + 3] = Math.round(a * opacity * 255);
   }
   return bytes;
 }
@@ -260,6 +278,7 @@ export function rampColor(
   low: [number, number, number],
   high: [number, number, number],
 ): [number, number, number, number] {
+  if (!Number.isFinite(t)) return [0, 0, 0, 0];
   const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
   if (isSigned(transform)) {
     return [

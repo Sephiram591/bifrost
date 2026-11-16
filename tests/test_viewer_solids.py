@@ -288,3 +288,32 @@ def test_port_height_is_the_level_thickness() -> None:
     _, _, levels, _, ports = bf.viewer.solids.build(f2_stack())
     thickness = {level.name: level.thickness for level in levels}["core"]
     assert ports and all(math.isclose(port.height, thickness, abs_tol=1e-9) for port in ports)
+
+
+def test_xor_and_derived_grow_3d_model_parity() -> None:
+    """E-BF-17: sloped 3D solids with xor and derived-op grow match the 3D SDF."""
+    from test_viewer_geometry import _xor_derived_stack
+
+    device = _xor_derived_stack()
+    solid_set = bf.viewer.solids.analytic_solids(device)
+    points = _box_points(device, 2000, seed=7)
+    for level in device.levels:
+        lo, hi = bf.viewer.geometry.span(level)
+        field = _model_field(device, points, level)
+        in_span = (points[:, 2] >= lo) & (points[:, 2] <= hi)
+        far = in_span & (np.abs(field) > TOL)
+        inside_model = field < 0.0
+        inside_solid = _inside(solid_set.full[level.name], points)
+        mismatch = far & (inside_solid != inside_model)
+        assert not mismatch.any(), (
+            f"{level.name}: {int(mismatch.sum())}/{int(far.sum())} far points disagree "
+            f"(worst |field| {np.max(np.abs(field[mismatch])):.3g} um)"
+        )
+
+
+def test_mesh_buffers_are_little_endian() -> None:
+    """I-BF-07: viewer solid meshes emit explicit little-endian float32/uint32 buffers."""
+    _, _, levels, bg, _ = bf.viewer.solids.build(f2_stack())
+    meshes = [lvl.full for lvl in levels] + [lvl.painted for lvl in levels] + [bg]
+    assert all(m.positions.dtype == np.dtype("<f4") for m in meshes)
+    assert all(m.indices.dtype == np.dtype("<u4") for m in meshes)

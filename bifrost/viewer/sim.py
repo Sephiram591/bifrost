@@ -18,14 +18,15 @@ Glyphs are computed from a spec and the port frame (spec D11): the same frame
 from __future__ import annotations
 
 import functools
+import keyword
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 __all__ = [
     "AVERAGINGS",
     "TYPES",
-    "CancelCondition",
     "ObjectSpec",
     "RunResult",
     "RunStopped",
@@ -676,8 +677,9 @@ def _create_absolute(spec: ObjectSpec, settings: SimSettings,
     elif kind.wave == "many":
         fields["wave_characters"] = waves
     if kind.direction:
-        # an absolute plane's direction is its normal axis' orientation: a
-        # source "in" along +axis launches towards +axis (spec R18)
+        # Port/plane-port placement uses StackDevice._plane_frame (outward=1,
+        # so "in" -> "-" and +port_offset shifts along -axis). An absolute plane
+        # (port="None") has no port normal reference, so "in" -> +axis (R18).
         fields["direction"] = "+" if params.get("direction", "in") == "in" else "-"
     fields.update(_extra_kwargs(kind, params))
     if kind.category == "detector" and settings.pulse_width_frac > 0 and "scaling_mode" in kind.extra:
@@ -847,8 +849,10 @@ def export(stack: Any, state: Any) -> tuple[list[Any], Any, list[Any]]:
 # ------------------------------------------------------------------- mode 3
 
 def _num(value: Any) -> str:
-    """A float as source text; whole numbers kept integer-shaped (``1``, not ``1.0``)."""
+    """A finite float as source text; whole numbers kept integer-shaped (``1``, not ``1.0``)."""
     f = float(value)
+    if not math.isfinite(f):
+        raise ValueError(f"Non-finite numeric value in launch code: {value!r}")
     return str(int(f)) if f.is_integer() and abs(f) < 1e16 else repr(f)
 
 
@@ -870,6 +874,31 @@ def _repr(value: Any) -> str:
     return repr(value)
 
 
+_RESERVED_IDENTS = frozenset({
+    "bf", "fdtdx", "jax", "jnp", "stack", "volume", "config",
+    "objects", "arrays", "params", "key", "constraints", "pml",
+    "boundaries", "cons", "_wave", "_pulse",
+})
+
+
+def _safe_ident(name: str, used: set[str]) -> str:
+    """Returns a unique valid Python identifier derived from ``name``, updating ``used``."""
+    base = re.sub(r"\W|^(?=\d)", "_", name) or "_obj"
+    cand = f"{base}_" if keyword.iskeyword(base) else base
+    if cand in used or f"cons_{cand}" in used:
+        suffix = 2
+        while (
+            f"{base}_{suffix}" in used
+            or f"cons_{base}_{suffix}" in used
+            or keyword.iskeyword(f"{base}_{suffix}")
+        ):
+            suffix += 1
+        cand = f"{base}_{suffix}"
+    used.add(cand)
+    used.add(f"cons_{cand}")
+    return cand
+
+
 _LAUNCH_HEADER = """\
 # --- viewer launch code (spec R14 mode 3) ------------------------------------
 # Assumes `stack` (the StackDevice) is in scope. Appending this tail to the
@@ -879,22 +908,29 @@ _LAUNCH_HEADER = """\
 
 def _waves_tuple(wavelengths: Any) -> str:
     """Source text for the ``wave_characters`` tuple of a spec's wavelengths."""
-    return "(" + ", ".join(f"_wave({w})" for w in wavelengths) + ",)"
+    return "(" + ", ".join(f"_wave({_num(w)})" for w in wavelengths) + ",)"
 
 
-def _absolute_lines(spec: ObjectSpec, kind: ObjectType, settings: SimSettings,
-                    wavelengths: Any, stack: Any) -> list[str]:
+def _absolute_lines(
+    spec: ObjectSpec,
+    kind: ObjectType,
+    settings: SimSettings,
+    wavelengths: Any,
+    stack: Any,
+    var: str | None = None,
+) -> list[str]:
     """The emitted construction for an absolutely-placed spec (spec R18).
 
     Mirrors :func:`_create_absolute`: the object is hand-constructed — no
     ``create_*_at`` covers absolute placement — and placed relative to the
     stack with margins from the stack's box center to the spec's center.
     """
+    ident = var or spec.name
     axis = int(spec.params.get("axis", 2))
     center = [float(v) for v in spec.params["center"]]
-    lines = [f"# {spec.name}: absolute placement (no create_*_at for it)"]
-    owner = "bf.stack" if spec.type in ("ModePlaneSource", "ModeOverlapDetector") else "fdtdx"
-    lines.append(f"{spec.name} = {owner}.{spec.type}(")
+    lines = [f"# {spec.name!r}: absolute placement (no create_*_at for it)"]
+    owner = "bf" if spec.type in ("ModePlaneSource", "ModeOverlapDetector") else "fdtdx"
+    lines.append(f"{ident} = {owner}.{spec.type}(")
     if kind.plane:
         size = spec.params.get("size") or (0.0, 0.0)
         real: list[str | None] = ["None", "None", "None"]
@@ -909,20 +945,21 @@ def _absolute_lines(spec: ObjectSpec, kind: ObjectType, settings: SimSettings,
         lines.append("    partial_grid_shape=(1, 1, 1),")
     lines.append(f"    name={spec.name!r},")
     if kind.wave == "one":
-        lines.append(f"    wave_character=_wave({wavelengths[0]}),")
+        lines.append(f"    wave_character=_wave({_num(wavelengths[0])}),")
         if settings.pulse_width_frac > 0:
-            lines.append(f"    temporal_profile=_pulse(_wave({wavelengths[0]})),")
+            lines.append(f"    temporal_profile=_pulse(_wave({_num(wavelengths[0])})),")
     elif kind.wave == "many":
         lines.append(f"    wave_characters={_waves_tuple(wavelengths)},")
     if kind.direction:
-        # an absolute plane's direction is its normal axis' orientation (R18)
+        # an absolute plane (port="None") launches "in" forward along +axis (R18);
+        # port / PLANE_PORTS placement uses _plane_frame ("in" -> "-") instead
         char = "+" if spec.params.get("direction", "in") == "in" else "-"
         lines.append(f"    direction={char!r},")
     lines.extend(f"    {arg}," for arg in _extra_args(kind, spec.params))
     if kind.category == "detector" and settings.pulse_width_frac > 0 and "scaling_mode" in kind.extra:
         lines.append("    scaling_mode='pulse',")
     lines.append(")")
-    lines.append(f"cons_{spec.name} = [{spec.name}.place_relative_to(")
+    lines.append(f"cons_{ident} = [{ident}.place_relative_to(")
     # a detector plane is anchored on its sampled point, as ``_create_absolute`` does
     own = f"bf.stack.detector_plane_own_positions({axis})" if kind.plane and kind.category == "detector" else "(0, 0, 0)"
     lines.append(f"    stack, axes=(0, 1, 2), own_positions={own}, other_positions=(0, 0, 0),")
@@ -1005,10 +1042,12 @@ def launch_code(stack: Any, state: Any) -> str:
     lines.append("objects = [volume, stack]")
 
     # one call per spec, in spec order, with the same fallbacks _create applies
+    used = set(_RESERVED_IDENTS)
     for spec in state.specs:
         if spec.id in getattr(state, "adopted", ()):
             continue  # adopted foreign detectors are already placed (D18)
         kind = TYPES[spec.type]
+        ident = _safe_ident(spec.name, used)
         if kind.wave != "none":
             wavelengths = spec.params.get("wavelengths") or [settings.wavelength_um]
         else:
@@ -1016,9 +1055,9 @@ def launch_code(stack: Any, state: Any) -> str:
         if spec.absolute:
             # R18: no create_*_at exists for absolute placement, so the tail
             # constructs the object directly, as _create_absolute does
-            lines.extend(_absolute_lines(spec, kind, settings, wavelengths, stack))
-            lines.append(f"objects.append({spec.name})")
-            lines.append(f"constraints += cons_{spec.name}")
+            lines.extend(_absolute_lines(spec, kind, settings, wavelengths, stack, var=ident))
+            lines.append(f"objects.append({ident})")
+            lines.append(f"constraints += cons_{ident}")
             continue
         args = [f"port={spec.port!r}"]
         if kind.plane:
@@ -1027,9 +1066,9 @@ def launch_code(stack: Any, state: Any) -> str:
             if kind.wave == "none":
                 args.append(f"wavelength_um={_num(settings.wavelength_um)}")
         if kind.wave == "one":
-            args.append(f"wave_character=_wave({wavelengths[0]})")
+            args.append(f"wave_character=_wave({_num(wavelengths[0])})")
             if settings.pulse_width_frac > 0:
-                args.append(f"temporal_profile=_pulse(_wave({wavelengths[0]}))")
+                args.append(f"temporal_profile=_pulse(_wave({_num(wavelengths[0])}))")
         elif kind.wave == "many":
             args.append("wave_characters=" + _waves_tuple(wavelengths))
         if kind.direction:
@@ -1041,12 +1080,12 @@ def launch_code(stack: Any, state: Any) -> str:
             args.append(f"level={spec.params['level']!r}")
         args.append(f"port_offset={_num(spec.params.get('port_offset', 0.0))}")
         args.append(f"name={spec.name!r}")
-        lines.append(f"{spec.name}, cons_{spec.name} = stack.{kind.method}(")
+        lines.append(f"{ident}, cons_{ident} = stack.{kind.method}(")
         for arg in args:
             lines.append(f"    {arg},")
         lines.append(")")
-        lines.append(f"objects.append({spec.name})")
-        lines.append(f"constraints += cons_{spec.name}")
+        lines.append(f"objects.append({ident})")
+        lines.append(f"constraints += cons_{ident}")
 
     # the config and the PML boundaries, as build_objects builds them
     lines.append("config = stack.get_simulation_config(")

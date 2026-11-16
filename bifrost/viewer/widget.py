@@ -47,6 +47,8 @@ from __future__ import annotations
 
 import base64
 import binascii
+import itertools
+import re
 import subprocess
 import tempfile
 import threading
@@ -62,7 +64,7 @@ from .payload import build_field_payload, build_payload, build_section_payload
 from .sim import RunResult, RunStopped, build_objects, launch_code as _launch_code_text
 from .sim import run as _run_sim
 from .state import ViewerState, export_styles
-__all__ = ["Viewer", "view"]
+__all__ = ["Viewer", "view", "wrap_video"]
 
 _STATIC = Path(__file__).parent / "static"
 
@@ -145,6 +147,8 @@ class Viewer(anywidget.AnyWidget):
         #: styles the Result tab edits. ``None`` until the first result arrives
         #: (a run or a ``load_result``); while it is ``None`` the Result tab
         #: shows its empty note. The editor world is never touched by a result.
+        self._lock = threading.RLock()
+        self._save_lock = threading.Lock()
         self._result_state: ViewerState | None = None
         #: the result world's cached geometry/section payloads, rebuilt only
         #: when the result changes (they do not track editor edits)
@@ -154,6 +158,10 @@ class Viewer(anywidget.AnyWidget):
         #: the result world the ``fields`` trait was last built from — so a
         #: fresh result republishes its payload once, even from an editor tab
         self._fields_state: ViewerState | None = None
+        #: cached field payload keyed by ``(result, result_state, detector_key)``
+        self._fields_cache: (
+            tuple[Any, ViewerState, tuple[tuple[str, str], ...], dict[str, Any]] | None
+        ) = None
         #: the editor world's cached payloads (see :meth:`_cached_payloads`)
         self._editor_geometry: dict[str, Any] | None = None
         self._editor_meta: dict[str, Any] | None = None
@@ -162,6 +170,7 @@ class Viewer(anywidget.AnyWidget):
         self._run_result: Any = None
         self._run_error: BaseException | None = None
         self._run_thread: threading.Thread | None = None
+        self._video_thread: threading.Thread | None = None
         #: the stop flag for the in-flight run (spec D17); ``None`` when no run
         #: is in flight. Set by :meth:`stop` and read by the worker's condition.
         self._run_cancel: threading.Event | None = None
@@ -173,15 +182,50 @@ class Viewer(anywidget.AnyWidget):
         self._prepared: tuple[int, tuple[list[Any], Any, list[Any]]] | None = None
         super().__init__(**kwargs)
         geometry, meta = build_payload(self._viewer_state)
+        section = build_section_payload(self._viewer_state)
+        self._editor_geometry = geometry
+        self._editor_meta = meta
+        self._editor_section = section
         self.geometry = geometry
         self.meta = meta
         self.state = self._viewer_state.to_state()
-        self.section = build_section_payload(self._viewer_state)
+        self.section = section
         self.save_dir = str(initial_save_dir.resolve())
         self.launch_code = _launch_code_text(self.stack, self._viewer_state)
         self.on_msg(self._on_msg)
 
     # ------------------------------------------------------------------ worlds
+
+    def _build_result_world(
+        self,
+        result: RunResult,
+        stack: Any,
+        settings: Any = None,
+    ) -> tuple[ViewerState, dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """Builds a result world's state, geometry/section payloads, and fields."""
+        from .adopt import adopt_result
+
+        new_state = ViewerState(stack, settings=settings)
+        export_styles(self._viewer_state, new_state)
+        adopt_result(new_state, result.objects, result.config)
+        geometry, meta = build_payload(new_state)
+        section = build_section_payload(new_state)
+        fields = build_field_payload(new_state, result)
+        return new_state, geometry, meta, section, fields
+
+    def _apply_result_world(
+        self,
+        result: Any,
+        world: tuple[ViewerState, dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]],
+    ) -> None:
+        """Installs a pre-built result world and primes the field payload cache."""
+        new_state, geometry, meta, section, fields = world
+        self._result_state = new_state
+        self._result_geometry = geometry
+        self._result_meta = meta
+        self._result_section = section
+        det_key = tuple((s.id, s.name) for s in new_state.specs if s.category == "detector")
+        self._fields_cache = (result, new_state, det_key, fields)
 
     def _install_result(self, result: RunResult, stack: Any, settings: Any = None) -> None:
         """Installs a run result into the result world (spec R17).
@@ -195,16 +239,7 @@ class Viewer(anywidget.AnyWidget):
         Called by ``run``'s worker (the widget's own stack) and by
         ``load_result`` (a foreign one).
         """
-        from .adopt import adopt_result
-
-        new_state = ViewerState(stack, settings=settings)
-        export_styles(self._viewer_state, new_state)
-        adopt_result(new_state, result.objects, result.config)
-        self._result_state = new_state
-        geometry, meta = build_payload(new_state)
-        self._result_geometry = geometry
-        self._result_meta = meta
-        self._result_section = build_section_payload(new_state)
+        self._apply_result_world(result, self._build_result_world(result, stack, settings=settings))
 
     def _list_in_editor(self, result: RunResult, stack: Any) -> None:
         """Makes the editor's sources and detectors the result's (spec R16, R17).
@@ -264,31 +299,44 @@ class Viewer(anywidget.AnyWidget):
         ``section``/``state`` traits carry, so on a switch (or ``force``) all
         four are re-sent. ``state`` goes first so a rebuild sees the styles the
         new world ships with; ``fields`` — the result world's whenever one
-        exists — rides along, so switching away from Result clears the
-        overlays (the browser shades only while the Result tab is active).
+        exists — rides along only when the result world changed, avoiding
+        redundant rebuilds/re-sends on tab switches.
         """
         active = self._active_state()
         if force or active is self._result_state:
             self.state = self._wire_state(active)
-            self.geometry = self._cached_payloads(active)[0]
-            self.meta = self._cached_payloads(active)[1]
+            geometry, meta = self._cached_payloads(active)
+            self.geometry = geometry
+            self.meta = meta
             self.section = (
                 self._result_section if active is self._result_state
                 else self._cached_section(self._viewer_state)
             )
-            self.fields = (
-                build_field_payload(self._result_state, self._run_result)
-                if self._result_state is not None else {}
-            )
-            self._fields_state = self._result_state
+            if self._fields_state is not self._result_state:
+                self.fields = self._cached_fields()
+                self._fields_state = self._result_state
             return
         # a fresh result world (run/show_result/load_result) republishes the
         # field payload even from an editor tab — the browser shades only
         # while the Result tab is active, so this is inert there (R17)
-        if self._result_state is not None and self._fields_state is not self._result_state:
-            self.fields = build_field_payload(self._result_state, self._run_result)
+        if self._fields_state is not self._result_state:
+            self.fields = self._cached_fields()
             self._fields_state = self._result_state
         self.state = self._wire_state(active)
+
+    def _cached_fields(self) -> dict[str, Any]:
+        """The result world's field payload, cached per result and detector set."""
+        result_state = self._result_state
+        if result_state is None:
+            return {}
+        result = self._run_result
+        det_key = tuple((s.id, s.name) for s in result_state.specs if s.category == "detector")
+        cache = self._fields_cache
+        if cache is not None and cache[0] is result and cache[1] is result_state and cache[2] == det_key:
+            return cache[3]
+        payload = build_field_payload(result_state, result)
+        self._fields_cache = (result, result_state, det_key, payload)
+        return payload
 
     def _cached_payloads(self, state: ViewerState) -> tuple[dict[str, Any], dict[str, Any]]:
         """The state's ``(geometry, meta)`` payloads, cached per world (spec R17).
@@ -299,7 +347,7 @@ class Viewer(anywidget.AnyWidget):
         """
         if state is self._result_state:
             return self._result_geometry, self._result_meta
-        if self._viewer_state.geometry_changed or self._editor_geometry is None:
+        if self._viewer_state.geometry_changed or self._editor_geometry is None or self._editor_meta is None:
             self._viewer_state.geometry_changed = False
             self._editor_geometry, self._editor_meta = build_payload(self._viewer_state)
             self._editor_section = None
@@ -339,7 +387,8 @@ class Viewer(anywidget.AnyWidget):
     @property
     def running(self) -> bool:
         """Whether a mode-1 run is in flight (spec D15)."""
-        return self._viewer_state.running
+        with self._lock:
+            return self._viewer_state.running
 
     def _prepare(self) -> tuple[list[Any], Any, list[Any]]:
         """The prepared objects, config and constraints (spec R14 mode 2, D11).
@@ -349,10 +398,11 @@ class Viewer(anywidget.AnyWidget):
         object names always match the objects they were built with. A setup
         edit bumps the revision and forces a rebuild on next access.
         """
-        revision = self._viewer_state.revision
-        if self._prepared is None or self._prepared[0] != revision:
-            self._prepared = (revision, build_objects(self.stack, self._viewer_state))
-        return self._prepared[1]
+        with self._lock:
+            revision = self._viewer_state.revision
+            if self._prepared is None or self._prepared[0] != revision:
+                self._prepared = (revision, build_objects(self.stack, self._viewer_state))
+            return self._prepared[1]
 
     @property
     def objects(self) -> list[Any]:
@@ -386,34 +436,45 @@ class Viewer(anywidget.AnyWidget):
         Raises:
             RuntimeError: if a run is already in flight.
         """
-        if self._viewer_state.running:
-            raise RuntimeError("A run is already in flight")
-        # snapshot the previous result before clearing, so a discarded stop can
-        # restore it (spec D17)
-        self._previous_result = self._run_result
-        self._run_result = None
-        self._run_error = None
-        self._viewer_state.running = True
-        self.state = self._viewer_state.to_state()
-        self.run_result = {"status": "running"}
-        self.progress = {}
-        self.phase = "placing"
-        self.stopping = False
-        self._run_cancel = threading.Event()
+        with self._lock:
+            if self._viewer_state.running:
+                raise RuntimeError("A run is already in flight")
+            # snapshot the previous result without clearing last_result, so a
+            # discarded stop or failed run preserves the prior result (spec D17)
+            self._previous_result = self._run_result
+            self._run_error = None
+            self._viewer_state.running = True
+            if self._viewer_state.active_tab == "result":
+                # leave a stale/foreign result tab before simulating the editor stack
+                self._viewer_state.active_tab = "layout"
+                self._sync_active(force=True)
+            else:
+                self.state = self._wire_state(self._viewer_state)
+            self.run_result = {"status": "running"}
+            self.progress = {}
+            self.phase = "placing"
+            self.stopping = False
+            cancel = threading.Event()
+            self._run_cancel = cancel
+            stack = self._viewer_state.stack
+            viewer_state = self._viewer_state
+            keep_partial = viewer_state.settings.keep_partial
 
         # capture the marimo runtime context here, on the cell's thread; the
         # worker must install it or its trait updates never reach the browser
         runtime_context = _marimo_runtime_context()
 
         def _on_progress(step: int, total: int) -> None:
-            self.progress = {"step": int(step), "total": int(total)}
+            with self._lock:
+                self.progress = {"step": int(step), "total": int(total)}
 
         def _on_phase(name: str) -> None:
             # once a stop is requested the phase must stay "stopping", so a later
             # "compiling" from the same run cannot overwrite it (spec D17)
-            if self._run_cancel is not None and self._run_cancel.is_set():
-                return
-            self.phase = name
+            with self._lock:
+                if cancel.is_set():
+                    return
+                self.phase = name
 
         def _work() -> None:
             if runtime_context is not None:
@@ -425,44 +486,52 @@ class Viewer(anywidget.AnyWidget):
         def _work_inner() -> None:
             try:
                 result = _run_sim(
-                    self.stack,
-                    self._viewer_state,
+                    stack,
+                    viewer_state,
                     key=key,
                     progress=_on_progress,
                     phase=_on_phase,
-                    cancel=self._run_cancel,
-                    keep_partial=self._viewer_state.settings.keep_partial,
+                    cancel=cancel,
+                    keep_partial=keep_partial,
                 )
-                self._run_result = result
-                self.run_result = {"status": "done", "detectors": _detector_names(result)}
-                # the result lands in the result world (spec R17): the editor's
-                # setup and styles are untouched, the Result tab shades from it;
-                # the editor's own setup is what ran, so a loaded result's copies go
-                self._viewer_state.clear_adopted()
-                self._install_result(result, self.stack)
-                # the field buffers ride the same worker-thread context install
-                self._sync_active()
+                with self._lock:
+                    world = self._build_result_world(result, stack)
+                    # the result lands in the result world (spec R17): the editor's
+                    # setup and styles are untouched, the Result tab shades from it;
+                    # the editor's own setup is what ran, so a loaded result's copies go
+                    self._viewer_state.clear_adopted()
+                    self._run_result = result
+                    self._run_error = None
+                    self._apply_result_world(result, world)
+                    self.run_result = {"status": "done", "detectors": _detector_names(result)}
             except RunStopped:
                 # a stopped run whose partial result is discarded: keep the
                 # previous result and its overlays, report the stop (spec D17)
-                self._run_result = self._previous_result
-                self._run_error = None
-                self.run_result = {"status": "stopped"}
+                with self._lock:
+                    self._run_result = self._previous_result
+                    self._run_error = None
+                    self.run_result = {"status": "stopped"}
             except BaseException as exc:
-                self._run_error = exc
-                self.run_result = {"status": "error", "message": str(exc)}
+                with self._lock:
+                    self._run_result = self._previous_result
+                    self._run_error = exc
+                    self.run_result = {"status": "error", "message": str(exc)}
             finally:
-                self._viewer_state.running = False
-                self._sync_active()
-                self.progress = {}
-                self.phase = ""
-                self.stopping = False
-                self._run_cancel = None
+                with self._lock:
+                    self._viewer_state.running = False
+                    self._sync_active()
+                    self.progress = {}
+                    self.phase = ""
+                    self.stopping = False
+                    self._run_cancel = None
+                    done_result = self._run_result
                 if on_done is not None:
-                    on_done(self._run_result)
+                    on_done(done_result)
 
-        self._run_thread = threading.Thread(target=_work, name="viewer-run", daemon=True)
-        self._run_thread.start()
+        thread = threading.Thread(target=_work, name="viewer-run", daemon=True)
+        with self._lock:
+            self._run_thread = thread
+        thread.start()
 
     def stop(self) -> bool:
         """Asks the in-flight run to stop (spec D17).
@@ -476,22 +545,25 @@ class Viewer(anywidget.AnyWidget):
             True if a run was in flight and the stop was requested, False
             otherwise.
         """
-        cancel = self._run_cancel
-        if cancel is None or not self._viewer_state.running:
-            return False
-        cancel.set()
-        self.stopping = True
-        return True
+        with self._lock:
+            cancel = self._run_cancel
+            if cancel is None or not self._viewer_state.running:
+                return False
+            cancel.set()
+            self.stopping = True
+            return True
 
     @property
     def last_result(self) -> Any:
         """The last completed run's :class:`~bifrost.viewer.sim.RunResult` (spec Q20)."""
-        return self._run_result
+        with self._lock:
+            return self._run_result
 
     @property
     def last_error(self) -> BaseException | None:
         """The last run's exception, if it failed (spec Q20)."""
-        return self._run_error
+        with self._lock:
+            return self._run_error
 
     def show_result(self, result: Any) -> None:
         """Adopts a result the user produced elsewhere as the current result (R15).
@@ -507,20 +579,25 @@ class Viewer(anywidget.AnyWidget):
                 with ``.arrays.detector_states``, ``.objects`` and ``.config``.
 
         Raises:
+            RuntimeError: if a run is in flight (spec D15).
             ValueError: if the result's detectors do not correspond to the
                 widget's current setup by name, grid shape, grid spacing and
                 plane position (spec Q23). The previous result and its overlays
                 are left untouched.
         """
-        validate_result(self._viewer_state, result)
-        self._run_result = result
-        self._run_error = None
-        self.run_result = {"status": "done", "detectors": _detector_names(result)}
-        # the result lands in the result world too (spec R17): same stack as the
-        # editor here, but the Result tab shades from the result world's specs
-        self._viewer_state.clear_adopted()
-        self._install_result(result, self.stack)
-        self._sync_active()
+        with self._lock:
+            if self._viewer_state.running:
+                raise RuntimeError("a run is in flight; show_result is refused")
+            validate_result(self._viewer_state, result)
+            world = self._build_result_world(result, self.stack)
+            # the result lands in the result world too (spec R17): same stack as
+            # the editor here, but the Result tab shades from the result world's specs
+            self._viewer_state.clear_adopted()
+            self._run_result = result
+            self._run_error = None
+            self._apply_result_world(result, world)
+            self.run_result = {"status": "done", "detectors": _detector_names(result)}
+            self._sync_active()
 
     def load_result(
         self,
@@ -566,23 +643,25 @@ class Viewer(anywidget.AnyWidget):
                 could never shade, or ``stack`` disagrees with the result's
                 grid. The previous result and overlays are left untouched.
         """
-        if self._viewer_state.running:
-            raise RuntimeError("a run is in flight; load_result is refused")
-        from .fields import validate_foreign_result
+        with self._lock:
+            if self._viewer_state.running:
+                raise RuntimeError("a run is in flight; load_result is refused")
+            from .fields import validate_foreign_result
 
-        if stack is None:
-            stack = self._viewer_state.stack
-        validate_foreign_result(objects, arrays, config, stack=stack)
-        result = RunResult(objects, arrays, config)
-        self._install_result(result, stack, settings=settings)
-        self._list_in_editor(result, stack)
-        self._run_result = result
-        self._run_error = None
-        self._previous_result = None
-        self.run_result = {"status": "done", "detectors": _detector_names(result)}
-        # switching to the result world re-sends its traits; the editor's stay
-        # untouched and come back when the user leaves the Result tab (spec R17)
-        self._sync_active(force=True)
+            if stack is None:
+                stack = self._viewer_state.stack
+            validate_foreign_result(objects, arrays, config, stack=stack)
+            result = RunResult(objects, arrays, config)
+            world = self._build_result_world(result, stack, settings=settings)
+            self._list_in_editor(result, stack)
+            self._run_result = result
+            self._run_error = None
+            self._previous_result = None
+            self._apply_result_world(result, world)
+            self.run_result = {"status": "done", "detectors": _detector_names(result)}
+            # switching to the result world re-sends its traits; the editor's stay
+            # untouched and come back when the user leaves the Result tab (spec R17)
+            self._sync_active(force=True)
 
     # ------------------------------------------------------------------ messages
 
@@ -624,78 +703,79 @@ class Viewer(anywidget.AnyWidget):
             # saves at a new directory, creating it if the write is legal
             self._set_save_dir(content.get("dir"))
             return
-        before = (self._viewer_state.plane, self._viewer_state.plane_position)
-        result_before = (
-            (self._result_state.plane, self._result_state.plane_position)
-            if self._result_state is not None else None
-        )
-        tab_before = self._viewer_state.active_tab
-        revision_before = self._viewer_state.revision
-        patch = dict(content.get("patch") or {}) if event == "set_state" else None
-        if patch is not None and "active_tab" in patch:
-            # the tab itself routes the worlds (spec R17), so it always edits
-            # the editor state, whichever world is on the wire
+        with self._lock:
+            before = (self._viewer_state.plane, self._viewer_state.plane_position)
+            result_before = (
+                (self._result_state.plane, self._result_state.plane_position)
+                if self._result_state is not None else None
+            )
+            tab_before = self._viewer_state.active_tab
+            revision_before = self._viewer_state.revision
+            patch = dict(content.get("patch") or {}) if event == "set_state" else None
+            if patch is not None and "active_tab" in patch:
+                # the tab itself routes the worlds (spec R17), so it always edits
+                # the editor state, whichever world is on the wire
+                try:
+                    self._viewer_state.apply_patch({"active_tab": patch.pop("active_tab")})
+                except (ValueError, TypeError, KeyError):
+                    patch = None
+            active = self._active_state()
             try:
-                self._viewer_state.apply_patch({"active_tab": patch.pop("active_tab")})
-            except (ValueError, TypeError, KeyError):
-                patch = None
-        active = self._active_state()
-        try:
-            if patch is not None:
-                if patch:
-                    active.apply_patch(patch)
-            elif event in _SETUP_EVENTS:
-                # setup events author the editor's setup (spec R17) — except a
-                # display edit from the Result tab (a field setting or an
-                # adopted row's visibility, spec R17): the result world's
-                # adopted specs own those, so while its tab is active the edit
-                # is routed to it
-                if event == "update_spec" and self._result_state is not None \
-                        and self._viewer_state.active_tab == "result":
-                    self._result_state.apply_patch(
-                        {f"{content.get('kind', 'detector')}s": [
-                            {"op": "update", **content.get("spec", {})},
-                        ]}
-                    )
-                    self.state = self._wire_state(self._result_state)
+                if patch is not None:
+                    if patch:
+                        active.apply_patch(patch)
+                elif event in _SETUP_EVENTS:
+                    # setup events author the editor's setup (spec R17) — except a
+                    # display edit from the Result tab (a field setting or an
+                    # adopted row's visibility, spec R17): the result world's
+                    # adopted specs own those, so while its tab is active the edit
+                    # is routed to it
+                    if event == "update_spec" and self._result_state is not None \
+                            and self._viewer_state.active_tab == "result":
+                        self._result_state.apply_patch(
+                            {f"{content.get('kind', 'detector')}s": [
+                                {"op": "update", **content.get("spec", {})},
+                            ]}
+                        )
+                        self.state = self._wire_state(self._result_state)
+                        return
+                    self._apply_setup_event(event, content)
+                else:
                     return
-                self._apply_setup_event(event, content)
-            else:
+            except (ValueError, TypeError, KeyError):
+                pass  # a bad or refused message leaves the state unchanged
+            if tab_before != self._viewer_state.active_tab:
+                # a tab switch swaps which world the traits carry (spec R17): the
+                # Result tab shows the result world's geometry and state, the other
+                # tabs the editor's, so re-send the now-active world's set
+                self._sync_active(force=True)
                 return
-        except (ValueError, TypeError, KeyError):
-            pass  # a bad or refused message leaves the state unchanged
-        if tab_before != self._viewer_state.active_tab:
-            # a tab switch swaps which world the traits carry (spec R17): the
-            # Result tab shows the result world's geometry and state, the other
-            # tabs the editor's, so re-send the now-active world's set
-            self._sync_active(force=True)
-            return
-        if self._viewer_state.revision != revision_before:
-            # a setup edit landed (spec R12/R13): refresh the launch code so
-            # the browser's export button copies the current tail (spec D12)
-            self.launch_code = _launch_code_text(self.stack, self._viewer_state)
-        self.state = self._wire_state(active)
-        if active is self._result_state:
-            # the result world tracks no editor edits; styles ride `state`. Its
-            # own plane and position still drive the Result tab's 2D view, so a
-            # move re-slices the result's section (the axes follow the plane)
-            if (active.plane, active.plane_position) != result_before:
-                self._result_section = build_section_payload(active)
-                self.section = self._result_section
-            return
-        if self._viewer_state.geometry_changed:
-            # a boundary_offset edit re-boxed the device (spec R13): re-send the
-            # mesh buffers and metadata so the browser rebuilds its viewports
-            geometry, meta = self._cached_payloads(self._viewer_state)
-            self.geometry = geometry
-            self.meta = meta
-            self._editor_section = None
-            self.section = self._cached_section(self._viewer_state)
-            return
-        after = (self._viewer_state.plane, self._viewer_state.plane_position)
-        if after != before:
-            self._editor_section = build_section_payload(self._viewer_state)
-            self.section = self._editor_section
+            if self._viewer_state.revision != revision_before:
+                # a setup edit landed (spec R12/R13): refresh the launch code so
+                # the browser's export button copies the current tail (spec D12)
+                self.launch_code = _launch_code_text(self.stack, self._viewer_state)
+            self.state = self._wire_state(active)
+            if active is self._result_state:
+                # the result world tracks no editor edits; styles ride `state`. Its
+                # own plane and position still drive the Result tab's 2D view, so a
+                # move re-slices the result's section (the axes follow the plane)
+                if (active.plane, active.plane_position) != result_before:
+                    self._result_section = build_section_payload(active)
+                    self.section = self._result_section
+                return
+            if self._viewer_state.geometry_changed:
+                # a boundary_offset edit re-boxed the device (spec R13): re-send the
+                # mesh buffers and metadata so the browser rebuilds its viewports
+                geometry, meta = self._cached_payloads(self._viewer_state)
+                self.geometry = geometry
+                self.meta = meta
+                self._editor_section = None
+                self.section = self._cached_section(self._viewer_state)
+                return
+            after = (self._viewer_state.plane, self._viewer_state.plane_position)
+            if after != before:
+                self._editor_section = build_section_payload(self._viewer_state)
+                self.section = self._editor_section
 
     def _apply_setup_event(self, event: str, content: dict[str, Any]) -> None:
         """Turns a setup event into a state patch (spec R12, R13, D15).
@@ -730,18 +810,24 @@ class Viewer(anywidget.AnyWidget):
         unwritable path is reported at once, not on the next save.
         """
         if not isinstance(folder, str) or not folder.strip():
-            self.save_result = {"error": "enter a folder path"}
+            with self._lock:
+                self.save_result = {"error": "enter a folder path"}
             return
         try:
+            with self._lock:
+                current = self.save_dir
             target = Path(folder).expanduser()
             if not target.is_absolute():
-                target = Path(self.save_dir) / target
+                target = Path(current) / target
             target.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            self.save_result = {"error": str(exc)}
+            with self._lock:
+                self.save_result = {"error": str(exc)}
         else:
-            self.save_dir = str(target.resolve())
-            self.save_result = {"folder": self.save_dir}
+            resolved = str(target.resolve())
+            with self._lock:
+                self.save_dir = resolved
+                self.save_result = {"folder": resolved}
 
     def _save_image(self, content: dict[str, Any]) -> None:
         """Writes a browser PNG under :attr:`save_dir` (spec D14).
@@ -752,48 +838,85 @@ class Viewer(anywidget.AnyWidget):
         An existing file is kept: a ``-1``, ``-2``, … suffix is appended until
         the name is free, so repeated saves never clobber an earlier one.
         """
-        data = content.get("data")
-        filename = content.get("filename") or "viewer.png"
+        with self._lock:
+            data = content.get("data")
+            name = _safe_filename(content.get("filename"), "viewer", ".png")
+            save_dir = self.save_dir
         try:
             raw = _decode_data_url(data)
-            target = _free_path(Path(self.save_dir) / Path(filename).name)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(raw)
+            with self._save_lock:
+                target = _save_target(save_dir, name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(raw)
         except (ValueError, OSError, binascii.Error) as exc:
-            self.save_result = {"error": str(exc)}
+            with self._lock:
+                self.save_result = {"error": str(exc)}
         else:
-            self.save_result = {"path": str(target.resolve())}
+            with self._lock:
+                self.save_result = {"path": str(target.resolve())}
 
     def _save_video(self, content: dict[str, Any], buffers: list) -> None:
         """Saves a browser-encoded video of a detector's frames as an MP4.
 
         The browser renders and encodes every frame of a multi-frame detector
         (WebCodecs) and sends the stream as one binary buffer with its
-        ``codec`` and ``fps``; :func:`wrap_video` makes the MP4. With
+        ``codec`` and ``fps``; :func:`wrap_video` makes the MP4 on a background
+        thread so the comm handler returns immediately. With
         ``target == "server"`` the file lands in :attr:`save_dir` (never
         clobbering, like :meth:`_save_image`) and ``save_result`` carries the
         path; otherwise the MP4 goes back to the browser as a ``video_ready``
         message, which downloads it. A failure sets ``save_result["error"]``.
         """
-        name = Path(str(content.get("filename") or "detector")).name
-        name = name if name.endswith(".mp4") else f"{name}.mp4"
-        server = content.get("target") == "server"
-        if not buffers:
-            self.save_result = {"error": "video: the browser sent no video data"}
-            return
-        try:
-            mp4 = wrap_video(bytes(buffers[0]), str(content.get("codec")), int(content.get("fps") or 20))
-            if server:
-                target = _free_path(Path(self.save_dir) / name)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(mp4)
+        with self._lock:
+            if not buffers:
+                self._video_thread = None
+                self.save_result = {"error": "video: the browser sent no video data"}
+                return
+            stream = bytes(buffers[0])
+            name = _safe_filename(content.get("filename"), "detector", ".mp4", force_suffix=True)
+            codec = str(content.get("codec") or "")
+            raw_fps = content.get("fps")
+            try:
+                if isinstance(raw_fps, bool):
+                    raise ValueError(f"invalid fps {raw_fps!r}")
+                fps = int(20 if raw_fps is None or raw_fps == "" else raw_fps)
+            except (TypeError, ValueError) as exc:
+                self._video_thread = None
+                self.save_result = {"error": f"video: {exc}"}
+                return
+            server = content.get("target") == "server"
+            save_dir = self.save_dir
+        runtime_context = _marimo_runtime_context()
+
+        def _work() -> None:
+            if runtime_context is not None:
+                with runtime_context.install():
+                    _work_inner()
             else:
-                self.send({"event": "video_ready", "filename": name}, buffers=[mp4])
-        except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
-            self.save_result = {"error": f"video: {exc}"}
-        else:
-            if server:
-                self.save_result = {"path": str(target.resolve())}
+                _work_inner()
+
+        def _work_inner() -> None:
+            try:
+                mp4 = wrap_video(stream, codec, fps)
+                if server:
+                    with self._save_lock:
+                        target = _save_target(save_dir, name)
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(mp4)
+                else:
+                    self.send({"event": "video_ready", "filename": name}, buffers=[mp4])
+            except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                with self._lock:
+                    self.save_result = {"error": f"video: {exc}"}
+            else:
+                if server:
+                    with self._lock:
+                        self.save_result = {"path": str(target.resolve())}
+
+        thread = threading.Thread(target=_work, name="viewer-video", daemon=True)
+        with self._lock:
+            self._video_thread = thread
+        thread.start()
 
 
 def wrap_video(stream: bytes, codec: str, fps: int) -> bytes:
@@ -844,15 +967,55 @@ def _decode_data_url(data: Any) -> bytes:
     return base64.b64decode(encoded, validate=True)
 
 
+_UNSAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_filename(
+    filename: Any,
+    default_stem: str,
+    default_suffix: str,
+    *,
+    force_suffix: bool = False,
+) -> str:
+    """Returns a sanitized single leaf filename inside a save directory."""
+    raw = str(filename or "").replace("\\", "/").strip()
+    leaf = raw.rsplit("/", 1)[-1].strip() if raw else ""
+    if leaf in ("", ".", ".."):
+        return f"{default_stem}{default_suffix}"
+    if force_suffix:
+        stem = leaf[: -len(default_suffix)] if leaf.lower().endswith(default_suffix.lower()) else leaf
+        stem = _UNSAFE_FILENAME_RE.sub("_", stem).strip("._-") or default_stem
+        return f"{stem}{default_suffix}"
+    parsed = Path(leaf)
+    if leaf.startswith(".") and parsed.suffix == "":
+        return f"{default_stem}{default_suffix}"
+    stem = _UNSAFE_FILENAME_RE.sub("_", parsed.stem).strip("._-") or default_stem
+    suffix = _UNSAFE_FILENAME_RE.sub("", parsed.suffix)
+    if not suffix or suffix == ".":
+        suffix = default_suffix
+    elif not suffix.startswith("."):
+        suffix = f".{suffix}"
+    return f"{stem}{suffix}"
+
+
+def _save_target(save_dir: str | Path, filename: str) -> Path:
+    """Resolves ``filename`` underneath ``save_dir`` and returns a free path."""
+    root = Path(save_dir).expanduser().resolve()
+    candidate = (root / filename).resolve()
+    if candidate == root or not candidate.is_relative_to(root):
+        raise ValueError(f"refused to write outside save_dir: {filename!r}")
+    return _free_path(candidate)
+
+
 def _free_path(path: Path) -> Path:
     """Returns ``path``, or ``stem-1``, ``stem-2``, … if it already exists."""
     if not path.exists():
         return path
-    for index in range(1, 1000):
+    for index in itertools.count(1):
         candidate = path.with_name(f"{path.stem}-{index}{path.suffix}")
         if not candidate.exists():
             return candidate
-    return path
+    raise AssertionError("unreachable")
 
 
 def _detector_names(result: Any) -> list[str]:

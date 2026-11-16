@@ -655,3 +655,158 @@ def test_a_plane_move_on_the_result_tab_reslices_the_result_section() -> None:
     viewer._on_msg(None, {"event": "set_state", "patch": {"plane_position": position}}, [])
     assert viewer.section["position"] == pytest.approx(position)
     assert viewer._viewer_state.plane == "xy", "the editor's plane is untouched"
+
+
+# ------------------------------------------------------- E-BF-18 / E-BF-19
+
+
+def test_init_seeds_editor_payload_caches() -> None:
+    """E-BF-19: editor payload caches start populated from __init__."""
+    viewer = bf.viewer.widget.view(f1_stack())
+    assert viewer._editor_geometry is viewer.geometry
+    assert viewer._editor_meta is viewer.meta
+    assert viewer._editor_section is viewer.section
+
+
+def test_show_result_while_running_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """E-BF-18: show_result raises RuntimeError while a run is in flight."""
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow(*_a: object, **_k: object) -> _StubResult:
+        started.set()
+        release.wait(5)
+        return _StubResult()
+
+    monkeypatch.setattr(bf.viewer.widget, "_run_sim", slow)
+    viewer = bf.viewer.widget.view(f1_stack())
+    viewer.run()
+    try:
+        assert started.wait(timeout=2)
+        with pytest.raises(RuntimeError, match="in flight"):
+            viewer.show_result(_StubResult())
+    finally:
+        release.set()
+        assert viewer._run_thread is not None
+        viewer._run_thread.join(timeout=5)
+
+
+def test_fields_payload_is_cached_across_tab_switches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """E-BF-19: fields builds once per result and is not re-sent on tab switches."""
+    calls = 0
+
+    def spy(_state: object, _result: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {"det": {"call": calls}}
+
+    monkeypatch.setattr(bf.viewer.widget, "build_field_payload", spy)
+    monkeypatch.setattr(bf.viewer.widget, "_run_sim", lambda *_a, **_k: _StubResult())
+
+    viewer = bf.viewer.widget.view(f1_stack())
+    sync_calls = 0
+    orig_sync = viewer._sync_active
+
+    def spy_sync(*, force: bool = False) -> None:
+        nonlocal sync_calls
+        sync_calls += 1
+        orig_sync(force=force)
+
+    monkeypatch.setattr(viewer, "_sync_active", spy_sync)
+    field_writes: list[object] = []
+    viewer.observe(lambda change: field_writes.append(change["new"]), names=["fields"])
+
+    viewer.run()
+    assert viewer._run_thread is not None
+    viewer._run_thread.join(timeout=5)
+    assert calls == 1
+    assert sync_calls == 1
+    assert field_writes == [{"det": {"call": 1}}]
+
+    # switching tabs and editing Result-tab display settings never rebuilds or re-sends fields
+    viewer._on_msg(None, {"event": "set_state", "patch": {"active_tab": "result"}}, [])
+    viewer._on_msg(None, {"event": "set_state", "patch": {"styles": {"upper": {"opacity": 0.4}}}}, [])
+    viewer._on_msg(None, {"event": "set_state", "patch": {"active_tab": "layout"}}, [])
+    viewer._on_msg(None, {"event": "set_state", "patch": {"active_tab": "result"}}, [])
+    assert calls == 1
+    assert len(field_writes) == 1
+
+
+def test_failed_run_preserves_last_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """E-BF-19: an errored re-run keeps the previous completed result intact."""
+    first = _StubResult()
+    monkeypatch.setattr(bf.viewer.widget, "_run_sim", lambda *_a, **_k: first)
+    viewer = bf.viewer.widget.view(f1_stack())
+    viewer.run()
+    assert viewer._run_thread is not None
+    viewer._run_thread.join(timeout=5)
+    assert viewer.last_result is first
+
+    def boom(*_a: object, **_k: object) -> object:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(bf.viewer.widget, "_run_sim", boom)
+    viewer.run()
+    assert viewer._run_thread is not None
+    viewer._run_thread.join(timeout=5)
+    assert viewer.run_result == {"status": "error", "message": "boom"}
+    assert isinstance(viewer.last_error, RuntimeError)
+    assert viewer.last_result is first
+
+
+def test_run_from_result_tab_restores_editor_geometry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """E-BF-19: starting a run from the Result tab returns to editor geometry."""
+    import threading
+
+    release = threading.Event()
+    monkeypatch.setattr(
+        bf.viewer.widget,
+        "_run_sim",
+        lambda *_a, **_k: (release.wait(5), _StubResult())[1],
+    )
+    viewer = bf.viewer.widget.view(f1_stack())
+    foreign_state = bf.viewer.state.ViewerState(f2_stack())
+    viewer._result_state = foreign_state
+    viewer._result_geometry, viewer._result_meta = bf.viewer.payload.build_payload(foreign_state)
+    viewer._result_section = bf.viewer.payload.build_section_payload(foreign_state)
+    viewer._on_msg(None, {"event": "set_state", "patch": {"active_tab": "result"}}, [])
+    assert viewer.geometry is viewer._result_geometry
+
+    viewer.run()
+    try:
+        assert viewer.state["active_tab"] == "layout"
+        assert viewer.geometry is viewer._editor_geometry
+        assert viewer.section is viewer._editor_section
+    finally:
+        release.set()
+        assert viewer._run_thread is not None
+        viewer._run_thread.join(timeout=5)
+
+
+def test_save_image_sanitizes_filenames(tmp_path: Path) -> None:
+    """E-BF-19: traversal and dot-only filenames stay strictly inside save_dir."""
+    import base64
+
+    viewer = bf.viewer.widget.view(f1_stack(), save_dir=tmp_path)
+    payload = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+    for bad in ("../escape.png", ".", "..", "/", ".png", "sub/dir\\shot 1.png"):
+        viewer._on_msg(
+            None,
+            {"event": "save_image", "data": f"data:image/png;base64,{payload}", "filename": bad},
+            [],
+        )
+        written = Path(viewer.save_result["path"])
+        assert written.parent == tmp_path.resolve()
+        assert not (tmp_path.parent / "escape.png").exists()
+    assert Path(viewer.save_result["path"]).name == "shot_1.png"
+    assert (tmp_path / "viewer.png").is_file()
+
+
+def test_free_path_scales_past_1000(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """E-BF-19: _free_path keeps searching past index 999."""
+    taken = {f"shot{'' if i == 0 else f'-{i}'}.png" for i in range(1005)}
+    monkeypatch.setattr(Path, "exists", lambda p: p.name in taken)
+    free = bf.viewer.widget._free_path(tmp_path / "shot.png")
+    assert free.name == "shot-1005.png"
