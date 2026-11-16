@@ -6,6 +6,8 @@ from __future__ import annotations
 import functools
 import itertools
 import math
+import warnings
+from types import SimpleNamespace
 
 import fdtdx
 import gdsfactory as gf
@@ -17,7 +19,7 @@ from gdsfactory.technology import LayerLevel, LayerStack
 
 import bifrost as bf
 from bifrost import meshing
-from bifrost.grids import _TargetMap, _raster
+from bifrost.grids import _TargetMap, _centered, _raster
 
 Q = 0.001  # um: the default quantum
 
@@ -227,6 +229,67 @@ def test_lattice_errors():
         bf.lattice_edges(0.0, 100.0, 0.5, quantum=0.001)
     with pytest.raises(ValueError, match="growth"):
         bf.lattice_edges(0.0, 1.0, 0.05, growth=1.0)
+
+
+def test_graded_and_lattice_reject_non_finite_and_sub_quantum():
+    for bad in (math.nan, math.inf, -math.inf):
+        with pytest.raises(ValueError):
+            bf.graded_edges(bad, 1.0, 0.05)
+        with pytest.raises(ValueError):
+            bf.graded_edges(0.0, bad, 0.05)
+        with pytest.raises(ValueError):
+            bf.graded_edges(0.0, 1.0, bad)
+        with pytest.raises(ValueError):
+            bf.graded_edges(0.0, 1.0, 0.05, growth=bad)
+        with pytest.raises(ValueError):
+            bf.graded_edges(0.0, 1.0, 0.05, fine=[(0.2, 0.5, bad)])
+        with pytest.raises(ValueError):
+            bf.graded_edges(0.0, 1.0, 0.05, snap=(bad,))
+
+        with pytest.raises(ValueError):
+            bf.lattice_edges(bad, 1.0, 0.05)
+        with pytest.raises(ValueError):
+            bf.lattice_edges(0.0, bad, 0.05)
+        with pytest.raises(ValueError):
+            bf.lattice_edges(0.0, 1.0, 0.05, quantum=bad)
+        with pytest.raises(ValueError):
+            bf.lattice_edges(0.0, 1.0, bad)
+        with pytest.raises(ValueError):
+            bf.lattice_edges(0.0, 1.0, 0.05, growth=bad)
+        with pytest.raises(ValueError):
+            bf.lattice_edges(0.0, 1.0, 0.05, pml=(0.1, bad))
+        with pytest.raises(ValueError):
+            bf.lattice_edges(0.0, 1.0, 0.05, centers=(bad,))
+        with pytest.raises(ValueError):
+            bf.lattice_edges(0.0, 1.0, 0.05, fine=[(0.2, 0.5, bad)])
+        with pytest.raises(ValueError):
+            bf.lattice_edges(0.0, 1.0, 0.05, max_states=bad)
+
+        with pytest.raises(ValueError):
+            bf.axis_edges(0.0, 1.0, 0.05, centers=(bad,))
+
+    with pytest.raises(ValueError):
+        bf.lattice_edges(0.0, 0.0004, 0.05, quantum=0.001)
+
+
+def test_centered_and_empty_fine_alignment():
+    # Edges on half-quantum 2 must never pass as centered even for width-1 cells
+    assert _centered(np.array([2]), 0, np.array([1, 2, 3])).tolist() == [False, True, True]
+    assert _centered(np.array([2]), 2, np.array([1, 2])).tolist() == [False, False]
+    # Width-1 cells cannot be centered even at their midpoint
+    assert _centered(np.array([1]), 0, np.array([1, 2])).tolist() == [False, True]
+
+    # When target caps cell width at 1 quantum everywhere, the boundary center must be dropped with warning
+    with pytest.warns(UserWarning, match="not in the middle of a cell"):
+        axis = bf.lattice_edges(0.0, 0.01, 0.001, centers=(0.005,), quantum=0.001, align=False)
+    assert axis.centered == ()
+
+    # Fine region entirely inside a PML leaves zero d_fine cells in the interior: no spurious alignment warning
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        axis_c = bf.axis_edges(0.0, 2.0, 0.08, [(0.0, 0.2, 0.02)], pml=(0.5, 0.5), align=True)
+    assert axis_c.aligned
+    assert not any("do not all start" in str(w.message) for w in caught)
 
 
 # ---------------------------------------------------------------- continuous axis_edges
@@ -761,3 +824,154 @@ def test_refine_errors(pdk):
         meshing._geometry(device(mats=metal), 1.55, 14.0, meshing.Refine())
     geom = meshing._geometry(device(mats=metal), 1.55, 14.0, meshing.Refine(material_cells={"si": 0.01}))
     assert geom.cell["si"] == 0.01
+
+
+def test_layer_regions_preserves_nested_island_in_hole(pdk):
+    def square(h: float) -> np.ndarray:
+        return np.array([[-h, -h], [h, -h], [h, h], [-h, h]], dtype=float)
+
+    outer, hole, island = square(0.8), square(0.5), square(0.15)
+    recipes = bf.geometry.derive_polygons(
+        [(outer, [4]), (hole, [4]), (island, [4])],
+        ("or", ("not", ("layer", 0), ("layer", 1)), ("layer", 2)),
+        tol=1e-4,
+    )
+    geom = meshing._geometry(device(), 1.55, 14.0, meshing.Refine(global_dilation=0, global_z_padding=0))
+    fake_stack = SimpleNamespace(
+        source_layers=[("vertices/a", 0), ("vertices/b", 1), ("vertices/c", 2)],
+        source_vertices=[outer, hole, island],
+        source_sizes=[(4,), (4,), (4,)],
+        source_extensions=(),
+        derived_layers=[SimpleNamespace(layers=(0, 1, 2), recipes=recipes)],
+    )
+    regions, _ = meshing._layer_regions(fake_stack, geom.plane, 0.1)
+    combined = regions[-1]
+    for j in range(1, len(recipes)):
+        combined = combined | regions[-1 - j]
+    assert not (combined & geom.plane.region_box((-0.05, -0.05), (0.05, 0.05))).is_empty()  # inner island preserved
+    assert (combined & geom.plane.region_box((0.25, -0.05), (0.35, 0.05))).is_empty()  # moat stayed carved out
+    assert not (combined & geom.plane.region_box((0.6, -0.05), (0.7, 0.05))).is_empty()  # outer ring present
+
+
+def test_index_negative_lossy_and_gyrotropic():
+    neg = fdtdx.Material(permittivity=-12.0)
+    idx_neg = meshing._index(neg, np.array([1.55]))
+    assert idx_neg.unsupported and idx_neg.n[0] == 0.0
+
+    # Complex lossy + gyrotropic off-diagonal permittivity (non-real symmetric) uses eigvals and Re(sqrt(eig))
+    tensor = np.array([[2.0 + 0.4j, 0.25j, 0.0], [-0.25j, 2.0 + 0.4j, 0.0], [0.0, 0.0, 2.0]])
+
+    class _FakeDispersion:
+        def permittivity_tensor(self, omega: float, perm: object) -> np.ndarray:
+            return tensor
+
+    gyro = SimpleNamespace(
+        permittivity=(2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0),
+        dispersion=_FakeDispersion(),
+        electric_conductivity=0.0,
+    )
+    idx_gyro = meshing._index(gyro, np.array([1.55]))
+    expected = float(np.max(np.real(np.sqrt(np.linalg.eigvals(tensor)))))
+    assert not idx_gyro.unsupported
+    assert idx_gyro.n[0] == pytest.approx(expected)
+    assert idx_gyro.n[0] > math.sqrt(2.0)
+
+
+def test_mesh_validation_periodic_and_top_roughness(pdk):
+    d = device()
+    for bad_bc in (
+        ("periodic", "pml", "pml", "pml", "pml", "pml"),
+        ("pml", "periodic", "pml", "pml", "pml", "pml"),
+        ("periodic", "bloch", "pml", "pml", "pml", "pml"),
+        ("bloch", "pec", "pml", "pml", "pml", "pml"),
+    ):
+        with pytest.raises(ValueError, match="periodic/bloch"):
+            bf.mesh(d, 1.55, boundaries=bad_bc, pml=0.3)
+
+    m_bloch = bf.mesh(d, 1.55, boundaries=("bloch", "bloch", "pml", "pml", "pml", "pml"), pml=0.3)
+    assert m_bloch.pml_cells[:2] == (0, 0) and m_bloch.boundaries[:2] == ("bloch", "bloch")
+
+    for kwargs in (
+        {"wavelength": (1.5,)},
+        {"wavelength": (1.5, 1.6, 1.7)},
+        {"wavelength": (math.nan, 1.6)},
+        {"wavelength": 1.55, "ppw": 0.0},
+        {"wavelength": 1.55, "ppw": math.nan},
+        {"wavelength": 1.55, "pml": -0.1},
+        {"wavelength": 1.55, "pml": math.inf},
+        {"wavelength": 1.55, "growth": math.nan},
+        {"wavelength": 1.55, "min_cell": 0.0},
+        {"wavelength": 1.55, "min_cell": math.nan},
+        {"wavelength": 1.55, "feature_cells": -0.5},
+        {"wavelength": 1.55, "feature_cells": math.nan},
+        {"wavelength": 1.55, "max_states": math.nan},
+        {"wavelength": 1.55, "refine": bf.Refine(global_dilation=-1.0)},
+        {"wavelength": 1.55, "refine": bf.Refine(global_z_padding=math.inf)},
+        {"wavelength": 1.55, "refine": bf.Refine(dilation={"WG": math.nan})},
+        {"wavelength": 1.55, "refine": bf.Refine(z_padding={"core": (0.1,)})},
+        {"wavelength": 1.55, "refine": bf.Refine(z_padding={"core": (0.1, math.nan)})},
+        {"wavelength": 1.55, "refine": bf.Refine(material_cells={"si": math.nan})},
+        {"wavelength": 1.55, "refine": bf.Refine(regions=[((0.0, 1.0, 0.0), (1.0, 0.0, 1.0), 0.05)])},
+        {"wavelength": 1.55, "refine": bf.Refine(regions=[((0.0, 0.0, 0.0), (1.0, 1.0, math.inf), 0.05)])},
+    ):
+        with pytest.raises(ValueError):
+            bf.mesh(d, **kwargs)  # type: ignore[arg-type]
+
+    m_no_feat = bf.mesh(d, 1.55, ppw=14, pml=0.3, feature_cells=0)
+    assert m_no_feat.shape[0] > 0
+
+    d_rough = device(roughness=(bf.TopRoughness(level="core", rms=0.008, correlation_length=0.05),))
+    geom_rough = meshing._geometry(d_rough, 1.55, 14.0, bf.Refine(global_dilation=0, global_z_padding=0))
+    assert geom_rough.padded["core"][1] == pytest.approx(0.22 + 5 * 0.008)
+    m_rough = bf.mesh(d_rough, 1.55, ppw=14, pml=0.3)
+    assert m_rough.axes[2].centered == pytest.approx((0.0,))
+
+
+def test_coarse_vertices_empty_layer_boundary_float32_and_summary_outside(pdk):
+    d, m = strip_mesh()
+    p = d.init_params()
+    empty = {**p, "vertices/WG": jnp.zeros((0, 2), dtype=p["vertices/WG"].dtype)}
+    rep_empty = d.coarse_vertices(empty, m)
+    i = list(rep_empty.layers).index("vertices/WG")
+    assert (int(rep_empty.total[i]), int(rep_empty.coarse[i]), int(rep_empty.outside[i])) == (0, 0, 0)
+    assert float(rep_empty.worst) >= 0.0
+
+    # Flush non-dyadic boundary 0.3 in float32 (rounds above float64 0.3) stays counted inside
+    c_flush = gf.Component()
+    for layer in (LAYER.SLAB150, LAYER.WG):
+        c_flush.add_polygon([(-0.3, -0.3), (0.3, -0.3), (0.3, 0.3), (-0.3, 0.3)], layer=layer)
+    d_flush = bf.StackDevice.from_layer_stack(
+        c_flush,
+        LayerStack(layers={
+            "core": LayerLevel(layer=LAYER.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=2),
+            "frame": LayerLevel(layer=LAYER.SLAB150, zmin=-0.6, thickness=1.6, material="sio2", mesh_order=9),
+        }),
+        MATS,
+        background="sio2",
+        name="s",
+        zrange_layers=["frame"],
+        diagnostics=False,
+    )
+    m_flush = bf.mesh(d_flush, 1.55, ppw=14, pml=0.2)
+    rep_flush = d_flush.coarse_vertices(d_flush.init_params(), m_flush)
+    assert int(np.sum(rep_flush.outside)) == 0
+
+    # Summary surfaces report.outside count/warning when starting vertices sit outside the mesh box
+    d_clip = device(boundary_offset=(-0.3, 0.0, 0.0, 0.0, 0.0, 0.0))
+    m_clip = bf.mesh(d_clip, 1.55, ppw=14, pml=0.3)
+    outside_count = int(np.sum(d_clip.coarse_vertices(d_clip.init_params(), m_clip).outside))
+    assert outside_count == 4
+    summary = m_clip.summary()
+    assert f"{outside_count} outside" in summary and "warning:" in summary
+
+    # Placed device checks box origin alignment against mesh edges
+    config = d.get_simulation_config(time=1e-15, grid=m.grid)
+    volume, constraints = d.get_simulation_volume()
+    bounds, placing = fdtdx.boundary_objects_from_config(m.boundary, volume)
+    objects, _, params, _, _ = fdtdx.place_objects(
+        [volume, d, *bounds.values()], config, constraints + placing, jax.random.PRNGKey(0)
+    )
+    params = {**params, **bf.init_stack_params(objects)}
+    shifted = objects["s"].aset("center", (objects["s"].center[0] + 0.5, objects["s"].center[1]))
+    with pytest.raises(ValueError, match="another grid"):
+        shifted.coarse_vertices(params["s"], m)

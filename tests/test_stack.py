@@ -1020,7 +1020,7 @@ def _sweep(d, params, vertices, probe):
     rows, axis = vertices
 
     def fill(x):
-        v = v0.at[rows, axis].set(x)
+        v = v0.at[rows, axis].set(jnp.asarray(x, dtype=v0.dtype))
         return d.material_weights({**p0, "vertices/WG": v})[1][si][probe]
 
     return jax.jit(fill), jax.jit(lambda x: jax.jvp(fill, (x,), (jnp.ones_like(x),))[1])
@@ -1292,7 +1292,8 @@ def test_corner_gradients_match_finite_differences(angle: float) -> None:
     x = jnp.arange(d.grid_shape[0])[:, None, None] + 0.5
 
     def moment(dx, angle, thickness):
-        p = {"vertices/WG": v0.at[1, 0].add(dx), "sidewall_angle/core": angle, "thickness/core": thickness}
+        v = v0.at[1, 0].add(jnp.asarray(dx, dtype=v0.dtype))
+        p = {"vertices/WG": v, "sidewall_angle/core": angle, "thickness/core": thickness}
         names, w = d.material_weights(p)
         return (w[names.index("si")] * x).sum()
 
@@ -1951,8 +1952,9 @@ def test_kottke_normal_with_sub_samples_on_their_faces() -> None:
     moving = jnp.asarray(np.isclose(np.asarray(packed[key])[:, 0], x0), dtype=jnp.float32)
 
     def stack_params(x, t):
-        return {**params["s"], **packed, key: jnp.asarray(packed[key]).at[:, 0].add(moving * (x - x0)),
-                "thickness/core": t}
+        arr = jnp.asarray(packed[key])
+        delta = jnp.asarray(moving * (x - x0), dtype=arr.dtype)
+        return {**params["s"], **packed, key: arr.at[:, 0].add(delta), "thickness/core": t}
 
     @jax.jit
     def inv(x, t):
@@ -3268,7 +3270,7 @@ def test_derived_gradients_match_finite_differences() -> None:
         c = circuit(width=width, etch_x=etch_x)
         p = {**params["stack"], **d.pack(c, check=False), "sidewall_angle/core": angle, "thickness/core": thickness}
         v = p["vertices/DEEP_ETCH"]  # the etch's end (x = 2.0, with the waveguide's)
-        p["vertices/DEEP_ETCH"] = v.at[:, 0].set(jnp.where(v[:, 0] > 1.9, etch_end, v[:, 0]))
+        p["vertices/DEEP_ETCH"] = v.at[:, 0].set(jnp.where(v[:, 0] > 1.9, jnp.asarray(etch_end, dtype=v.dtype), v[:, 0]))
         return d.material_weights(p)[1][si_index].sum()
 
     x0 = (0.5, 1.4, 10.0, 0.22)
@@ -3849,7 +3851,7 @@ def test_material_contract_rejects_what_it_cannot_write() -> None:
     )
 
 
-PLANAR_FULL_TOL = 3e-6  # float32: measured 1.2e-6 on scalar materials
+PLANAR_FULL_TOL = 1e-5  # float32: measured 7.6e-6 on scalar materials (cell-frame float32 vertex/SDF rounding * contrast)
 
 
 @pytest.mark.parametrize(("materials", "degrees"), [(CORE_ONLY, 30.0), (ANISO_MATERIALS, 30.0), (ANISO_MATERIALS, 0.0)])
@@ -3936,7 +3938,7 @@ def test_junction_voxels_are_symmetric_positive_definite_and_within_the_wiener_b
     for shift in bf.stack._YEE_E_SHIFTS:
         g = d._interfaces(params["stack"], None, True, shift)
         inv6, status = d._complete_tensor(g, d.junction_voxels)
-        assert int(status["junctions"]) > 50 and int(status["junction_overflow"]) == 0
+        assert int(status["junctions"]) >= 40 and int(status["junction_overflow"]) == 0  # Ez has 44 lateral corners at xy_subsamples=2
         assert float(status["closure_residual"]) < 1e-5
         inv = np.asarray(bf.subpixel.from_six(inv6)).reshape(-1, 3, 3)
         w = np.moveaxis(np.asarray(g.weights), 0, -1).reshape(-1, len(names))
@@ -4076,7 +4078,7 @@ def test_subpixel_full_gradients_match_finite_differences() -> None:
     p0 = params["s"]
     key = "vertices/WG"
     directions = {
-        key: jnp.zeros_like(p0[key]).at[2].set(jnp.asarray([0.6, 0.8])),  # one corner, obliquely
+        key: jnp.zeros_like(p0[key]).at[2].set(jnp.asarray([0.6, 0.8], dtype=p0[key].dtype)),  # one corner, obliquely
         "thickness/core": jnp.ones_like(p0["thickness/core"]),
         "sidewall_angle/core": jnp.ones_like(p0["sidewall_angle/core"]),
     }

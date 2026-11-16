@@ -36,6 +36,7 @@ eager outputs, and listens to JAX's monitoring events.
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import functools
 import threading
 import time
@@ -126,44 +127,48 @@ class StepTimings:
         if event not in COMPILE_EVENTS:
             return
         end = time.perf_counter()
-        if not self._stack:
-            with self._lock:
-                self.outside.append((end - duration, end))
-            return
+        interval = (end - duration, end)
         with self._lock:
+            if not self._stack:
+                self.outside.append(interval)
+                return
             for frame in self._stack:
-                frame.intervals.append((end - duration, end))
+                frame.intervals.append(interval)
 
     def open(self, name: str) -> _Open:
         """Starts a step nested in the innermost open one."""
-        key = f"{self._stack[-1].key}/{name}" if self._stack else name
         now = time.perf_counter()
-        frame = _Open(key, now, now)
-        self._stack.append(frame)
+        with self._lock:
+            key = f"{self._stack[-1].key}/{name}" if self._stack else name
+            frame = _Open(key, now, now)
+            self._stack.append(frame)
         return frame
 
     def close(self, frame: _Open, value: Any = None) -> None:
         """Ends a step: waits for its eager ``value`` and records the time."""
         traced = _wait(value)
         end = time.perf_counter()
-        if frame in self._stack:  # also drops steps an exception left open inside it
-            del self._stack[self._stack.index(frame):]
-        self._record(frame.key, frame.start, end, frame.intervals, traced)
+        with self._lock:
+            if frame in self._stack:  # also drops steps an exception left open inside it
+                del self._stack[self._stack.index(frame) :]
+            self._record(frame.key, frame.start, end, frame.intervals, traced)
 
     def lap(self, name: str, value: Any = None) -> None:
         """Records the time since the innermost step's start or last lap as its sub-step ``<step>.<name>``."""
-        if not self._stack:
-            return
-        frame = self._stack[-1]
+        with self._lock:
+            if not self._stack:
+                return
+            frame = self._stack[-1]
         traced = _wait(value)
         end = time.perf_counter()
-        start, frame.lap = frame.lap, end
-        inside = [(a, b) for a, b in frame.intervals if b > start]
-        own = frame.key.rsplit("/", 1)[-1]
-        self._record(f"{frame.key}/{own}.{name}", start, end, inside, traced)
+        with self._lock:
+            start, frame.lap = frame.lap, end
+            inside = [(a, b) for a, b in frame.intervals if b > start]
+            own = frame.key.rsplit("/", 1)[-1]
+            self._record(f"{frame.key}/{own}.{name}", start, end, inside, traced)
 
     def _record(self, key: str, start: float, end: float, intervals: list[tuple[float, float]], traced: bool) -> None:
-        """Adds one call of ``key`` to its record."""
+        """Adds one call of ``key`` to its record (caller must hold ``self._lock``)."""
         rec = self.steps.setdefault(key, StepRecord())
         rec.calls += 1
         rec.wall += end - start
@@ -176,9 +181,11 @@ class StepTimings:
     @property
     def outside_compile(self) -> float:
         """Compile time (s) outside every step: lowering and XLA compilation of jitted callers (merged events)."""
-        if not self.outside:
+        with self._lock:
+            outside = list(self.outside)
+        if not outside:
             return 0.0
-        return _merged_length(self.outside, min(a for a, _ in self.outside), max(b for _, b in self.outside))
+        return _merged_length(outside, min(a for a, _ in outside), max(b for _, b in outside))
 
     # ------------------------------------------------------------ reporting
 
@@ -189,17 +196,27 @@ class StepTimings:
         ``weights``; a lap ``name`` of step ``step`` is ``step.name``.
         """
         out: dict[str, StepRecord] = {}
-        for key, rec in self.steps.items():
-            out.setdefault(key.rsplit("/", 1)[-1], StepRecord()).add(rec)
+        with self._lock:
+            for key, rec in self.steps.items():
+                out.setdefault(key.rsplit("/", 1)[-1], StepRecord()).add(rec)
         return out
 
     def as_dict(self) -> dict[str, dict[str, float]]:
         """Every step key's record as a JSON-ready dict."""
-        return {k: v.as_dict() for k, v in sorted(self.steps.items())}
+        with self._lock:
+            return {k: v.as_dict() for k, v in sorted(self.steps.items())}
 
     def table(self, leaf: bool = True) -> str:
         """A text table of the steps (by leaf name with ``leaf``), slowest first."""
-        rows = self.by_leaf() if leaf else self.steps
+        if leaf:
+            rows = self.by_leaf()
+        else:
+            rows = {}
+            with self._lock:
+                for key, rec in self.steps.items():
+                    copy = StepRecord()
+                    copy.add(rec)
+                    rows[key] = copy
         return format_table(rows)
 
 
@@ -272,8 +289,47 @@ def _jit_tracing() -> bool:
         return False
 
 
-#: the active recorder, or None (timing off)
+#: the active recorder, or None (timing off); kept in sync for tests that monkeypatch ``bf.timing._ACTIVE = None``
 _ACTIVE: StepTimings | None = None
+_ACTIVE_VAR: contextvars.ContextVar[StepTimings | None] = contextvars.ContextVar(
+    "bifrost_active_timings", default=None
+)
+_STATE_LOCK = threading.Lock()
+_LIVE_RECORDERS: dict[int, StepTimings] = {}
+_NEXT_ENTRY_ID = 0
+_LISTENER_REGISTERED = False
+
+
+def _dispatch_event(event: str, duration: float, **_: Any) -> None:
+    """Forwards JAX monitoring compile events to live recorders once per recorder."""
+    if event not in COMPILE_EVENTS:
+        return
+    with _STATE_LOCK:
+        seen: set[int] = set()
+        recorders: list[StepTimings] = []
+        for timings in _LIVE_RECORDERS.values():
+            tid = id(timings)
+            if tid not in seen:
+                seen.add(tid)
+                recorders.append(timings)
+    for timings in recorders:
+        timings._on_event(event, duration)
+
+
+def _ensure_listener() -> None:
+    """Registers the single lazy process-wide JAX compile listener."""
+    global _LISTENER_REGISTERED
+    with _STATE_LOCK:
+        if _LISTENER_REGISTERED:
+            return
+        register = getattr(
+            jax.monitoring,
+            "register_event_duration_secs_listener",
+            getattr(jax.monitoring, "register_event_duration_listener", None),
+        )
+        if register is not None:
+            register(_dispatch_event)
+        _LISTENER_REGISTERED = True
 
 
 @contextlib.contextmanager
@@ -286,25 +342,35 @@ def record_timings(timings: StepTimings | None = None) -> Iterator[StepTimings]:
     Yields:
         The recorder; its :attr:`StepTimings.steps` fill as the steps run.
     """
-    global _ACTIVE
-    previous = _ACTIVE
+    global _ACTIVE, _NEXT_ENTRY_ID
+    _ensure_listener()
     timings = timings if timings is not None else StepTimings()
-    _ACTIVE = timings
-    listener = timings._on_event
-    jax.monitoring.register_event_duration_secs_listener(listener)
+    with _STATE_LOCK:
+        prev_var = _ACTIVE_VAR.get()
+        prev_active = _ACTIVE
+        monkeypatched = prev_var is not None and prev_active is None
+        entry_id = _NEXT_ENTRY_ID
+        _NEXT_ENTRY_ID += 1
+        _LIVE_RECORDERS[entry_id] = timings
+        token = _ACTIVE_VAR.set(timings)
+        _ACTIVE = timings
     try:
         yield timings
     finally:
-        _ACTIVE = previous
-        with contextlib.suppress(Exception):
-            from jax._src import monitoring
-
-            monitoring.unregister_event_duration_listener(listener)
+        _ACTIVE_VAR.reset(token)
+        with _STATE_LOCK:
+            _LIVE_RECORDERS.pop(entry_id, None)
+            if monkeypatched:
+                _ACTIVE = None
+            elif _ACTIVE is not None:
+                _ACTIVE = next(reversed(_LIVE_RECORDERS.values()), None)
 
 
 def active() -> StepTimings | None:
     """The active recorder, or None when timing is off."""
-    return _ACTIVE
+    if _ACTIVE is None:
+        return None
+    return _ACTIVE_VAR.get()
 
 
 class _Step:
@@ -349,7 +415,7 @@ _OFF = _Off()
 
 def timed_step(name: str) -> _Step | _Off:
     """A context manager timing the step ``name`` (a no-op when timing is off)."""
-    timings = _ACTIVE
+    timings = active()
     return _OFF if timings is None else _Step(timings, name)
 
 
@@ -363,7 +429,7 @@ def lap(name: str, value: Any = None) -> Any:
     Returns:
         ``value``.
     """
-    timings = _ACTIVE
+    timings = active()
     if timings is not None:
         timings.lap(name, value)
     return value
@@ -375,7 +441,7 @@ def timed(name: str) -> Callable[[_F], _F]:
     def decorate(fn: _F) -> _F:
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            timings = _ACTIVE
+            timings = active()
             if timings is None:
                 return fn(*args, **kwargs)
             frame = timings.open(name)

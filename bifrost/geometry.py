@@ -50,6 +50,7 @@ __all__ = [
     "crossing_changes",
     "derive_polygons",
     "gaussian_random_field",
+    "joint_changes",
     "nearest_edges",
     "pack_polygons",
     "recipe_rings",
@@ -59,6 +60,59 @@ __all__ = [
     "topology_changes",
     "warn_reversible_losses",
 ]
+
+
+# ---------------------------------------------------------------- jax helpers
+
+
+def _has_tracers(obj: Any, visited: dict[int, Any]) -> bool:
+    if isinstance(obj, jax.core.Tracer):
+        return True
+    if obj is None or isinstance(obj, (bool, int, float, complex, str, bytes, np.generic, type)):
+        return False
+    if isinstance(obj, np.ndarray):
+        if obj.dtype != object:
+            return False
+        obj_id = id(obj)
+        if obj_id in visited:
+            return False
+        visited[obj_id] = obj
+        return any(_has_tracers(v, visited) for v in obj.flat)
+    if isinstance(obj, jax.Array):
+        return False
+    obj_id = id(obj)
+    if obj_id in visited:
+        return False
+    visited[obj_id] = obj
+    if isinstance(obj, dict):
+        return any(_has_tracers(v, visited) for v in obj.values())
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return any(_has_tracers(v, visited) for v in obj)
+    leaves = jax.tree_util.tree_leaves(obj)
+    if len(leaves) == 1 and leaves[0] is obj:
+        return False
+    return any(_has_tracers(leaf, visited) for leaf in leaves)
+
+
+def has_tracers(obj: Any) -> bool:
+    """Returns True if any PyTree leaf or nested element of ``obj`` is a JAX tracer."""
+    return _has_tracers(obj, {})
+
+
+def _unwrap_primal(x: Any) -> Any:
+    while isinstance(x, jax.core.Tracer) and hasattr(x, "primal"):
+        x = x.primal
+    if isinstance(x, jax.core.Tracer):
+        raise TypeError(
+            f"Cannot convert abstract JAX tracer {type(x).__name__} to numpy; "
+            "concrete values are required outside jax.jit / jax.vmap."
+        )
+    return x
+
+
+def to_numpy(x: Any, dtype: Any = float) -> np.ndarray:
+    """Returns a concrete numpy array, unwrapping eager-autodiff ``.primal`` chains."""
+    return np.asarray(jax.tree_util.tree_map(_unwrap_primal, x), dtype=dtype)
 
 
 # ---------------------------------------------------------------- polygons
@@ -669,18 +723,41 @@ def derive_polygons(
 
     # parts: each outer ring with its holes; parts that touch (a pinch point, e.g. at a crossing of an xor) go
     # to different recipes, so that each recipe's corners are ordinary corners of two edges
-    from shapely import Polygon
+    from shapely import GeometryCollection, MultiPolygon, Polygon, make_valid, union_all
+
+    def clean_geom(geom: Any) -> Any:
+        polys: list[Any] = []
+        stack = [geom]
+        while stack:
+            g = stack.pop()
+            if g.is_empty:
+                continue
+            if isinstance(g, (Polygon, MultiPolygon)):
+                polys.append(g)
+            elif isinstance(g, GeometryCollection):
+                stack.extend(g.geoms)
+        return union_all(polys) if len(polys) > 1 else (polys[0] if polys else Polygon())
 
     area = [0.5 * float(np.sum(cross(pos[n], pos[np.roll(n, -1)]))) for n in corners]
-    outer = [r for r in range(len(glued)) if area[r] > 0]
-    region = {r: Polygon(pos[corners[r]]).buffer(0) for r in outer}
+    region: dict[int, Any] = {}
     owner = list(range(len(glued)))
-    for r in range(len(glued)):
-        if area[r] < 0:  # a hole: the smallest outer ring around it
-            inside = Polygon(pos[corners[r]]).buffer(0).representative_point()
-            around = [o for o in outer if region[o].covers(inside)]
+    # Process outer rings and holes by descending |area| so a nested island inside a hole is never
+    # mistaken for the hole's enclosing outer ring, and holes carve out their owner before inner rings check it.
+    for r in sorted(range(len(glued)), key=lambda i: abs(area[i]), reverse=True):
+        if area[r] > 0:
+            region[r] = clean_geom(make_valid(Polygon(pos[corners[r]])))
+        elif area[r] < 0:
+            hole_poly = clean_geom(make_valid(Polygon(pos[corners[r]])))
+            if hole_poly.is_empty:
+                continue
+            around = [o for o in region if area[o] > -area[r] and region[o].covers(hole_poly)]
+            if not around:
+                pt = hole_poly.representative_point()
+                around = [o for o in region if area[o] > -area[r] and region[o].covers(pt)]
             if around:
-                owner[r] = min(around, key=lambda o: area[o])
+                o = min(around, key=lambda idx: area[idx])
+                owner[r] = o
+                region[o] = clean_geom(region[o].difference(hole_poly))
     units = sorted(set(owner))
     unit_nodes = {u: set().union(*(set(corners[r].tolist()) for r in range(len(glued)) if owner[r] == u))
                   for u in units}
@@ -1169,8 +1246,9 @@ def signed_distance(
         cr = ab[:, None, 0] * ap[..., 1] - ab[:, None, 1] * ap[..., 0]
         lin = -oc[:, None] * cr / length
         # a point on a vertex is on both adjacent edges: their lines give the
-        # derivative there (|p - v| has none at p = v)
-        interior = ((t > 0) & (t < 1)) | (jax.lax.stop_gradient(d2e) <= 1e-12)
+        # derivative there (|p - v| has none at p = v); collapsed zero-area rings (oc == 0)
+        # carry no oriented line distance and fall back to sd_vertex (+dist when winding == 0)
+        interior = (((t > 0) & (t < 1)) | (jax.lax.stop_gradient(d2e) <= 1e-12)) & (oc[:, None] != 0)
 
         # nearest edge per polygon: min over this chunk, merged with the open polygon.
         # The minimum only selects edges (no gradient); the differentiable value is
@@ -1328,24 +1406,23 @@ def gaussian_random_field(
     (covariance ``exp(-(x / Lx)^2 - (y / Ly)^2)`` in cells).
     """
     if isinstance(correlation_length, tuple):
-        lx, ly = correlation_length
-        pad = (math.ceil(3 * lx), math.ceil(3 * ly))
-        n = (shape[0] + 2 * pad[0], shape[1] + 2 * pad[1])
-        w = jax.random.normal(key, n)
-        kx = 2 * jnp.pi * jnp.fft.fftfreq(n[0])
-        ky = 2 * jnp.pi * jnp.fft.fftfreq(n[1])
-        h = jnp.exp(-(kx[:, None] ** 2 * lx**2 + ky[None, :] ** 2 * ly**2) / 8)
-        f = jnp.fft.ifft2(jnp.fft.fft2(w) * h).real / jnp.sqrt(jnp.mean(h**2))
-        return f[pad[0] : pad[0] + shape[0], pad[1] : pad[1] + shape[1]]
-    pad = math.ceil(3 * correlation_length)
-    n = (shape[0] + 2 * pad, shape[1] + 2 * pad)
+        if len(correlation_length) != 2:
+            raise ValueError(f"correlation_length tuple must have 2 elements, got {correlation_length!r}")
+        lx, ly = float(correlation_length[0]), float(correlation_length[1])
+    else:
+        lx = ly = float(correlation_length)
+    if not (math.isfinite(lx) and math.isfinite(ly) and lx >= 0.0 and ly >= 0.0):
+        raise ValueError(f"correlation_length must be finite and >= 0, got {correlation_length!r}")
+    if lx == 0.0 and ly == 0.0:
+        return jax.random.normal(key, shape)
+    pad = (math.ceil(3.0 * lx), math.ceil(3.0 * ly))
+    n = (shape[0] + 2 * pad[0], shape[1] + 2 * pad[1])
     w = jax.random.normal(key, n)
     kx = 2 * jnp.pi * jnp.fft.fftfreq(n[0])
     ky = 2 * jnp.pi * jnp.fft.fftfreq(n[1])
-    k2 = kx[:, None] ** 2 + ky[None, :] ** 2
-    h = jnp.exp(-k2 * correlation_length**2 / 8)  # sqrt of the power spectrum
+    h = jnp.exp(-(kx[:, None] ** 2 * lx**2 + ky[None, :] ** 2 * ly**2) / 8)
     f = jnp.fft.ifft2(jnp.fft.fft2(w) * h).real / jnp.sqrt(jnp.mean(h**2))
-    return f[pad : pad + shape[0], pad : pad + shape[1]]
+    return f[pad[0] : pad[0] + shape[0], pad[1] : pad[1] + shape[1]]
 
 
 # ---------------------------------------------------------------- dispersion

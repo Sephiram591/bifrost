@@ -64,13 +64,25 @@ def graded_edges(
             region or snap coordinate outside the range between the uniform ends.
     """
     lo, hi, spacing, growth = float(lo), float(hi), float(spacing), float(growth)
-    if not hi > lo:
-        raise ValueError(f"graded_edges needs lo < hi, got {lo} and {hi}")
-    if not spacing > 0:
-        raise ValueError(f"spacing must be positive, got {spacing}")
-    if not growth > 1:
-        raise ValueError(f"growth must be > 1, got {growth}")
-    regions = [(float(a), float(b), float(d)) for a, b, d in fine]
+    if not (math.isfinite(lo) and math.isfinite(hi) and hi > lo):
+        raise ValueError(f"graded_edges needs finite lo < hi, got {lo} and {hi}")
+    if not (math.isfinite(spacing) and spacing > 0):
+        raise ValueError(f"spacing must be finite and positive, got {spacing}")
+    if not (math.isfinite(growth) and growth > 1):
+        raise ValueError(f"growth must be finite and > 1, got {growth}")
+    regions: list[tuple[float, float, float]] = []
+    for region in fine:
+        if len(region) != 3:
+            raise ValueError(f"a fine region is (a, b, d), got {tuple(region)}")
+        a, b, d = (float(x) for x in region)
+        if not (math.isfinite(a) and math.isfinite(b) and math.isfinite(d) and b > a and d > 0):
+            raise ValueError(f"a fine region is (a, b, d) with finite a < b and d > 0, got {(a, b, d)}")
+        regions.append((a, b, d))
+    if len(uniform_ends) != 2:
+        raise ValueError(f"uniform_ends must be two nonnegative integers, got {uniform_ends}")
+    for n in uniform_ends:
+        if isinstance(n, bool) or not math.isfinite(float(n)):
+            raise ValueError(f"uniform_ends must be finite nonnegative integers, got {uniform_ends}")
     n_lo, n_hi = (int(n) for n in uniform_ends)
     if n_lo < 0 or n_hi < 0:
         raise ValueError(f"uniform_ends must be nonnegative, got {uniform_ends}")
@@ -78,9 +90,7 @@ def graded_edges(
     if not inner_hi > inner_lo:
         raise ValueError(f"uniform_ends {uniform_ends} of {spacing} leave no room in [{lo}, {hi}]")
     tol = 1e-9 * (hi - lo)
-    for a, b, d in regions:
-        if not (b > a and d > 0):
-            raise ValueError(f"a fine region is (a, b, d) with a < b and d > 0, got {(a, b, d)}")
+    for a, b, _d in regions:
         if a < inner_lo - tol or b > inner_hi + tol:
             raise ValueError(f"fine region [{a}, {b}] is outside [{inner_lo}, {inner_hi}] (the uniform ends)")
 
@@ -91,9 +101,16 @@ def graded_edges(
             s = np.minimum(s, d + (growth - 1.0) * np.maximum(np.maximum(a - x, x - b), 0.0))
         return s
 
+    snap_vals: list[float] = []
+    for z in snap:
+        zf = float(z)
+        if not math.isfinite(zf):
+            raise ValueError(f"snap coordinates must be finite, got {z}")
+        snap_vals.append(zf)
+
     points = [inner_lo]
     dropped = []
-    for z in sorted(float(z) for z in snap):
+    for z in sorted(snap_vals):
         if z < inner_lo - tol or z > inner_hi + tol:
             raise ValueError(f"snap coordinate {z} is outside [{inner_lo}, {inner_hi}] (the uniform ends)")
         near = _MERGE * float(size(np.asarray([z]))[0])
@@ -209,20 +226,27 @@ def lattice_edges(
     """
     lo, hi, q = float(lo), float(hi), float(quantum)
     spacing, growth = float(spacing), float(growth)
-    if not q > 0:
-        raise ValueError(f"quantum must be positive, got {quantum}")
-    if not hi > lo:
-        raise ValueError(f"lattice_edges needs lo < hi, got {lo} and {hi}")
-    if not spacing > 0:
-        raise ValueError(f"spacing must be positive, got {spacing}")
-    if not growth > 1:
-        raise ValueError(f"growth must be > 1, got {growth}")
+    if not (math.isfinite(q) and q > 0):
+        raise ValueError(f"quantum must be finite and positive, got {quantum}")
+    if not (math.isfinite(lo) and math.isfinite(hi) and hi > lo):
+        raise ValueError(f"lattice_edges needs finite lo < hi, got {lo} and {hi}")
+    if not (math.isfinite(spacing) and spacing > 0):
+        raise ValueError(f"spacing must be finite and positive, got {spacing}")
+    if not (math.isfinite(growth) and growth > 1):
+        raise ValueError(f"growth must be finite and > 1, got {growth}")
+    if not (math.isfinite(max_states) and max_states > 0):
+        raise ValueError(f"max_states must be finite and positive, got {max_states}")
     n = round((hi - lo) / q)
+    if n < 1:
+        raise ValueError(f"lattice_edges: hi - lo = {hi - lo:.9g} um must span at least one {q:g} um quantum")
     if abs(n * q - (hi - lo)) > 1e-6 * q:
         raise ValueError(f"lattice_edges: hi - lo = {hi - lo:.9g} um is not a whole number of {q:g} um quanta")
-    thick = tuple(float(t) / q for t in pml)
-    if len(thick) != 2 or min(thick) < 0:
+    if len(pml) != 2:
         raise ValueError(f"pml must be two nonnegative thicknesses, got {pml}")
+    pml_vals = tuple(float(t) for t in pml)
+    if not all(math.isfinite(t) and t >= 0 for t in pml_vals):
+        raise ValueError(f"pml must be two finite nonnegative thicknesses, got {pml}")
+    thick = tuple(t / q for t in pml_vals)
     targets = _raster(lo, q, n, spacing, fine)
     states = (n + 1) * (int(targets.max()) + 1)
     if states > max_states:
@@ -231,16 +255,28 @@ def lattice_edges(
             f"max_states={max_states:.3g}; use a coarser quantum"
         )
     # centers in half quanta from lo, inside the range (an edge is there at the ends anyway)
-    half = sorted({round(2 * (float(c) - lo) / q) for c in centers})
+    center_vals: list[float] = []
+    for c in centers:
+        cf = float(c)
+        if not math.isfinite(cf):
+            raise ValueError(f"centers must be finite, got {c}")
+        center_vals.append(cf)
+    half = sorted({round(2 * (c - lo) / q) for c in center_vals})
     half = np.asarray([c for c in half if 0 < c < 2 * n], dtype=np.int64)
     widths, ends, mirror = _Lattice(targets, growth).solve(thick, align, symmetric, lo, q, half)
     # aligned: every cell of the finest target's width outside the PMLs starts on that width's lattice
     fine_k, starts = int(targets.min()), np.concatenate([[0], np.cumsum(widths)[:-1]])
+    w_arr = np.asarray(widths)
     inner = slice(ends[0][0], len(widths) - ends[1][0])
-    w_in, s_in = np.asarray(widths[inner]), starts[inner]
+    w_in, s_in = w_arr[inner], starts[inner]
     aligned = bool(np.all(s_in[w_in == fine_k] % fine_k == 0))
-    middles = 2 * starts + np.asarray(widths)  # cell middles in half quanta
-    hit = [bool(np.any(np.abs(middles - c) <= 1)) for c in half]
+    starts2 = 2 * starts
+    ends2 = starts2 + 2 * w_arr
+    middles = starts2 + w_arr  # cell middles in half quanta
+    hit = [
+        bool(np.any((w_arr >= 2) & (starts2 < c) & (c < ends2) & (np.abs(middles - c) <= 1)))
+        for c in half
+    ]
     met = [int(c) for c, h in zip(half, hit, strict=True) if h]
     missed = [lo + c * q / 2 for c, h in zip(half, hit, strict=True) if not h]
     if missed:
@@ -265,9 +301,11 @@ def _raster(lo: float, q: float, n: int, spacing: float, fine: Sequence[tuple[fl
     """(n,) targets in whole quanta of the lattice's cells: the smallest region touching each one."""
     size = np.full(n, spacing)
     for region in fine:
+        if len(region) != 3:
+            raise ValueError(f"a fine region is (a, b, d), got {tuple(region)}")
         a, b, d = (float(x) for x in region)
-        if not (b >= a and d > 0):
-            raise ValueError(f"a fine region is (a, b, d) with a <= b and d > 0, got {tuple(region)}")
+        if not (math.isfinite(a) and math.isfinite(b) and math.isfinite(d) and b >= a and d > 0):
+            raise ValueError(f"a fine region is (a, b, d) with finite a <= b and d > 0, got {tuple(region)}")
         ja = max(0, math.ceil((a - lo) / q - 1e-9) - 1)
         jb = min(n - 1, math.floor((b - lo) / q + 1e-9))
         if ja <= jb:
@@ -308,13 +346,15 @@ def _window_min(w: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 def _centered(centers: np.ndarray, start2: int, k: np.ndarray) -> np.ndarray:
-    """Whether the cells of k quanta from start2 / 2 hold no center (half quanta, sorted) but one within half a
-    quantum of their middle (an odd cell's middle is half a quantum off the whole-quantum lattice)."""
+    """Whether the cells of k quanta from start2 / 2 hold no center (half quanta, sorted) but one strictly inside
+    and within half a quantum of their middle (requiring width >= 2 quanta so edges cannot masquerade as centers)."""
     i = int(np.searchsorted(centers, start2, side="left"))
     first = centers[i] if i < len(centers) else np.iinfo(np.int64).max
     second = centers[i + 1] if i + 1 < len(centers) else np.iinfo(np.int64).max
     end2 = start2 + 2 * k
-    return (first > end2) | ((np.abs(first - (start2 + k)) <= 1) & (second > end2))
+    return (first > end2) | (
+        (k >= 2) & (first > start2) & (first < end2) & (np.abs(first - (start2 + k)) <= 1) & (second > end2)
+    )
 
 
 def _pick(options: list[tuple[int, int]], i: int, growth: float) -> tuple[int, int]:
@@ -733,6 +773,7 @@ class _SizingEnvelope:
         cap_margin: float,
         *,
         periodic: bool = False,
+        extra_caps: Sequence[tuple[float, float, float]] = (),
     ) -> None:
         lo, hi, L = tmap.lo, tmap.hi, tmap.length
         alpha = min(1.0, 2.0 * (g_eff - 1.0) / (g_eff + 1.0))
@@ -741,8 +782,10 @@ class _SizingEnvelope:
         items: list[tuple[float, float, float]] = []
         knots = [lo, hi]
         shifts = (-L, 0.0, L) if periodic else (0.0,)
-        for a0, b0, d in tmap.merged_fine:
-            de = min(spacing_eff, max(d - cap_margin, 0.5 * d))
+        regions = [(a0, b0, min(spacing_eff, max(d - cap_margin, 0.5 * d))) for a0, b0, d in tmap.merged_fine] + [
+            (a0, b0, min(spacing_eff, de_cap)) for a0, b0, de_cap in extra_caps
+        ]
+        for a0, b0, de in regions:
             if de >= spacing_eff * (1.0 - 1e-13):
                 continue
             d_star = 0.25 * (g_eff + 3.0) * de if has_alpha else spacing_eff
@@ -1234,6 +1277,20 @@ def _solve_blocks(
         for bp in tmap.xp[1:-1]:
             jump |= (ei_lo <= bp) & (ei_hi >= bp)
         single[inner_sl] |= jump
+        if n_lo > 0:
+            w_lo_ref = min(p_lo_cap, float(w_bar_cells[0]))
+            k_lo = min(
+                n_in,
+                max(2, math.ceil(math.log(max(spacing_eff / max(w_lo_ref, 1e-15), 1.0)) / math.log(max(g_eff, 1.001))) + 2),
+            )
+            single[n_lo : n_lo + k_lo] = True
+        if n_hi > 0:
+            w_hi_ref = min(p_hi_cap, float(w_bar_cells[-1]))
+            k_hi = min(
+                n_in,
+                max(2, math.ceil(math.log(max(spacing_eff / max(w_hi_ref, 1e-15), 1.0)) / math.log(max(g_eff, 1.001))) + 2),
+            )
+            single[n_total - n_hi - k_hi : n_total - n_hi] = True
 
     # Expand single-cell cushions by 4 cells on each side inside the non-PML, non-pinned interior.
     base_single = single.copy()
@@ -1903,7 +1960,13 @@ def axis_edges(
         )
 
     sym_tol = 1e-9 * max(1.0, L, abs(lo), abs(hi))
-    raw_centers = sorted(float(c) for c in centers if math.isfinite(float(c)))
+    center_vals: list[float] = []
+    for c in centers:
+        cf = float(c)
+        if not math.isfinite(cf):
+            raise ValueError(f"centers must be finite, got {c}")
+        center_vals.append(cf)
+    raw_centers = sorted(center_vals)
     dedup_centers: list[float] = []
     for c_val in raw_centers:
         if lo + sym_tol < c_val < hi - sym_tol:
@@ -1926,7 +1989,7 @@ def axis_edges(
             return bool(np.all(np.abs(s_in / d_f - np.round(s_in / d_f)) <= 1e-4))
         fine_cells = np.abs(w_in - d_f) <= 2e-4 * d_f
         if not np.any(fine_cells):
-            return False
+            return True
         s_in = (edges_arr[:-1][inner][fine_cells] - lo) / d_f
         return bool(np.all(np.abs(s_in - np.round(s_in)) <= 1e-4))
 
@@ -1987,6 +2050,13 @@ def axis_edges(
             raise ValueError(
                 f"axis_edges: PMLs of {pml_lo:g} and {pml_hi:g} um do not fit the {L:g} um axis within their targets"
             )
+        pml_caps: list[tuple[float, float, float]] = []
+        if pml_lo > 0 and lo_opts[0][2] < spacing_eff * (1.0 - 1e-12):
+            pml_caps.append((lo, min(hi, lo + max(pml_lo, lo_opts[0][0] * lo_opts[0][1])), lo_opts[0][2]))
+        if pml_hi > 0 and hi_opts[0][2] < spacing_eff * (1.0 - 1e-12):
+            pml_caps.append((max(lo, hi - max(pml_hi, hi_opts[0][0] * hi_opts[0][1])), hi, hi_opts[0][2]))
+        if pml_caps:
+            env = _SizingEnvelope(tmap, spacing_eff, g_eff, cap_margin, periodic=periodic_eff, extra_caps=pml_caps)
 
         pml_pairs: list[tuple[tuple[int, float, float], tuple[int, float, float]]] = []
         if can_mirror_base:
@@ -2031,7 +2101,21 @@ def axis_edges(
             if not cs:
                 u_in = max(0.0, float(env.eval_F(x1) - env.eval_F(x0)))
                 base_n = max(1 if (o0[0] + o1[0] == 0) else 0, round(u_in))
-                cands = sorted({max(0, base_n + d) for d in (-1, 0, 1, 2, 3, 4) if base_n + d >= 0})
+                cand_set = {max(0, base_n + d) for d in (-1, 0, 1, 2, 3, 4) if base_n + d >= 0}
+                extra_ramp = 0
+                if o0[0]:
+                    w0 = max(o0[1], min(o0[2], (x0 - lo) / o0[0]))
+                    s0 = float(env.eval_s(x0))
+                    if w0 < s0 * (1.0 - 1e-6):
+                        extra_ramp += math.ceil(math.log(s0 / max(w0, 1e-15)) / math.log(max(g_eff, 1.001)))
+                if o1[0]:
+                    w1 = max(o1[1], min(o1[2], (hi - x1) / o1[0]))
+                    s1 = float(env.eval_s(x1))
+                    if w1 < s1 * (1.0 - 1e-6):
+                        extra_ramp += math.ceil(math.log(s1 / max(w1, 1e-15)) / math.log(max(g_eff, 1.001)))
+                if extra_ramp > 0:
+                    cand_set.update(max(0, base_n + extra_ramp + d) for d in (-1, 0, 1, 2, 3) if base_n + extra_ramp + d >= 0)
+                cands = sorted(cand_set)
                 return [(n_c,) for n_c in cands if not (o0[0] + o1[0] + n_c < 1)]
             if cs[0] <= lo + o0[0] * o0[1] or cs[-1] >= hi - o1[0] * o1[1]:
                 return []

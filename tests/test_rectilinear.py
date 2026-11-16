@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterator
+from typing import Any
 
 import fdtdx
 import gdsfactory as gf
@@ -1119,3 +1120,30 @@ def test_mesh_fdtd_value_and_grad_compiles_once_and_matches_fd():
             assert float(grad0[idx]) == pytest.approx(fd, rel=3e-2, abs=5e-4), (idx, float(grad0[idx]), fd)
     finally:
         listen_active = False
+
+
+def test_rectilinear_mesh_coarse_vertices_reticle_offset_and_origin_check():
+    """Full reticle offsets with float32 vertices stay inside flush bounds and validate box center alignment."""
+    cx, cy = 20_000.0, 20_000.0
+    c = gf.Component()
+    c.add_polygon(
+        [(cx - 0.3, cy - 0.3), (cx + 0.3, cy - 0.3), (cx + 0.3, cy + 0.3), (cx - 0.3, cy + 0.3)],
+        layer=L.WG,
+    )
+    ls = LayerStack(layers={
+        "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
+    })
+    d = bf.StackDevice.from_layer_stack(
+        c, ls, MATERIALS, background="sio2", name="s", zrange_layers=["core"],
+        boundary_offset=(0.0, 0.0, 0.0, 0.0, 0.4, -0.4), diagnostics=False,
+    )
+    m = bf.mesh(d, 1.55, ppw=14, refine=bf.Refine(dilation={"WG": 0.05}), pml=0.2)
+    objects, _, params = place_all(d, m.grid)
+    placed = objects["s"]
+    rep = placed.coarse_vertices(params["s"], m)
+    assert int(np.sum(rep.outside)) == 0
+    assert int(np.sum(rep.coarse)) == 0
+
+    shifted = placed.aset("center", (placed.center[0] + 1.0, placed.center[1]))
+    with pytest.raises(ValueError, match="another grid"):
+        shifted.coarse_vertices(params["s"], m)

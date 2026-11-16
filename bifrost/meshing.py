@@ -92,9 +92,15 @@ class Refine:
 
 def _wavelengths(wavelength: float | tuple[float, float], materials: Mapping[str, Any]) -> np.ndarray:
     """Sampled band (um): evenly in frequency, plus the pole resonances inside it."""
-    lo, hi = (float(wavelength), float(wavelength)) if np.ndim(wavelength) == 0 else map(float, wavelength)
-    if not 0 < lo <= hi:
-        raise ValueError(f"wavelength must be positive (um), as a value or (min, max); got {wavelength}")
+    if np.ndim(wavelength) == 0:
+        lo = hi = float(wavelength)
+    else:
+        vals = tuple(wavelength)
+        if len(vals) != 2:
+            raise ValueError(f"wavelength must be a value or (min, max), got {wavelength!r}")
+        lo, hi = float(vals[0]), float(vals[1])
+    if not (math.isfinite(lo) and math.isfinite(hi) and 0 < lo <= hi):
+        raise ValueError(f"wavelength must be finite and positive (um), as a value or (min, max); got {wavelength}")
     if lo == hi:
         return np.array([lo])
     samples = list(1.0 / np.linspace(1.0 / hi, 1.0 / lo, _BAND_SAMPLES))
@@ -123,11 +129,22 @@ def _index(material: Any, lambdas: np.ndarray) -> _Index:
         if material.dispersion is None:
             eps = eps_inf
         else:
-            eps = np.real(material.dispersion.permittivity_tensor(2 * math.pi * _C0 / (lam * 1e-6), material.permittivity))
-        eig = np.linalg.eigvalsh(0.5 * (eps + eps.T))
-        bad |= bool(eig.min() <= 0)
-        n.append(math.sqrt(max(float(eig.max()), 0.0)))
-    bad |= bool(np.any(np.asarray(material.electric_conductivity, dtype=float) != 0))
+            eps = np.asarray(
+                material.dispersion.permittivity_tensor(2 * math.pi * _C0 / (lam * 1e-6), material.permittivity)
+            )
+        if not np.all(np.isfinite(eps)):
+            bad = True
+            n.append(0.0)
+            continue
+        if np.isrealobj(eps) and np.allclose(eps, eps.T):
+            eig = np.linalg.eigvalsh(0.5 * (eps + eps.T))
+        else:
+            eig = np.linalg.eigvals(eps)
+        roots = np.sqrt(eig.astype(np.complex128))
+        n.append(max(float(np.max(np.real(roots))), 0.0))
+        bad |= bool(np.any(np.real(eig) <= 0))
+    cond = np.asarray(material.electric_conductivity, dtype=float)
+    bad |= bool(not np.all(np.isfinite(cond)) or np.any(cond != 0))
     return _Index(np.asarray(n), bad)
 
 
@@ -142,6 +159,12 @@ def _materials(stack: Any, wavelength: Any, ppw: float, refine: Refine) -> _Mate
     """Target cells and tail indices of the device's materials."""
     materials = {k: m for k, m in stack.materials.items() if k != _ANISOTROPY_SENTINEL}
     lambdas = _wavelengths(wavelength, materials)
+    for name, size in refine.material_cells.items():
+        if name not in materials:
+            raise ValueError(f"mesh: material_cells names {name!r}, not a material of the device ({sorted(materials)})")
+        sf = float(size)
+        if not (math.isfinite(sf) and sf > 0):
+            raise ValueError(f"mesh: material_cells[{name!r}] must be finite and positive, got {size}")
     cell, n_tail = {}, {}
     for name, m in materials.items():
         idx = _index(m, lambdas)
@@ -155,11 +178,6 @@ def _materials(stack: Any, wavelength: Any, ppw: float, refine: Refine) -> _Mate
             )
         else:
             cell[name] = float(np.min(lambdas / (np.maximum(idx.n, 1e-12) * ppw)))
-    for name, size in refine.material_cells.items():
-        if name not in materials:
-            raise ValueError(f"mesh: material_cells names {name!r}, not a material of the device ({sorted(materials)})")
-        if not size > 0:
-            raise ValueError(f"mesh: material_cells[{name!r}] must be positive, got {size}")
     return _Materials(cell, n_tail)
 
 
@@ -253,17 +271,20 @@ def _layer_regions(stack: Any, plane: _Plane, reach: float) -> tuple[dict[int, A
             if exit_ < reach:
                 rect[1:3] += (2 * float(plane.half.sum()) + 2 * reach) * n
         polygons[index] = polys
+    import klayout.db as kdb
+
     regions = {index: _kdb_region(polys, plane.dbu) & plane.universe for index, polys in polygons.items()}
     for k, d in enumerate(stack.derived_layers):
         for j, r in enumerate(d.recipes):
             if len(r.kind):
                 pool = np.concatenate([np.concatenate(polygons[index]) for index in d.layers])
                 rings = recipe_rings(r, run_recipe(r.kind, r.index, r.positions, pool, np))
-                outer = [q for q in rings if len(q) >= 3 and _ring_area(q) > 0]
-                holes = [q for q in rings if len(q) >= 3 and _ring_area(q) < 0]
-                regions[_part_index(k, j)] = (_kdb_region(outer, plane.dbu) - _kdb_region(holes, plane.dbu)) & (
-                    plane.universe
-                )
+                sized_rings = [(abs(a), a, q) for q in rings if len(q) >= 3 and (a := _ring_area(q)) != 0.0]
+                region = kdb.Region()
+                for _, area, q in sorted(sized_rings, key=lambda item: item[0], reverse=True):
+                    poly_reg = _kdb_region([q], plane.dbu)
+                    region = region + poly_reg if area > 0 else region - poly_reg
+                regions[_part_index(k, j)] = region & plane.universe
     return regions, polygons
 
 
@@ -352,8 +373,8 @@ def _layer_dilations(stack: Any, refine: Refine) -> dict[int, np.ndarray]:
             d = np.full(n, float(d))
         if d.shape != (n,):
             raise ValueError(f"Refine.dilation[{name!r}] must be a scalar or {n} values (one per vertex), got {d.shape}")
-        if np.any(d < 0):
-            raise ValueError(f"Refine.dilation[{name!r}] must be nonnegative")
+        if not np.all(np.isfinite(d)) or np.any(d < 0):
+            raise ValueError(f"Refine.dilation[{name!r}] must be finite and nonnegative")
         if np.any(d > 0):
             out[index] = d
     return out
@@ -366,11 +387,39 @@ def _level_padding(stack: Any, refine: Refine) -> dict[str, tuple[float, float]]
     for name, pad in refine.z_padding.items():
         if name not in names:
             raise ValueError(f"Refine.z_padding names {name!r}, not a level of the device ({names})")
-        below, above = (float(pad), float(pad)) if np.ndim(pad) == 0 else map(float, pad)
-        if below < 0 or above < 0:
-            raise ValueError(f"Refine.z_padding[{name!r}] must be nonnegative, got {pad}")
+        if np.ndim(pad) == 0:
+            below = above = float(pad)
+        else:
+            vals = tuple(pad)
+            if len(vals) != 2:
+                raise ValueError(f"Refine.z_padding[{name!r}] must be a float or (below, above), got {pad!r}")
+            below, above = float(vals[0]), float(vals[1])
+        if not (math.isfinite(below) and math.isfinite(above) and below >= 0 and above >= 0):
+            raise ValueError(f"Refine.z_padding[{name!r}] must be finite and nonnegative, got {pad}")
         out[name] = (below, above)
     return out
+
+
+def _roughness_padding(stack: Any) -> dict[str, tuple[float, float]]:
+    """Per level, conservative z margin (+/- 5 * rms, um) from TopRoughness interfaces."""
+    tops = {lv.name: max(lv.zmin, lv.zmin + lv.thickness) for lv in stack.levels}
+    out: dict[str, list[float]] = {}
+    for r in getattr(stack, "roughness", ()):
+        rms = float(r.rms)
+        if not (math.isfinite(rms) and rms >= 0):
+            raise ValueError(f"TopRoughness.rms must be finite and nonnegative, got {r.rms}")
+        pad = 5.0 * rms
+        if pad <= 0 or r.level not in tops:
+            continue
+        cur = out.setdefault(r.level, [0.0, 0.0])
+        cur[1] = max(cur[1], pad)
+        if r.fill_above:
+            top_z = tops[r.level]
+            for lv in stack.levels:
+                if abs(min(lv.zmin, lv.zmin + lv.thickness) - top_z) < 1e-6:
+                    cur_a = out.setdefault(lv.name, [0.0, 0.0])
+                    cur_a[0] = max(cur_a[0], pad)
+    return {k: (v[0], v[1]) for k, v in out.items()}
 
 
 def _capsules(polys: list[np.ndarray], radii: np.ndarray, dbu: float) -> Any:
@@ -444,6 +493,7 @@ class _Geometry(NamedTuple):
     moving: dict[int, np.ndarray]  # per moving source layer: dilation per vertex
     neighbours: dict[str, tuple[set[str], set[str], set[str]]]  # per level: materials beside, below, above it
     index: dict[str, float]  # per material: its index at the longest wavelength
+    rough_faces: tuple[float, ...] = ()  # z (um) of TopRoughness-perturbed interfaces
 
 
 def _geometry(
@@ -457,12 +507,29 @@ def _geometry(
     """Every refinement contribution of a device (see the module docstring)."""
     import klayout.db as kdb
 
-    if not ppw > 0:
-        raise ValueError(f"ppw must be positive, got {ppw}")
-    mats = _materials(stack, wavelength, ppw, refine)
+    ppw_f = float(ppw)
+    if not (math.isfinite(ppw_f) and ppw_f > 0):
+        raise ValueError(f"ppw must be finite and positive, got {ppw}")
+    fc_f = float(feature_cells)
+    if not (math.isfinite(fc_f) and fc_f >= 0):
+        raise ValueError(f"feature_cells must be finite and nonnegative, got {feature_cells}")
+    if min_cell is not None:
+        mc_f = float(min_cell)
+        if not (math.isfinite(mc_f) and mc_f > 0):
+            raise ValueError(f"min_cell must be finite and positive, got {min_cell}")
+    gd = float(refine.global_dilation)
+    gz = float(refine.global_z_padding)
+    if not (math.isfinite(gd) and gd >= 0):
+        raise ValueError(f"Refine.global_dilation must be finite and nonnegative, got {refine.global_dilation}")
+    if not (math.isfinite(gz) and gz >= 0):
+        raise ValueError(f"Refine.global_z_padding must be finite and nonnegative, got {refine.global_z_padding}")
+    mats = _materials(stack, wavelength, ppw_f, refine)
     lam_max = float(np.max(np.atleast_1d(wavelength)))
     moving = _layer_dilations(stack, refine)
     padding = _level_padding(stack, refine)
+    rough = _roughness_padding(stack)
+    tops = {lv.name: max(lv.zmin, lv.zmin + lv.thickness) for lv in stack.levels}
+    rough_faces = tuple(tops[r.level] for r in getattr(stack, "roughness", ()) if r.level in tops and float(r.rms) > 0)
     no_tail = set(refine.no_tail)
     unknown = no_tail - {lv.name for lv in stack.levels}
     if unknown:
@@ -470,7 +537,7 @@ def _geometry(
     # how far refinements reach past the box: dilations, offsets and the longest possible tail
     n_values = sorted(set(mats.n_tail.values()))
     longest = max([0.0, *(_decay_length(lam_max, b, a) for a in n_values for b in n_values if b > a)])
-    tail_reach = max(refine.global_dilation, refine.global_z_padding, 0.0) * longest
+    tail_reach = max(gd, gz, 0.0) * longest
     reach = max([0.0, *(float(d.max()) for d in moving.values())]) + tail_reach + 1.0
     plane = _plane(stack, reach)
     regions, polygons = _layer_regions(stack, plane, reach)
@@ -480,9 +547,17 @@ def _geometry(
 
     # moving bands: within the dilation (plus the level's lateral offsets) of a moving layer's edges
     capsules = {index: _capsules(polygons[index], d, plane.dbu) for index, d in moving.items()}
-    padded = {lv.name: (lv.span[0] - padding.get(lv.name, (0.0, 0.0))[0],
-                        lv.span[1] + padding.get(lv.name, (0.0, 0.0))[1]) for lv in levels}
-    static = {lv.name: not (lv.reads & moving.keys()) and lv.name not in padding for lv in levels}
+    padded = {
+        lv.name: (
+            lv.span[0] - padding.get(lv.name, (0.0, 0.0))[0] - rough.get(lv.name, (0.0, 0.0))[0],
+            lv.span[1] + padding.get(lv.name, (0.0, 0.0))[1] + rough.get(lv.name, (0.0, 0.0))[1],
+        )
+        for lv in levels
+    }
+    static = {
+        lv.name: not (lv.reads & moving.keys()) and lv.name not in padding and lv.name not in rough
+        for lv in levels
+    }
     possible: dict[str, Any] = {}
     bands: dict[str, Any] = {}
     for lv in levels:
@@ -565,16 +640,28 @@ def _geometry(
                 contributions.append(_Contribution(visible[lv.name], padded[lv.name], lv.thickness / feature_cells,
                                                    f"thin {lv.name}"))
 
-    for lo3, hi3, size in refine.regions:
-        if not size > 0:
-            raise ValueError(f"Refine.regions: a region's size must be positive, got {size}")
-        contributions.append(_Contribution(plane.region_box(lo3[:2], hi3[:2]), (float(lo3[2]), float(hi3[2])),
-                                           float(size), "region"))
+    for region in refine.regions:
+        if len(region) != 3:
+            raise ValueError(f"Refine.regions: each region must be (lo3, hi3, size), got {region!r}")
+        lo3, hi3, size = region
+        if len(lo3) != 3 or len(hi3) != 3:
+            raise ValueError(f"Refine.regions: bounds must each have 3 coordinates, got {(lo3, hi3)!r}")
+        lo_f = tuple(float(v) for v in lo3)
+        hi_f = tuple(float(v) for v in hi3)
+        sz = float(size)
+        if not (all(math.isfinite(v) for v in (*lo_f, *hi_f)) and math.isfinite(sz) and sz > 0):
+            raise ValueError(f"Refine.regions: bounds and positive size must be finite, got {region!r}")
+        if not all(a <= b for a, b in zip(lo_f, hi_f, strict=True)):
+            raise ValueError(f"Refine.regions: expected lo <= hi along x, y, z, got {lo_f} and {hi_f}")
+        contributions.append(
+            _Contribution(plane.region_box(lo_f[:2], hi_f[:2]), (lo_f[2], hi_f[2]), sz, "region")
+        )
     contributions.append(_Contribution(plane.box.dup(), box[2], mats.cell[stack.background], "background"))
     if min_cell is not None:
         contributions = [c._replace(size=max(c.size, float(min_cell))) for c in contributions]
     return _Geometry(
-        plane, box, contributions, levels, visible, padded, tails, mats.cell, moving, neighbours, mats.n_tail
+        plane, box, contributions, levels, visible, padded, tails, mats.cell, moving, neighbours, mats.n_tail,
+        rough_faces,
     )
 
 
@@ -703,10 +790,14 @@ class Mesh:
         lines.append(f"  time step {dt * 1e18:.4g} as{steps}")
         lines.append(f"  fields (E and H, {nbytes * 8}-bit): {6 * cells * nbytes / 1e9:.3g} GB")
         report = coarse_vertices(self.stack, self.stack.init_params(), self)
+        outside = int(np.sum(report.outside))
+        outside_note = f", {outside} outside box" if outside else ""
         lines.append(
             f"  starting geometry: {int(np.sum(report.coarse))} of {int(np.sum(report.total))} vertices in cells "
-            f"wider than their target (largest cell / target {float(report.worst):.3f})"
+            f"wider than their target (largest cell / target {float(report.worst):.3f}{outside_note})"
         )
+        if outside:
+            lines.append(f"  warning: {outside} vertices lie outside the mesh box")
         return "\n".join(lines)
 
 
@@ -784,9 +875,24 @@ def mesh(
     kinds = (boundaries,) * 6 if isinstance(boundaries, str) else tuple(boundaries)
     if len(kinds) != 6 or any(k not in _KINDS for k in kinds):
         raise ValueError(f"mesh: boundaries must be one or six of {_KINDS}, got {boundaries!r}")
-    thick = (float(pml),) * 6 if np.ndim(pml) == 0 else tuple(float(t) for t in pml)  # type: ignore[arg-type]
-    if len(thick) != 6 or min(thick) < 0:
-        raise ValueError(f"mesh: pml must be one or six nonnegative thicknesses (um), got {pml!r}")
+    for a in range(3):
+        k0, k1 = kinds[2 * a], kinds[2 * a + 1]
+        if (k0 in ("periodic", "bloch") or k1 in ("periodic", "bloch")) and k0 != k1:
+            raise ValueError(
+                f"mesh: periodic/bloch boundaries must match on both faces of {'xyz'[a]}, got {(k0, k1)!r}"
+            )
+    if np.ndim(pml) == 0:
+        thick = (float(pml),) * 6
+    else:
+        thick = tuple(float(t) for t in pml)  # type: ignore[arg-type]
+    if len(thick) != 6 or any(not math.isfinite(t) or t < 0 for t in thick):
+        raise ValueError(f"mesh: pml must be one or six finite nonnegative thicknesses (um), got {pml!r}")
+    growth_f = float(growth)
+    if not (math.isfinite(growth_f) and growth_f > 1):
+        raise ValueError(f"mesh: growth must be finite and > 1, got {growth!r}")
+    max_states_f = float(max_states)
+    if not (math.isfinite(max_states_f) and max_states_f > 0):
+        raise ValueError(f"mesh: max_states must be finite and positive, got {max_states!r}")
     geom = _geometry(stack, wavelength, ppw, refine, feature_cells, min_cell)
     _check_levels_kept(stack, geom)
     targets = _axis_targets(geom)
@@ -795,7 +901,7 @@ def mesh(
     for a in range(3):
         lo, hi = geom.box[a]
         sides = tuple(thick[2 * a + e] if kinds[2 * a + e] == "pml" else 0.0 for e in (0, 1))
-        is_periodic = kinds[2 * a] in ("periodic", "bloch") and kinds[2 * a + 1] in ("periodic", "bloch")
+        is_periodic = kinds[2 * a] in ("periodic", "bloch")
         if quantum is not None:
             quantum = float(quantum)
             if not (math.isfinite(quantum) and quantum > 0):
@@ -812,13 +918,13 @@ def mesh(
             try:
                 if quantum is None:
                     axis = axis_edges(
-                        lo, hi, max(s for *_, s in targets[a]), targets[a], growth=growth, pml=sides,
+                        lo, hi, max(s for *_, s in targets[a]), targets[a], growth=growth_f, pml=sides,
                         align=align_fine, centers=faces if a == 2 else (), periodic=is_periodic, dtype=stack.dtype,
                     )
                 else:
                     axis = lattice_edges(
-                        lo, hi, max(s for *_, s in targets[a]), targets[a], quantum=quantum, growth=growth, pml=sides,
-                        align=align_fine, centers=faces if a == 2 else (), max_states=max_states,
+                        lo, hi, max(s for *_, s in targets[a]), targets[a], quantum=quantum, growth=growth_f, pml=sides,
+                        align=align_fine, centers=faces if a == 2 else (), max_states=max_states_f,
                     )
             except ValueError as e:
                 raise ValueError(f"mesh: the {'xyz'[a]} axis: {e}") from e
@@ -845,7 +951,7 @@ def _interface_faces(geom: _Geometry, kinds: Sequence[str], thick: Sequence[floa
     (_, _), (_, _), (z0, z1) = geom.box
     lo = z0 + (thick[4] if kinds[4] == "pml" else 0.0)
     hi = z1 - (thick[5] if kinds[5] == "pml" else 0.0)
-    moving: list[float] = []
+    moving: list[float] = [float(z) for z in geom.rough_faces]
     raw: list[float] = []
     for lv in geom.levels:
         if geom.possible[lv.name].is_empty():
@@ -951,15 +1057,26 @@ def _report_targets(stack: Any, geom: _Geometry) -> tuple[dict[int, float], dict
     return layer_xy, level_z
 
 
+def _bound_tol(edges: np.ndarray, dtype: Any) -> float:
+    """Float precision margin for box boundary comparisons against ``edges``."""
+    dt = np.dtype(dtype)
+    scale = max(1.0, abs(float(edges[0])), abs(float(edges[-1])))
+    if np.issubdtype(dt, np.floating) and dt.itemsize < 8:
+        return 2.0 * float(np.finfo(dt).eps) * scale
+    return 1e-12 * scale
+
+
 def _cell_width(edges: np.ndarray, widths: np.ndarray, x: Any) -> Any:
     """The width of the cell holding each x (the wider of the two on an edge)."""
     import jax.numpy as jnp
 
     n = len(widths)
-    e = jnp.asarray(edges, dtype=x.dtype)
-    left = jnp.clip(jnp.searchsorted(e, x, side="left") - 1, 0, n - 1)
-    right = jnp.clip(jnp.searchsorted(e, x, side="right") - 1, 0, n - 1)
-    w = jnp.asarray(widths, dtype=x.dtype)
+    mid = 0.5 * (float(edges[0]) + float(edges[-1]))
+    e = jnp.asarray(edges - mid, dtype=jnp.float64)
+    x_rel = jnp.asarray(x, dtype=jnp.float64) - mid
+    left = jnp.clip(jnp.searchsorted(e, x_rel, side="left") - 1, 0, n - 1)
+    right = jnp.clip(jnp.searchsorted(e, x_rel, side="right") - 1, 0, n - 1)
+    w = jnp.asarray(widths, dtype=jnp.float64)
     return jnp.maximum(w[left], w[right])
 
 
@@ -969,11 +1086,13 @@ def coarse_vertices(stack: Any, params: Mapping[str, Any], mesh: Mesh) -> Coarse
     import jax.numpy as jnp
 
     geom = mesh.geometry
-    if stack.grid_frame is not None:  # a placed device: on the mesh's grid
+    if stack.grid_frame is not None:  # a placed device: on the mesh's grid (including box origin)
         frame = stack.grid_frame
-        for name, e, fe in zip("xyz", mesh.edges, frame.edges, strict=True):
-            placed = np.asarray(fe, dtype=np.float64) * frame.h_um
-            if placed.shape != e.shape or not np.allclose(placed, e - e[0], atol=1e-4):
+        mids = (float(stack.center[0]), float(stack.center[1]), float(stack.z_center))
+        for name, mid, e, fe in zip("xyz", mids, mesh.edges, frame.edges, strict=True):
+            fe_um = np.asarray(fe, dtype=np.float64) * frame.h_um
+            placed = mid + (fe_um - 0.5 * (fe_um[0] + fe_um[-1]))
+            if placed.shape != e.shape or not np.allclose(placed, e, atol=1e-4):
                 raise ValueError(f"coarse_vertices: the device is placed on another grid than the mesh (along {name})")
     layer_xy, level_z = _report_targets(stack, geom)
     (ex, ey, ez) = (np.asarray(e, dtype=np.float64) for e in mesh.edges)
@@ -983,11 +1102,18 @@ def coarse_vertices(stack: Any, params: Mapping[str, Any], mesh: Mesh) -> Coarse
     for key, index in stack.source_layers:
         v = jnp.asarray(params[key])
         target = layer_xy[index]
-        inside = (v[:, 0] >= ex[0]) & (v[:, 0] <= ex[-1]) & (v[:, 1] >= ey[0]) & (v[:, 1] <= ey[-1])
+        tol_x = _bound_tol(ex, v.dtype)
+        tol_y = _bound_tol(ey, v.dtype)
+        inside = (
+            (v[:, 0] >= ex[0] - tol_x)
+            & (v[:, 0] <= ex[-1] + tol_x)
+            & (v[:, 1] >= ey[0] - tol_y)
+            & (v[:, 1] <= ey[-1] + tol_y)
+        )
         cx, cy = _cell_width(ex, wx, v[:, 0]), _cell_width(ey, wy, v[:, 1])
         over_x = inside & (cx > target * (1 + _COARSE_RTOL))
         over_y = inside & (cy > target * (1 + _COARSE_RTOL))
-        worst = jnp.maximum(worst, jnp.max(jnp.where(inside, jnp.maximum(cx, cy) / target, 0.0)))
+        worst = jnp.maximum(worst, jnp.max(jnp.where(inside, jnp.maximum(cx, cy) / target, 0.0), initial=0.0))
         over_z = jnp.zeros((), dtype=bool)
         for lv in geom.levels:
             if index not in lv.reads:
@@ -997,7 +1123,7 @@ def coarse_vertices(stack: Any, params: Mapping[str, Any], mesh: Mesh) -> Coarse
             lo, hi = jnp.minimum(zb, top), jnp.maximum(zb, top)
             hit = (ez[:-1] < hi) & (ez[1:] > lo)
             over_z = over_z | jnp.any(hit & (wz > level_z[lv.name] * (1 + _COARSE_RTOL)))
-            worst = jnp.maximum(worst, jnp.max(jnp.where(hit, wz / level_z[lv.name], 0.0)))
+            worst = jnp.maximum(worst, jnp.max(jnp.where(hit, wz / level_z[lv.name], 0.0), initial=0.0))
         z = inside & over_z
         rows.append((len(v), over_x.sum(), over_y.sum(), z.sum(), (over_x | over_y | z).sum(), (~inside).sum()))
     columns = [jnp.asarray([r[i] for r in rows], dtype=jnp.int32) for i in range(6)]

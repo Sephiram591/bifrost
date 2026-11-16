@@ -111,11 +111,14 @@ Example:
     ```
 """
 
+import contextvars
 import dataclasses
+import hashlib
 import math
 import warnings
 from collections.abc import Callable, Container, Iterator, Sequence
-from functools import partial
+from enum import Enum
+from functools import lru_cache, partial
 from typing import Any, Literal, NamedTuple, Self
 
 import fdtdx
@@ -138,7 +141,6 @@ from fdtdx.objects.sources.source import HardConstantAmplitudePlanceSource
 from fdtdx.objects.static_material.static import StaticMultiMaterialObject
 from fdtdx.typing import INVALID_SLICE_TUPLE_3D
 
-from gdsfactory._jax import has_tracers, to_numpy
 from .subpixel import (
     check_permittivity,
     from_six,
@@ -161,6 +163,7 @@ from .geometry import (
     crossing_changes,
     derive_polygons,
     gaussian_random_field,
+    has_tracers,
     joint_changes,
     nearest_edges,
     pack_polygons,
@@ -168,6 +171,7 @@ from .geometry import (
     run_recipe,
     signed_distance,
     split_t_junctions,
+    to_numpy,
     topology_changes,
     warn_reversible_losses,
 )
@@ -718,8 +722,14 @@ def _grid_frame(config: SimulationConfig, slices: Any) -> _Frame:
     counts = tuple(int(b) - int(a) for a, b in slices)
     grid = config.resolved_grid
     if grid is None or grid.is_uniform:
+        if grid is not None and np.asarray(grid.edges(0)).dtype != np.float64:
+            a0, b0 = int(slices[0][0]), int(slices[0][1])
+            e0 = np.asarray(grid.edges(0), dtype=np.float64)[a0 : b0 + 1] * 1e6
+            h_um = round(float(e0[-1] - e0[0]) / (b0 - a0), 8)
+        else:
+            h_um = config.uniform_spacing() * 1e6
         return _Frame(
-            config.uniform_spacing() * 1e6,
+            h_um,
             tuple(np.arange(n + 1, dtype=float) for n in counts),
             (1.0, 1.0, 1.0),
             (True, True, True),
@@ -1147,9 +1157,9 @@ class _Cells(NamedTuple):
     of the call that paints them: the caller expands them (:func:`_cells_expand`) to that call's batch.
     """
 
-    hx: Any  # half sides along x (sides of the cell's frame)
-    hy: Any
-    cell: Any  # frame units per side of the cell's frame
+    hx: Array | float  # half sides along x (sides of the cell's frame)
+    hy: Array | float
+    cell: Array | float  # frame units per side of the cell's frame
     reach: float  # static: 2 max(hx, hy) over every cell (the painted offsets' clip)
     area: float = 1.0  # static: 4 hx hy (1; 1 / per^2 for the junction closure's sub-rectangles)
 
@@ -1173,6 +1183,34 @@ def _cells_take(cells: _Cells, cols: Array) -> _Cells:
         hx=jnp.reshape(cells.hx, (-1,))[cols], hy=jnp.reshape(cells.hy, (-1,))[cols],
         cell=jnp.reshape(cells.cell, (-1,))[cols],
     )
+
+
+def _is_finite_spd(a: Array) -> Array:
+    """Certifies that (..., 3, 3) symmetric matrices are finite and strictly positive definite."""
+    finite = jnp.all(jnp.isfinite(a), axis=(-2, -1))
+    safe = jnp.where(finite[..., None, None], a, jnp.eye(3, dtype=a.dtype))
+    sym = 0.5 * (safe + jnp.swapaxes(safe, -1, -2))
+    a00 = sym[..., 0, 0]
+    a01, a02 = sym[..., 0, 1], sym[..., 0, 2]
+    a11, a12, a22 = sym[..., 1, 1], sym[..., 1, 2], sym[..., 2, 2]
+    c00 = a11 * a22 - a12 * a12
+    c01 = a02 * a12 - a01 * a22
+    c02 = a01 * a12 - a02 * a11
+    m2 = a00 * a11 - a01 * a01
+    det = a00 * c00 + a01 * c01 + a02 * c02
+    # Keep det^2 above underflow in quotient-rule reverse-mode derivatives.
+    min_det = 2.0 * math.sqrt(float(jnp.finfo(a.dtype).tiny))
+    return finite & (a00 > 0.0) & (m2 > 0.0) & (det > min_det)
+
+
+def _safe_symmetric_inverse(a: Array) -> tuple[Array, Array]:
+    """Symmetric 3x3 inverse with finite-SPD certification and double-where gradient guard."""
+    ok = _is_finite_spd(a)
+    eye = jnp.eye(3, dtype=a.dtype)
+    a_safe = jnp.where(ok[..., None, None], a, eye)
+    sym = 0.5 * (a_safe + jnp.swapaxes(a_safe, -1, -2))
+    inv_safe = symmetric_inverse(sym)
+    return jnp.where(ok[..., None, None], inv_safe, eye), ok
 
 
 def _half_sides(half: Any) -> tuple[Any, Any]:
@@ -1363,7 +1401,9 @@ def _sidewall_shift(level: _Level, z: Array, zb: Array, t: Array, angle: Array, 
     grow = level.bias / res_um
     if level.z_to_bias is not None:
         zs, bs = level.z_to_bias
-        grow = grow + jnp.interp((z - zb) / t, jnp.asarray(zs), jnp.asarray(bs)) / res_um
+        safe_t = jnp.where(t == 0, 1.0, t)
+        frac = jnp.where(t == 0, 0.0, (z - zb) / safe_t)
+        grow = grow + jnp.interp(frac, jnp.asarray(zs, dtype=z.dtype), jnp.asarray(bs, dtype=z.dtype)) / res_um
     return ((z - z_ref) * jnp.tan(jnp.deg2rad(angle)) - grow).astype(z.dtype)
 
 
@@ -2962,13 +3002,13 @@ def _junction_cells(
             ``cell`` unused (the cells' own).
 
     Returns:
-        fractions: (N, n, n, m, K + 1) every sub-cell's fractions of the levels, then the background.
-        coefficients: (N, n, n, m, 3, 3) every sub-cell's laminate.
+        fractions: (N, nx, ny, nz, K + 1) every sub-cell's fractions of the levels, then the background.
+        coefficients: (N, nx, ny, nz, 3, 3) every sub-cell's laminate.
     """
     nxs, nys, nzs = cells
     dtype = offsets.dtype
-    if nxs != nys:
-        raise ValueError(f"The junction sub-squares must be square, got {cells}")
+    if nxs < 1 or nys < 1 or nzs < 1:
+        raise ValueError(f"junction_cells must be positive, got {cells}")
     per_column = isinstance(half, _Cells)
     if per_column:
         cell = half.cell
@@ -3091,21 +3131,36 @@ def _junction_cells(
         vertical_d = vertical[..., None] * jnp.where(some[..., None], mix, up)
     else:
         vertical_d = vertical[..., None] * jnp.asarray([0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=dtype)
-    direction = from_six(lateral_d + vertical_d)  # (N, n n, m, 3, 3)
-    normal, _ = principal_direction(direction)
-    coefficients = laminate(level_eps, fractions, normal)  # (N, n n, m, 3, 3)
+    direction = from_six(lateral_d + vertical_d)  # (N, nx ny, m, 3, 3)
+    normal, lam1 = principal_direction(direction)
+    coefficients = laminate(level_eps, fractions, normal)  # (N, nx ny, m, 3, 3)
     # Where a sub-cell's two largest face directions weigh nearly the same (a corner in it with two walls of like
     # weight), its leading direction is not defined: it would switch between the walls' normals at round-off as
     # the corner moves, and the laminate with it. There the laminate blends, by a smooth step in the gap between
     # the two largest eigenvalues, toward one that needs no direction: the laminates along x, y and z weighted by
     # the direction tensor's diagonal (continuous in it). Elsewhere it is the leading direction's, exactly.
-    lam = jnp.linalg.eigvalsh(direction)  # ascending
-    trace = jnp.sum(lam, axis=-1)
+    # Compute lam1 - lam2 from the 2x2 tangent-plane invariants of (I - n n^T) D (I - n n^T) rather than eigvalsh
+    # so repeated eigenvalues (e.g. isotropic D or degenerate corners) keep finite derivatives under jax.grad.
+    trace = jnp.trace(direction, axis1=-2, axis2=-1)
     some = trace > _NO_FACES
-    gap = jnp.where(some, (lam[..., 2] - lam[..., 1]) / jnp.where(some, trace, 1.0), 1.0)
+    safe_trace = jnp.where(some, trace, 1.0)
+    proj = jnp.eye(3, dtype=dtype) - normal[..., :, None] * normal[..., None, :]
+    orth = jnp.matmul(jnp.matmul(proj, direction, precision=_HIGHEST), proj, precision=_HIGHEST)
+    orth = 0.5 * (orth + jnp.swapaxes(orth, -1, -2))
+    tr2 = jnp.maximum(jnp.trace(orth, axis1=-2, axis2=-1), 0.0)
+    s2 = jnp.sum(orth * orth, axis=(-2, -1))
+    disc = 2.0 * s2 - tr2 * tr2
+    disc_floor = jnp.maximum(
+        jnp.asarray(1e-12, dtype=dtype) * safe_trace * safe_trace,
+        jnp.asarray(jnp.finfo(dtype).tiny, dtype=dtype) ** (2.0 / 3.0),
+    )
+    disc_ok = disc > disc_floor
+    half_diff = 0.5 * jnp.where(disc_ok, jnp.sqrt(jnp.where(disc_ok, disc, 1.0)), 0.0)
+    lam2 = 0.5 * tr2 + half_diff
+    gap = jnp.where(some, jnp.maximum(lam1 - lam2, 0.0) / safe_trace, 1.0)
     x = jnp.clip((gap - _SUBCELL_GAP[0]) / (_SUBCELL_GAP[1] - _SUBCELL_GAP[0]), 0.0, 1.0)
     keep = x * x * (3.0 - 2.0 * x)  # 1: the leading direction's laminate
-    share = jnp.diagonal(direction, axis1=-2, axis2=-1) / jnp.where(some, trace, 1.0)[..., None]
+    share = jnp.diagonal(direction, axis1=-2, axis2=-1) / safe_trace[..., None]
     axes = sum(
         share[..., a, None, None]
         * laminate(level_eps, fractions, jnp.broadcast_to(jnp.asarray(np.eye(3)[a], dtype=dtype), normal.shape))
@@ -3910,7 +3965,6 @@ def _corner_fill(
         ``raw`` instead E's fractions per sub-interval (N, S, K + 1), the
         certificate (N, S) and, with ``moments``, E's flux and rates.
     """
-    sg = jax.lax.stop_gradient
     with_n = moments is not None
     if with_n:
         slope, flux_t, rate_t, level_eps, kernel = moments
@@ -4019,12 +4073,13 @@ def _corner_fill(
     return _blend(w, exact, dense, voxel_length, *((flux, flux_t, rate, rate_t) if with_n else ()))
 
 
-def _mean_shift(raw: Array, lower: Array, target: Array, iterations: int = 24) -> Array:
+def _mean_shift(raw: Array, lower: Array, target: Array, iterations: int | None = None) -> Array:
     """The shift s (..., 1) with ``mean(clip(raw + s, lower, 1), axis=-1) = target`` (..., 1).
 
     The mean is monotone in s: s is found by bisection (no derivative), then one Newton step from it gives
     s the implicit derivative (``-d(mean - target) / d mean / ds``, zero where every value is clipped).
     """
+    steps = (52 if jnp.dtype(raw.dtype) == jnp.float64 else 24) if iterations is None else iterations
     r, low_b, t = (jax.lax.stop_gradient(x) for x in (raw, lower, target))
 
     def mean_at(s: Array, values: Array, bound: Array) -> Array:
@@ -4037,7 +4092,7 @@ def _mean_shift(raw: Array, lower: Array, target: Array, iterations: int = 24) -
         return jnp.where(short, m, a), jnp.where(short, b, m)
 
     start = (jnp.min(low_b - r, axis=-1, keepdims=True), jnp.max(1.0 - r, axis=-1, keepdims=True))
-    a, b = jax.lax.fori_loop(0, iterations, step, start)
+    a, b = jax.lax.fori_loop(0, steps, step, start)
     s = jax.lax.stop_gradient(0.5 * (a + b))
     free = ((raw + s > lower) & (raw + s < 1.0)).astype(raw.dtype)
     slope = jnp.mean(free, axis=-1, keepdims=True)
@@ -4880,7 +4935,8 @@ def _wall_offset(level: _Level, z: np.ndarray) -> np.ndarray:
     grow = level.bias
     if level.z_to_bias is not None:
         zs, bs = level.z_to_bias
-        grow = grow + np.interp((z - level.zmin) / level.thickness, zs, bs)
+        frac = np.zeros_like(z) if level.thickness == 0 else (z - level.zmin) / level.thickness
+        grow = grow + np.interp(frac, zs, bs)
     return (z - z_ref) * math.tan(math.radians(level.sidewall_angle)) - grow
 
 
@@ -5416,18 +5472,39 @@ def _recipe_region(recipe: DerivedRecipe, points: np.ndarray) -> Any:
     """The bounded region (shapely) a recipe's evaluated vertices draw (before ``negate``)."""
     import shapely
 
+    signed = [
+        (area, ring)
+        for ring in recipe_rings(recipe, points)
+        if len(ring) >= 3 and (area := float(_ring_area(ring))) != 0.0
+    ]
+    signed.sort(key=lambda item: abs(item[0]), reverse=True)
     region = shapely.Polygon()
-    holes = []
-    for ring in recipe_rings(recipe, points):
-        if len(ring) < 3:
-            continue
+    for area, ring in signed:
         poly = shapely.make_valid(shapely.Polygon(ring))
-        if shapely.LinearRing(ring).is_ccw:
-            region = region.union(poly)
-        else:
-            holes.append(poly)
-    for h in holes:
-        region = region.difference(h)
+        region = region.union(poly) if area > 0.0 else region.difference(poly)
+    return region
+
+
+def _kdb_fold_rings(rings: Sequence[np.ndarray], dbu: float) -> Any:
+    """Folds outer (+area) and hole (-area) rings in descending |area| order into a kdb.Region."""
+    import klayout.db as kdb
+
+    signed = [
+        (area, q)
+        for q in rings
+        if len(q) >= 3 and (area := float(_ring_area(q))) != 0.0
+    ]
+    signed.sort(key=lambda item: abs(item[0]), reverse=True)
+    region = kdb.Region()
+    i = 0
+    while i < len(signed):
+        is_outer = signed[i][0] > 0.0
+        j = i + 1
+        while j < len(signed) and (signed[j][0] > 0.0) == is_outer:
+            j += 1
+        batch = _kdb_region([q for _, q in signed[i:j]], dbu)
+        region = region + batch if is_outer else region - batch
+        i = j
     return region
 
 
@@ -5542,6 +5619,48 @@ def _derived_shapes(
 # ---------------------------------------------------------------- roughness
 
 
+def _check_nonbool_int(name: str, value: Any) -> int:
+    """Validates that ``value`` is a non-boolean integer and returns it as Python int."""
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise TypeError(f"{name} must be an integer, got {value!r}")
+    return int(value)
+
+
+def _validate_stack_options(
+    averaging: Any,
+    yee_staggered: Any,
+    corner_lines: Any,
+    xy_subsamples: Any,
+    derived_shapes: Any,
+    diagnostics: Any,
+    junction_cells: Any,
+    interface_failure: Any,
+) -> None:
+    """Validates shared option fields of :class:`StackOptions` and :class:`StackDevice`."""
+    if averaging not in ("inverse", "subpixel", "subpixel_full"):
+        raise ValueError(f"averaging must be 'inverse', 'subpixel', or 'subpixel_full', got {averaging!r}")
+    if not isinstance(yee_staggered, bool):
+        raise TypeError(f"yee_staggered must be a bool, got {yee_staggered!r}")
+    if _check_nonbool_int("corner_lines", corner_lines) < 0:
+        raise ValueError(f"corner_lines must be >= 0, got {corner_lines!r}")
+    n_sub = _check_nonbool_int("xy_subsamples", xy_subsamples)
+    if n_sub < 1:
+        raise ValueError(f"xy_subsamples must be >= 1, got {xy_subsamples!r}")
+    if derived_shapes not in ("exact", "composite"):
+        raise ValueError(f"derived_shapes must be 'exact' or 'composite', got {derived_shapes!r}")
+    if not isinstance(diagnostics, bool):
+        raise TypeError(f"diagnostics must be a bool, got {diagnostics!r}")
+    if isinstance(junction_cells, (str, bytes)) or not isinstance(junction_cells, Sequence) or len(junction_cells) != 3:
+        raise ValueError(f"junction_cells must be a 3-tuple of positive integers, got {junction_cells!r}")
+    jc = tuple(_check_nonbool_int(f"junction_cells[{i}]", c) for i, c in enumerate(junction_cells))
+    if any(c < 1 for c in jc):
+        raise ValueError(f"junction_cells entries must be >= 1, got {junction_cells!r}")
+    if averaging == "subpixel_full" and (jc[0] % n_sub != 0 or jc[1] % n_sub != 0):
+        raise ValueError(f"junction_cells {jc} must split each of the {n_sub} xy_subsamples per axis evenly")
+    if interface_failure not in ("raise", "warn"):
+        raise ValueError(f"interface_failure must be 'raise' or 'warn', got {interface_failure!r}")
+
+
 @dataclasses.dataclass(frozen=True)
 class StackOptions:
     """Geometry features of a :class:`StackDevice` that cost time, all on by default.
@@ -5582,6 +5701,18 @@ class StackOptions:
     #: or half-plane result (counted in the status, see StackDevice.interface_status)
     interface_failure: Literal["raise", "warn"] = "raise"
 
+    def __post_init__(self) -> None:
+        _validate_stack_options(
+            self.averaging,
+            self.yee_staggered,
+            self.corner_lines,
+            self.xy_subsamples,
+            self.derived_shapes,
+            self.diagnostics,
+            self.junction_cells,
+            self.interface_failure,
+        )
+
     @classmethod
     def fast(cls) -> "StackOptions":
         """Every costly feature off: "inverse" averaging, no Yee staggering, no corner model or diagnostics."""
@@ -5616,6 +5747,26 @@ class TopRoughness(TreeClass):
     #: levels whose bottom sits on this surface follow it (no voids, no overlaps)
     fill_above: bool = frozen_field(default=True)
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.level, str) or not self.level:
+            raise ValueError(f"TopRoughness level must be a non-empty string, got {self.level!r}")
+        if not isinstance(self.fill_above, bool):
+            raise TypeError(f"TopRoughness fill_above must be a bool, got {self.fill_above!r}")
+        if not has_tracers(self.rms):
+            if isinstance(self.rms, bool):
+                raise TypeError(f"TopRoughness rms must be numeric, got {self.rms!r}")
+            rms_val = float(self.rms)
+            if not math.isfinite(rms_val) or rms_val < 0.0:
+                raise ValueError(f"TopRoughness rms must be finite and >= 0, got {self.rms!r}")
+        if not has_tracers(self.correlation_length):
+            if isinstance(self.correlation_length, bool):
+                raise TypeError(f"TopRoughness correlation_length must be numeric, got {self.correlation_length!r}")
+            cl_val = float(self.correlation_length)
+            if not math.isfinite(cl_val) or cl_val < 0.0:
+                raise ValueError(
+                    f"TopRoughness correlation_length must be finite and >= 0, got {self.correlation_length!r}"
+                )
+
     def sample(
         self, shape: tuple[int, int], res_um: float, key: Array, widths: tuple[float, float] | None = None
     ) -> Array:
@@ -5636,6 +5787,51 @@ class TopRoughness(TreeClass):
             length = self.correlation_length / res_um
             f = gaussian_random_field(shape, (length / widths[0], length / widths[1]), key)
         return (self.rms / res_um) * f
+
+
+def _roughness_reach(
+    items: Sequence[tuple[str, float, float]],
+    roughness: Sequence[TopRoughness],
+    bottom: float,
+    top: float,
+    sigma: float = 5.0,
+) -> tuple[set[str], dict[str, tuple[float, float]]]:
+    """Level names whose vertical span (padded by ``5 * rms`` or coupled via ``fill_above``) overlaps ``(bottom, top)``."""
+    spans = {name: (float(lo), float(hi)) for name, lo, hi in items}
+    padded = dict(spans)
+    deps: dict[str, set[str]] = {}
+    traced: set[str] = set()
+    for r in roughness:
+        if r.level not in spans:
+            continue
+        rms_val = _primal(r.rms)
+        if isinstance(rms_val, jax.core.Tracer):
+            traced.add(r.level)
+            pad = 0.0
+        else:
+            pad = sigma * float(rms_val)
+        top_r = spans[r.level][1]
+        lo_r, hi_r = padded[r.level]
+        padded[r.level] = (min(lo_r, top_r - pad), max(hi_r, top_r + pad))
+        if not r.fill_above:
+            continue
+        for name, (lo, hi) in spans.items():
+            if name != r.level and abs(lo - top_r) < 1e-6:
+                lo_c, hi_c = padded[name]
+                padded[name] = (min(lo_c, lo - pad), max(hi_c, hi))
+                deps.setdefault(name, set()).add(r.level)
+                if r.level in traced:
+                    traced.add(name)
+    keep = {name for name, (lo, hi) in padded.items() if (hi > bottom and lo < top) or name in traced}
+    # Retain fill_above roughness bases used by kept levels so _level_surfaces finds tops[r.level].
+    frontier = list(keep)
+    while frontier:
+        cur = frontier.pop()
+        for base in deps.get(cur, ()):
+            if base not in keep:
+                keep.add(base)
+                frontier.append(base)
+    return keep, padded
 
 
 # ---------------------------------------------------------------- precision
@@ -5676,7 +5872,7 @@ def _complex_dtype(dtype: Any) -> Any:
 
 def _plane_face_areas(obj: Any) -> Array:
     """Per-cell transverse areas (m^2) of a placed plane source or detector."""
-    calc_dtype = jnp.float64 if jax.config.jax_enable_x64 else obj._config.dtype
+    calc_dtype = obj._config.dtype
     grid = obj._config.resolved_grid
     if grid is not None:
         return jnp.asarray(
@@ -5765,7 +5961,7 @@ class ModeOverlapDetector(fdtdx.ModeOverlapDetector):
         )
         if not placed._config.has_nonuniform_grid:
             return placed
-        real_dtype = jnp.float64 if _same_dtype(placed.dtype, np.complex128) else jnp.float32
+        real_dtype = placed._config.dtype
         areas = _plane_face_areas(placed)
         ref_area = _reference_face_area(placed._config, areas.dtype)
         weights = (areas / jnp.sqrt(jnp.mean(areas) * ref_area)).astype(real_dtype)
@@ -5975,6 +6171,39 @@ class StackDevice(StaticMultiMaterialObject):
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "dtype", _simulation_dtype(self.dtype))
+        _validate_stack_options(
+            self.averaging,
+            self.yee_staggered,
+            self.corner_lines,
+            self.xy_subsamples,
+            self.derived_shapes,
+            self.diagnostics,
+            self.junction_cells,
+            self.interface_failure,
+        )
+        if isinstance(self.edge_width, bool) or not isinstance(self.edge_width, (int, float, np.number)):
+            raise TypeError(f"edge_width must be a positive number, got {self.edge_width!r}")
+        ew = float(self.edge_width)
+        if not math.isfinite(ew) or ew <= 0.0:
+            raise ValueError(f"edge_width must be finite and > 0, got {self.edge_width!r}")
+        if _check_nonbool_int("edge_chunk", self.edge_chunk) < 1:
+            raise ValueError(f"edge_chunk must be >= 1, got {self.edge_chunk!r}")
+        if _check_nonbool_int("corner_columns", self.corner_columns) < 0 if self.corner_columns is not None else False:
+            raise ValueError(f"corner_columns must be >= 0 or None, got {self.corner_columns!r}")
+        if _check_nonbool_int("junction_voxels", self.junction_voxels) < 0 if self.junction_voxels is not None else False:
+            raise ValueError(f"junction_voxels must be >= 0 or None, got {self.junction_voxels!r}")
+        if isinstance(self.level_margin, bool) or not isinstance(self.level_margin, (int, float, np.number)):
+            raise TypeError(f"level_margin must be a non-negative number, got {self.level_margin!r}")
+        lm = float(self.level_margin)
+        if not math.isfinite(lm) or lm < 0.0:
+            raise ValueError(f"level_margin must be finite and >= 0, got {self.level_margin!r}")
+        if self.topology_tol is not None:
+            if isinstance(self.topology_tol, bool) or not isinstance(self.topology_tol, (int, float, np.number)):
+                raise TypeError(f"topology_tol must be a non-negative number or None, got {self.topology_tol!r}")
+            tt = float(self.topology_tol)
+            if not math.isfinite(tt) or tt < 0.0:
+                raise ValueError(f"topology_tol must be finite and >= 0, got {self.topology_tol!r}")
+        _check_nonbool_int("noise_seed", self.noise_seed)
 
     # ------------------------------------------------------------ construction
 
@@ -6073,13 +6302,24 @@ class StackDevice(StaticMultiMaterialObject):
                     f"from_layer_stack sets {key!r} from zrange_layers, extend_ports and boundary_offset"
                 )
         offset = tuple(float(o) for o in boundary_offset)
-        if len(offset) != 6:
-            raise ValueError(f"boundary_offset must be 6 lengths (x+, x-, y+, y-, z+, z-), got {boundary_offset}")
+        if len(offset) != 6 or not all(math.isfinite(o) for o in offset):
+            raise ValueError(
+                f"boundary_offset must be 6 finite lengths (x+, x-, y+, y-, z+, z-), got {boundary_offset}"
+            )
         if isinstance(zrange_layers, str):
             zrange_layers = [zrange_layers]
         if not zrange_layers:
             raise ValueError("zrange_layers must name at least one level")
-        unknown = [n for n in (*zrange_layers, *(levels or ())) if n not in layer_stack.layers]
+        levels_seq: list[str] | None = None
+        if levels is not None:
+            if isinstance(levels, (str, bytes)):
+                raise TypeError(f"levels must be a sequence of level names, got {levels!r}")
+            levels_seq = list(levels)
+            if not levels_seq:
+                raise ValueError("levels must name at least one level")
+            if len(set(levels_seq)) != len(levels_seq):
+                raise ValueError(f"Duplicate level names in levels={levels_seq!r}")
+        unknown = [n for n in (*zrange_layers, *(levels_seq or ())) if n not in layer_stack.layers]
         if unknown:
             raise KeyError(f"Unknown levels {unknown}; the stack has {sorted(layer_stack.layers)}")
         if background not in materials:
@@ -6095,7 +6335,7 @@ class StackDevice(StaticMultiMaterialObject):
         z0 = min(lo for lo, _ in spans) + offset[5]
         z1 = max(hi for _, hi in spans) + offset[4]
 
-        names = list(levels) if levels is not None else list(layer_stack.layers)
+        names = levels_seq if levels_seq is not None else list(layer_stack.layers)
         candidates = []
         for name in names:
             level = layer_stack.layers[name]
@@ -6117,17 +6357,39 @@ class StackDevice(StaticMultiMaterialObject):
         lap("polygons")
         by_name = {p.name: p for p in ports}
         extended = []
-        for name, length, *only in extend_ports:
+        seen_ext: set[tuple[str, int]] = set()
+        seen_empty: set[str] = set()
+        for item in extend_ports:
+            if isinstance(item, (str, bytes)) or not isinstance(item, Sequence) or len(item) not in (2, 3):
+                raise ValueError(
+                    f"extend_ports entries must be (port_name, length[, layers]), got {item!r}"
+                )
+            name, length, *only = item
             if name not in by_name:
                 raise KeyError(f"Unknown port {name!r} in extend_ports; the component has {sorted(by_name)}")
             p = by_name[name]
-            if p.orientation is None or p.width <= 0 or not float(length) > 0:
+            if (
+                p.orientation is None
+                or p.width <= 0
+                or isinstance(length, bool)
+                or not math.isfinite(float(length))
+                or not float(length) > 0
+            ):
                 raise ValueError(f"Cannot extend port {name!r}: needs an orientation, a width and a length > 0")
             if p.layer not in stack_layers and p.layer not in fills:
                 raise ValueError(f"Port {name!r} is on layer {p.layer}, which no level of the stack draws")
             layers = sorted(stack_layers)
             if only:
                 layers = [index for index in layers if index in {int(get_layer(lay)) for lay in only[0]}]
+            if layers:
+                for idx in layers:
+                    if (str(name), idx) in seen_ext:
+                        raise ValueError(f"Duplicate extend_ports entry for port {name!r} on layer {idx}")
+                    seen_ext.add((str(name), idx))
+            else:
+                if str(name) in seen_empty:
+                    raise ValueError(f"Duplicate extend_ports entry for port {name!r}")
+                seen_empty.add(str(name))
             extended.append((str(name), float(length), tuple(layers)))
         topology_tol = kwargs.get("topology_tol")
         if topology_tol is not None and not float(topology_tol) >= 0:
@@ -6156,14 +6418,19 @@ class StackDevice(StaticMultiMaterialObject):
             raise ValueError(f"level_margin must be >= 0, got {level_margin}")
         margin = level_margin + _SELECT_SLACK
         nonempty = {index for index, polys in polygons.items() if polys} | set(rectangles)
+        roughness_arg = kwargs.get("roughness", ())
+        drawn_spans = [(name, *_span(level)) for name, level, expr in candidates if _expr_can_draw(expr, nonempty)]
+        keep_drawn, _ = _roughness_reach(drawn_spans, roughness_arg, z0 - margin, z1 + margin)
         compiled = []
         empty: dict[int, list[tuple[str, float, float]]] = {}
         dropped: list[tuple[str, float, float]] = []
         for name, level, expr in candidates:
             lo, hi = _span(level)
-            if hi <= z0 - margin or lo >= z1 + margin:
-                if _expr_can_draw(expr, nonempty):
+            if _expr_can_draw(expr, nonempty):
+                if name not in keep_drawn:
                     dropped.append((name, float(lo), float(hi)))  # place_on_grid checks it is not sampled
+                    continue
+            elif hi <= z0 - margin or lo >= z1 + margin:
                 continue  # outside the box
             for index in sorted(_expr_layers(expr) - nonempty):
                 empty.setdefault(index, []).append((name, float(lo), float(hi)))
@@ -6175,14 +6442,44 @@ class StackDevice(StaticMultiMaterialObject):
                     f"{level.material!r} is not in materials {sorted(materials)}; pass it, or "
                     "restrict levels=[...]"
                 )
+            zmin_val = float(level.zmin)
+            thick_val = float(level.thickness)
+            w2z_val = float(level.width_to_z)
+            angle_val = float(level.sidewall_angle)
+            if not (math.isfinite(zmin_val) and math.isfinite(thick_val) and math.isfinite(w2z_val)):
+                raise ValueError(f"Level {name!r}: zmin, thickness, and width_to_z must be finite")
+            if not math.isfinite(angle_val) or abs(angle_val) >= 90.0:
+                raise ValueError(
+                    f"Level {name!r}: abs(sidewall_angle) must be < 90 degrees, got {level.sidewall_angle!r}"
+                )
             bias = level.bias
-            if isinstance(bias, tuple):
-                if bias[0] != bias[1]:
+            if isinstance(bias, (tuple, list)):
+                if len(bias) != 2 or bias[0] != bias[1]:
                     raise NotImplementedError(f"Anisotropic bias {bias} is not supported")
                 bias = bias[0]
+            bias_val = float(bias or 0.0)
+            if not math.isfinite(bias_val):
+                raise ValueError(f"Level {name!r}: bias must be finite, got {level.bias!r}")
             z_to_bias = None
             if level.z_to_bias is not None:
-                z_to_bias = tuple(tuple(float(v) for v in vs) for vs in level.z_to_bias)
+                if (
+                    isinstance(level.z_to_bias, (str, bytes))
+                    or not isinstance(level.z_to_bias, Sequence)
+                    or len(level.z_to_bias) != 2
+                ):
+                    raise ValueError(
+                        f"Level {name!r}: z_to_bias must be a 2-tuple (heights, biases), got {level.z_to_bias!r}"
+                    )
+                zs_raw, bs_raw = level.z_to_bias
+                zs = tuple(float(v) for v in zs_raw)
+                bs = tuple(float(v) for v in bs_raw)
+                if not zs or len(zs) != len(bs):
+                    raise ValueError(f"Level {name!r}: z_to_bias heights and biases must be non-empty and equal length")
+                if not all(math.isfinite(v) for v in (*zs, *bs)):
+                    raise ValueError(f"Level {name!r}: z_to_bias values must be finite")
+                if any(zs[i + 1] <= zs[i] for i in range(len(zs) - 1)):
+                    raise ValueError(f"Level {name!r}: z_to_bias heights must be strictly increasing, got {zs}")
+                z_to_bias = (zs, bs)
             fill_layer = None
             if expr[0] == "fill" and not level.background:
                 try:
@@ -6195,11 +6492,11 @@ class StackDevice(StaticMultiMaterialObject):
                 _Level(
                     name=name,
                     expr=expr,
-                    zmin=float(level.zmin),
-                    thickness=float(level.thickness),
-                    sidewall_angle=float(level.sidewall_angle),
-                    width_to_z=float(level.width_to_z),
-                    bias=float(bias or 0.0),
+                    zmin=zmin_val,
+                    thickness=thick_val,
+                    sidewall_angle=angle_val,
+                    width_to_z=w2z_val,
+                    bias=bias_val,
                     z_to_bias=z_to_bias,
                     mesh_order=int(level.mesh_order),
                     material=level.material,
@@ -6232,9 +6529,6 @@ class StackDevice(StaticMultiMaterialObject):
 
         used = {lv.material for lv in compiled} | {background}
         mats = {k: v for k, v in materials.items() if k in used}
-        for k, m in mats.items():
-            if m.is_magnetic or m.is_magnetically_conductive:
-                raise NotImplementedError(f"Magnetic material {k!r} is not supported in a StackDevice")
         _check_materials(mats, kwargs.get("averaging", "subpixel"), kwargs.get("name", "stack"))
 
         lap("select_levels")
@@ -6347,16 +6641,16 @@ class StackDevice(StaticMultiMaterialObject):
                 gives a device for the new vertices) or the component has
                 polygons on a stack layer the device was built without.
         """
-        out = self._pack(component)
+        out = self._pack(component, cast=False)
         if check and not has_tracers(out):
             self._raise_on_changes(out, component)
-        return out
+        return {k: jnp.asarray(v, dtype=self.dtype) for k, v in out.items()}
 
     @timed("pack_vertices")
-    def _pack(self, component: Any) -> dict[str, Array]:
+    def _pack(self, component: Any, *, cast: bool = True) -> dict[str, Any]:
         """:meth:`pack` without the topology check."""
         polygons = component.get_polygons_points()
-        out = {}
+        out: dict[str, Any] = {}
         extensions = self.source_extensions or tuple(() for _ in self.source_layers)
         for (k, index), sizes, exts in zip(self.source_layers, self.source_sizes, extensions, strict=True):
             polys = polygons.get(index, [])
@@ -6368,19 +6662,40 @@ class StackDevice(StaticMultiMaterialObject):
                     f"{own}, got {len(s)} with {s}. Build a device for the new polygons with "
                     "device.retopologize(component), or StackDevice.from_layer_stack."
                 )
-            v = pack_polygons(polys)[0] if polys else jnp.zeros((0, 2))
-            rects = []
-            for name, length, a, b in exts:
-                # face corners on the polygons' own vertices and edges: an exact seam
-                port = component.ports[name]
-                center = jnp.stack([jnp.asarray(c, dtype=v.dtype) for c in port.center])
-                width = jnp.asarray(port.width, dtype=v.dtype)
-                orientation = jnp.asarray(port.orientation, dtype=v.dtype)
-                rects.append(_extension_rect((a, b), v, center, width, orientation, length, jnp).astype(v.dtype))
-            out[k] = jnp.concatenate([v, *rects]) if rects else v
-        if _same_dtype(self.dtype, np.float64):
-            # a float64 device never draws from vertices below float64 (a float32 device is left as it was)
-            out = {k: v.astype(self.dtype) for k, v in out.items()}
+            ext_ports = [component.ports[name] for name, *_ in exts]
+            concrete = not has_tracers(polys) and not has_tracers(
+                [(p.center, p.width, p.orientation) for p in ext_ports]
+            )
+            if concrete:
+                v = (
+                    np.concatenate([np.asarray(to_numpy(q), dtype=np.float64).reshape(-1, 2) for q in polys], axis=0)
+                    if polys
+                    else np.zeros((0, 2), dtype=np.float64)
+                )
+                rects = []
+                for (name, length, a, b), port in zip(exts, ext_ports, strict=True):
+                    center = np.asarray([float(c) for c in port.center], dtype=np.float64)
+                    rects.append(
+                        np.asarray(
+                            _extension_rect(
+                                (a, b), v, center, float(port.width), float(port.orientation), float(length), np
+                            ),
+                            dtype=np.float64,
+                        )
+                    )
+                out[k] = np.concatenate([v, *rects], axis=0) if rects else v
+            else:
+                v = pack_polygons(polys)[0] if polys else jnp.zeros((0, 2))
+                rects = []
+                for (name, length, a, b), port in zip(exts, ext_ports, strict=True):
+                    # face corners on the polygons' own vertices and edges: an exact seam
+                    center = jnp.stack([jnp.asarray(c, dtype=v.dtype) for c in port.center])
+                    width = jnp.asarray(port.width, dtype=v.dtype)
+                    orientation = jnp.asarray(port.orientation, dtype=v.dtype)
+                    rects.append(_extension_rect((a, b), v, center, width, orientation, length, jnp).astype(v.dtype))
+                out[k] = jnp.concatenate([v, *rects]) if rects else v
+        if cast:
+            return {k: jnp.asarray(v, dtype=self.dtype) for k, v in out.items()}
         return out
 
     # ------------------------------------------------------------ topology
@@ -6449,9 +6764,11 @@ class StackDevice(StaticMultiMaterialObject):
         """
         component = None
         if hasattr(vertices, "get_polygons_points"):
-            component, vertices = vertices, self._pack(vertices)
+            component, vertices = vertices, self._pack(vertices, cast=False)
         else:
             keys = [k for k, _ in self.source_layers]
+            if not keys:
+                return
             vertices = {k: v for k, v in vertices.items() if k in keys}
             if not vertices:
                 raise ValueError(
@@ -6568,6 +6885,10 @@ class StackDevice(StaticMultiMaterialObject):
             budget = out._corner_budget()
             if budget > out.corner_columns:
                 out = out.aset("corner_columns", budget)
+        if out._grid_slice_tuple != INVALID_SLICE_TUPLE_3D and out.averaging == "subpixel_full":
+            jbudget = out._junction_budget()
+            if out.junction_voxels is None or jbudget > out.junction_voxels:
+                out = out.aset("junction_voxels", jbudget)
         return out
 
     def _extended_ports(self) -> tuple[tuple[str, float, tuple[int, ...]], ...]:
@@ -6939,10 +7260,8 @@ class StackDevice(StaticMultiMaterialObject):
             for j, r in enumerate(d.recipes):
                 if len(r.kind):
                     pool = np.concatenate([np.concatenate(polygons[index]) for index in d.layers])
-                    rings = recipe_rings(r, run_recipe(r.kind, r.index, r.positions, pool, np))
-                    outer = [q for q in rings if len(q) >= 3 and _ring_area(q) > 0]
-                    holes = [q for q in rings if len(q) >= 3 and _ring_area(q) < 0]
-                    regions[_part_index(k, j)] = (_kdb_region(outer, dbu) - _kdb_region(holes, dbu)) & clip
+                    rings = recipe_rings(r, run_recipe(r.kind, r.index, r.positions - center, pool, np))
+                    regions[_part_index(k, j)] = _kdb_fold_rings(rings, dbu) & clip
         limit = round(threshold / dbu)
         tol = max(1.0, _ROUND_TOL * limit)  # dbu: round joins are drawn this close to round
         corners: dict[int, tuple[tuple[np.ndarray, Any], tuple[np.ndarray, Any]]] = {}
@@ -7277,7 +7596,18 @@ class StackDevice(StaticMultiMaterialObject):
         else:
             wx, wy = self._lateral_widths()
             offset = np.array([nx / 2, ny / 2]) if wx == wy else np.array([nx * wx / 2, ny * wy / 2])
-        center = np.asarray(self.center, dtype=float)
+        center = np.asarray(self.center, dtype=np.float64)
+        dtype = self.dtype
+
+        def to_cells(coords: Array | np.ndarray) -> Array:
+            if has_tracers(coords):
+                calc = jnp.float64 if jax.config.jax_enable_x64 else dtype
+                c = jnp.asarray(center, dtype=calc)
+                o = jnp.asarray(offset, dtype=calc)
+                return ((jnp.asarray(coords, dtype=calc) - c) / calc(res_um) + o).astype(dtype)
+            local = (np.asarray(to_numpy(coords), dtype=np.float64) - center) / res_um + offset
+            return jnp.asarray(local, dtype=dtype)
+
         out = []
         keys = {index: k for k, index in self.source_layers}
         for d in self.derived_layers:
@@ -7286,9 +7616,7 @@ class StackDevice(StaticMultiMaterialObject):
                 if not len(r.kind):
                     continue
                 if pool is None:
-                    pool = jnp.concatenate(
-                        [(jnp.asarray(params[keys[index]]) - center) / res_um + offset for index in d.layers]
-                    )
+                    pool = jnp.concatenate([to_cells(params[keys[index]]) for index in d.layers])
                 topology = (np.asarray(r.positions, dtype=float) - center) / res_um + offset
                 v = run_recipe(r.kind, r.index, topology, pool)
                 tol = d.tol / res_um
@@ -7305,7 +7633,7 @@ class StackDevice(StaticMultiMaterialObject):
             tol = self._topology_tol(v0) / res_um  # cells
             # partly shared junction edges -> exactly shared seams (static)
             split, split_sizes = split_t_junctions(topology, sizes, tol)
-            v = ((jnp.asarray(params[k]) - center) / res_um + offset)[split]
+            v = to_cells(params[k])[split]
             nxt, ids, boundary = _edge_topology(topology[split], split_sizes, tol)
             links = (None, None, None)
             if self.corner_lines > 0:
@@ -7426,7 +7754,6 @@ class StackDevice(StaticMultiMaterialObject):
             # surfaces (cells), with roughness shared per interface
             z_lo, z_hi = (zb, zb + t) if lv.thickness > 0 else (zb + t, zb)
             lo_nominal = lv.zmin if lv.thickness > 0 else lv.zmin + lv.thickness
-            hi_nominal = lv.zmin + lv.thickness if lv.thickness > 0 else lv.zmin
             z_lo = jnp.broadcast_to(z_lo, (nx, ny))
             z_hi = jnp.broadcast_to(z_hi, (nx, ny))
             for r, dz in zip(self.roughness if offsets_z else (), offsets_z, strict=True):
@@ -7599,9 +7926,17 @@ class StackDevice(StaticMultiMaterialObject):
         else:
             sc = self._to_square()
         near = []
+        base_points = self._sample_points(shift)
+        points_by_dtype: dict[Any, Array] = {}
+
+        def sample_points(dt: Any) -> Array:
+            if dt not in points_by_dtype:
+                points_by_dtype[dt] = base_points.astype(dt)
+            return points_by_dtype[dt]
+
         for layer in plan.layers:
             v, _, _, boundary, src, dst, _ = geometry[layer]
-            points = self._sample_points(shift).astype(v.dtype)
+            points = sample_points(v.dtype)
             near.append(nearest_edges(points, v[src], v[dst], boundary, self.edge_chunk))
         candidate = _corner_candidates(plan, radii, [d for d, _ in near])
         # the first candidates in raster order; unused slots hold nx * ny
@@ -7609,11 +7944,12 @@ class StackDevice(StaticMultiMaterialObject):
         dropped = candidate & (jnp.cumsum(candidate) > capacity)
         cs = jnp.minimum(cols, num - 1)
         taken_cells = _cells_take(cells, cs) if graded_xy else None
+        slots = self._slots()
         models = []
         for layer, (dist, ids) in zip(plan.layers, near, strict=True):
             v, _, pid, _, src, dst, succ = geometry[layer]
-            sd, gx, gy = sdf[self._slots()[layer][1]]
-            points = self._sample_points(shift).astype(v.dtype)
+            sd, gx, gy = sdf[slots[layer][1]]
+            points = sample_points(v.dtype)
             normal = _unit_normal(gx, gy).reshape(num, 2)[cs]
             to_square = 1.0 / taken_cells.cell if graded_xy else sc
             models.append(
@@ -7742,6 +8078,29 @@ class StackDevice(StaticMultiMaterialObject):
         """
         return self._weights_and_normals(params, noise_key, apply_roughness, shift)[:2]
 
+    def _half_planes(
+        self,
+        active: Sequence[tuple[_Level, Any]],
+        is_fill: Sequence[bool],
+        sdf: dict[int, Field],
+        to_square: Array | float,
+        dtype: jnp.dtype,
+    ) -> tuple[Array, Array]:
+        """(nx, ny, K) offsets (sides of the square) and (nx, ny, K, 2) normals of the levels, by priority."""
+        nx, ny, _ = self.grid_shape
+        res_um = self._res_um()
+        offsets, normals = [], []
+        for (lv, _), fill in zip(active, is_fill, strict=True):
+            if fill:
+                offsets.append(jnp.full((nx, ny), -_BIG, dtype=dtype))
+                normals.append(jnp.zeros((nx, ny, 2), dtype=dtype))
+                continue
+            sd, gx, gy = _eval_expr(self._drawn_expr(lv), sdf, (nx, ny), res_um)
+            offsets.append((sd * to_square).astype(dtype))
+            # (1, 0) where no layer is near (BIG distances, zero gradient)
+            normals.append(_unit_normal(gx, gy).astype(dtype))
+        return jnp.stack(offsets, axis=-1), jnp.stack(normals, axis=-2)
+
     @timed("weights")
     def _weights_and_normals(
         self,
@@ -7847,20 +8206,6 @@ class StackDevice(StaticMultiMaterialObject):
                     [self._surface_slopes(z) for z in (*lows, *highs)], axis=-2
                 )
 
-        def half_planes(sdf: dict[int, Field]) -> tuple[Array, Array]:
-            """(nx, ny, K) offsets (sides of the square) and (nx, ny, K, 2) normals of the levels, by priority."""
-            offsets, normals = [], []
-            for (lv, _), fill in zip(active, is_fill, strict=True):
-                if fill:
-                    offsets.append(jnp.full((nx, ny), -_BIG, dtype=dtype))
-                    normals.append(jnp.zeros((nx, ny, 2), dtype=dtype))
-                    continue
-                sd, gx, gy = _eval_expr(self._drawn_expr(lv), sdf, (nx, ny), res_um)
-                offsets.append((sd * to_square).astype(dtype))
-                # (1, 0) where no layer is near (BIG distances, zero gradient)
-                normals.append(_unit_normal(gx, gy).astype(dtype))
-            return jnp.stack(offsets, axis=-1), jnp.stack(normals, axis=-2)
-
         surfaces = (jnp.stack(lows, axis=-1), jnp.stack(highs, axis=-1))  # (nx, ny, K) each
         geometry = self._layer_geometry(p)
         plan, radii = self._corner_plan(active, lows, highs, zaxis)
@@ -7879,11 +8224,12 @@ class StackDevice(StaticMultiMaterialObject):
             corner = None
             if capacity:
                 corner = self._corner_inputs(plan, radii, geometry, sdf, grid, capacity)
+            offsets, normals = self._half_planes(active, is_fill, sdf, to_square, dtype)
             if together:
-                samples.append((*half_planes(sdf), corner, kernel))
+                samples.append((offsets, normals, corner, kernel))
                 continue
             out = _composite(
-                *half_planes(sdf), is_fill, *surfaces, lateral, nz, corner=corner, kernel=kernel, knots=knots,
+                offsets, normals, is_fill, *surfaces, lateral, nz, corner=corner, kernel=kernel, knots=knots,
                 **normal_args, **graded,
             )
             if normal_args:  # one sub-sample
@@ -7987,7 +8333,6 @@ class StackDevice(StaticMultiMaterialObject):
         """
         p = {**self.init_params(), **(params or {})}
         nx, ny, nz = self.grid_shape
-        res_um = self._res_um()
         names, eps = self._material_table()
         dtype = self._config.dtype
         zaxis = self._z_axis(shift[2])
@@ -8020,19 +8365,6 @@ class StackDevice(StaticMultiMaterialObject):
         if apply_roughness and self.roughness:
             surface_slopes = jnp.stack([self._surface_slopes(z) for z in (*lows, *highs)], axis=-2)
 
-        def half_planes(sdf: dict[int, Field]) -> tuple[Array, Array]:
-            """(nx, ny, K) offsets (sides of the square) and (nx, ny, K, 2) normals of the levels, by priority."""
-            offsets, normals = [], []
-            for (lv, _), fill in zip(active, is_fill, strict=True):
-                if fill:
-                    offsets.append(jnp.full((nx, ny), -_BIG, dtype=dtype))
-                    normals.append(jnp.zeros((nx, ny, 2), dtype=dtype))
-                    continue
-                sd, gx, gy = _eval_expr(self._drawn_expr(lv), sdf, (nx, ny), res_um)
-                offsets.append((sd * to_square).astype(dtype))
-                normals.append(_unit_normal(gx, gy).astype(dtype))
-            return jnp.stack(offsets, axis=-1), jnp.stack(normals, axis=-2)
-
         surfaces = (jnp.stack(lows, axis=-1), jnp.stack(highs, axis=-1))
         geometry = self._layer_geometry(p)
         plan, radii = self._corner_plan(active, lows, highs, zaxis)
@@ -8041,16 +8373,18 @@ class StackDevice(StaticMultiMaterialObject):
         fractions = 0.0
         dropped = jnp.zeros((), dtype=jnp.int32)
         uncertified = jnp.zeros((), dtype=jnp.int32)
-        planes = []
-        for a, b, _kernel in _lateral_samples(n_sub, self.edge_width):
+        planes, corners, kernels = [], [], []
+        for a, b, kernel in _lateral_samples(n_sub, self.edge_width):
             # graded x or y: the Yee shift and the sub-sample's offset apart (see _sample_points)
             grid = (shift[0], shift[1], a, b) if graded_xy else (shift[0] + a, shift[1] + b)
             sdf = self._source_sdfs(p, grid, geometry)
             corner = self._corner_inputs(plan, radii, geometry, sdf, grid, capacity) if capacity else None
             if corner is not None and corner.dropped is not None:
                 dropped = dropped + jnp.sum(corner.dropped, dtype=jnp.int32)
-            offsets, normals = half_planes(sdf)
+            offsets, normals = self._half_planes(active, is_fill, sdf, to_square, dtype)
             planes.append((offsets, normals))
+            corners.append(corner)
+            kernels.append(kernel)
             f, d, u = _interface_composite(
                 offsets, normals, is_fill, *surfaces, lateral, nz, lat_half, knots, cell, vectors, contrast2,
                 surface_slopes, corner=corner, **graded,
@@ -8059,17 +8393,37 @@ class StackDevice(StaticMultiMaterialObject):
             direction = direction + d
             uncertified = uncertified + u
         if n_sub == 1:
-            out = []
-            for m in names:
-                cols = [j for j, lm in enumerate(level_materials) if lm == m]
-                if m == self.background:
-                    cols.append(len(level_materials))
-                out.append(fractions[..., cols].sum(axis=-1) if cols else jnp.zeros((nx, ny, nz), dtype))
-            w = jnp.stack(out)
+            per_level = fractions
+        elif capacity:
+            # with sub-samples and corner columns, blend the corner model by the voxel's certificate
+            # (the least of its samples', see _composite_samples) using the already-computed samples
+            per_level = (
+                _composite_samples(
+                    jnp.stack([o for o, _ in planes]),
+                    jnp.stack([n for _, n in planes]),
+                    is_fill,
+                    *surfaces,
+                    lateral,
+                    nz,
+                    None,
+                    kernels,
+                    cell,
+                    corners,
+                    half=lat_half,
+                    knots=knots,
+                    **graded,
+                )[0]
+                / n_sub**2
+            )
         else:
-            # with sub-samples the voxel's fractions blend the corner model by the voxel's certificate (the
-            # least of its samples', see _composite_samples), not each sample's own: material_weights'
-            w = self.material_weights(params, noise_key, apply_roughness, shift)[1]
+            per_level = fractions / n_sub**2
+        out = []
+        for m in names:
+            cols = [j for j, lm in enumerate(level_materials) if lm == m]
+            if m == self.background:
+                cols.append(len(level_materials))
+            out.append(per_level[..., cols].sum(axis=-1) if cols else jnp.zeros((nx, ny, nz), dtype))
+        w = jnp.stack(out)
         voxel = _JunctionInputs(
             offsets=jnp.stack([o for o, _ in planes]),
             normals=jnp.stack([n for _, n in planes]),
@@ -8132,27 +8486,31 @@ class StackDevice(StaticMultiMaterialObject):
         v = g.voxel
         cells = self.junction_cells
         n_sub = self.xy_subsamples
-        if cells[0] % n_sub:
+        if cells[0] % n_sub or cells[1] % n_sub:
             raise ValueError(f"junction_cells {cells} must split each of the {n_sub} sample squares per axis evenly")
-        per = cells[0] // n_sub  # sub-squares per sample square and axis
+        per_x = cells[0] // n_sub  # sub-squares per sample square along x
+        per_y = cells[1] // n_sub  # sub-squares per sample square along y
         per_column = isinstance(v.half, _Cells)  # graded x or y: every voxel's own cell (set per voxel below)
         rectangle = isinstance(v.half, tuple) and not per_column
         if rectangle:  # sub-rectangles of the sample's rectangle
             hx, hy = v.half
-            sub = (hx / per, hy / per)
+            sub: tuple[float, float] | float = (hx / per_x, hy / per_y)
+        elif not per_column:
+            sub = 0.5 / per_x if per_x == per_y else (0.5 / per_x, 0.5 / per_y)
         else:
-            sub = 0.5 / per  # their half side (sides of a sample square)
+            sub = 0.5 / per_x
         # every sub-square (x-major): the sample square holding it and its center in that square's frame
         sample_of, centers, unit = [], [], []
+        sx, sy = (sub if isinstance(sub, tuple) else (sub, sub))
         for i in range(cells[0]):
             for j in range(cells[1]):
-                sample_of.append((i // per) * n_sub + j // per)
+                sample_of.append((i // per_x) * n_sub + j // per_y)
                 # per column: in units of the voxel's half sides (hx, hy)
-                unit.append((-1.0 + (i % per + 0.5) * 2 / per, -1.0 + (j % per + 0.5) * 2 / per))
+                unit.append((-1.0 + (i % per_x + 0.5) * 2 / per_x, -1.0 + (j % per_y + 0.5) * 2 / per_y))
                 if rectangle:
-                    centers.append((-hx + (i % per + 0.5) * 2 * sub[0], -hy + (j % per + 0.5) * 2 * sub[1]))
+                    centers.append((-hx + (i % per_x + 0.5) * 2 * sx, -hy + (j % per_y + 0.5) * 2 * sy))
                 elif not per_column:
-                    centers.append((-0.5 + (i % per + 0.5) * 2 * sub, -0.5 + (j % per + 0.5) * 2 * sub))
+                    centers.append((-0.5 + (i % per_x + 0.5) * 2 * sx, -0.5 + (j % per_y + 0.5) * 2 * sy))
         sample_of = np.asarray(sample_of)
         centers = None if per_column else jnp.asarray(centers, dtype=dtype)
 
@@ -8195,7 +8553,13 @@ class StackDevice(StaticMultiMaterialObject):
             half, sub_j, centers_j, sc = v.half, sub, centers, None if corner is None else corner.sc
             if per_column:  # the voxels' own cells, their sub-cells and the sub-cells' centers
                 half = _Cells(args["hx"], args["hy"], args["cell"], v.half.reach)
-                sub_j = _Cells(args["hx"] / per, args["hy"] / per, args["cell"], v.half.reach / per, 1.0 / per**2)
+                sub_j = _Cells(
+                    args["hx"] / per_x,
+                    args["hy"] / per_y,
+                    args["cell"],
+                    v.half.reach / min(per_x, per_y),
+                    1.0 / (per_x * per_y),
+                )
                 centers_j = jnp.asarray(unit, dtype=dtype)[None] * jnp.stack([args["hx"], args["hy"]], axis=-1)[:, None]
                 sc = (1.0 / args["cell"])[:, None]
             corner_j = None
@@ -8250,7 +8614,7 @@ class StackDevice(StaticMultiMaterialObject):
         def planar(inputs: tuple[Array, Array]) -> Array:
             """(nx, ny, 6) of one voxel layer: the material's own inverse, or the laminate's."""
             fk, nk = inputs
-            k = symmetric_inverse(laminate(eps, fk, nk))
+            k, _ = _safe_symmetric_inverse(laminate(eps, fk, nk))
             pure = jnp.max(fk, axis=-1) >= 1.0
             exact = jnp.einsum("...m,mij->...ij", fk, jnp.asarray(inv_eps, dtype=dtype), precision=_HIGHEST)
             return to_six(jnp.where(pure[..., None, None], exact, k))
@@ -8291,13 +8655,23 @@ class StackDevice(StaticMultiMaterialObject):
             return periodic_cell_tensor(cells_of(args)[1], jnp.stack([wx * ones, wy * ones, height], axis=-1))
 
         tensor, residual = jax.lax.map(jax.checkpoint(closure), jax.tree.map(batched, inputs))
-        tensor = tensor.reshape(-1, 3, 3)[:capacity]
+        tensor = tensor.reshape(-1, 3, 3)[:capacity].astype(dtype)
         residual = residual.reshape(-1)[:capacity]
         w = omega.ravel()[safe]
         planar_eps = laminate(eps, f.reshape(-1, len(names))[safe], normal.reshape(-1, 3)[safe])
-        blended = (1.0 - w)[:, None, None] * planar_eps + w[:, None, None] * tensor.astype(dtype)
-        out = out.at[idx].set(to_six(symmetric_inverse(blended)), mode="drop")
-        status["closure_residual"] = jnp.max(jnp.where(idx < num, residual, 0.0))
+        planar_ok = _is_finite_spd(planar_eps)
+        eye = jnp.eye(3, dtype=dtype)
+        planar_safe = jnp.where(planar_ok[:, None, None], planar_eps, eye)
+        tensor_ok = _is_finite_spd(tensor)
+        residual_ok = jnp.isfinite(residual) & (residual <= _CLOSURE_RESIDUAL)
+        tensor_safe = jnp.where(tensor_ok[:, None, None], tensor, planar_safe)
+        blended = (1.0 - w)[:, None, None] * planar_safe + w[:, None, None] * tensor_safe
+        inv_blended, blended_ok = _safe_symmetric_inverse(blended)
+        certified = (idx < num) & residual_ok & tensor_ok & planar_ok & blended_ok
+        completed = jnp.where(certified[:, None], to_six(inv_blended), out[safe])
+        out = out.at[idx].set(completed, mode="drop")
+        bad_residual = jnp.where(tensor_ok & planar_ok & blended_ok, residual, jnp.asarray(jnp.nan, dtype=dtype))
+        status["closure_residual"] = jnp.max(jnp.where(idx < num, bad_residual, jnp.zeros((), dtype=dtype)))
         return out.reshape(nx, ny, nz, 6), status
 
     # ------------------------------------------------------------ fdtdx hooks
@@ -8436,21 +8810,33 @@ class StackDevice(StaticMultiMaterialObject):
         bottom = self.z_center - half - 0.5 * frame.below[2] * res_um - self.level_margin
         top = self.z_center + half + self.level_margin
         self._warn_dropped_levels(bottom, top)
-        levels = tuple(lv for lv in self.levels if _span(lv)[1] > bottom and _span(lv)[0] < top)
+        keep_names, padded = _roughness_reach(
+            [(lv.name, *_span(lv)) for lv in self.levels], self.roughness, bottom, top
+        )
+        levels = tuple(lv for lv in self.levels if lv.name in keep_names)
         # empty layers matter only to levels that reach the box
         empty = tuple(
             (index, reach)
             for index, readers in self.empty_layers
-            if (reach := tuple((name, lo, hi) for name, lo, hi in readers if hi > bottom and lo < top))
+            if (
+                reach := tuple(
+                    (name, lo, hi)
+                    for name, lo, hi in readers
+                    if name in keep_names
+                    or (padded.get(name, (lo, hi))[1] > bottom and padded.get(name, (lo, hi))[0] < top)
+                )
+            )
         )
         if empty != tuple(self.empty_layers):
             self = self.aset("empty_layers", empty)
-        if len(levels) == len(self.levels):
+        roughness = tuple(r for r in self.roughness if r.level in keep_names)
+        if len(levels) == len(self.levels) and len(roughness) == len(self.roughness):
             return self
         layers = set().union(*(_expr_layers(lv.expr) for lv in levels))
         keep = [i for i, (_, index) in enumerate(self.source_layers) if index in layers]
         used = {lv.material for lv in levels} | {self.background, _ANISOTROPY_SENTINEL}
         out = self.aset("levels", levels)
+        out = out.aset("roughness", roughness)
         out = out.aset("materials", {k: m for k, m in self.materials.items() if k in used})
         for name in ("source_layers", "source_vertices", "source_sizes"):
             out = out.aset(name, tuple(getattr(self, name)[i] for i in keep))
@@ -8573,40 +8959,35 @@ class StackDevice(StaticMultiMaterialObject):
         if full:
             eps_np = eps_np[:, [0, 4, 8]]  # each E component's diagonal entry
         eps = jnp.asarray(eps_np, dtype=dtype)
-        sigma = None
-        if arrays.electric_conductivity is not None:
-            n_c = arrays.electric_conductivity.shape[0]
-            sigma = jnp.asarray(
-                compute_allowed_electric_conductivities(
-                    self.materials, isotropic=n_c == 1, diagonally_anisotropic=n_c == 3
-                ),
-                dtype=dtype,
-            )  # (M, n_c)
+        sigma = self._allowed_conductivity(arrays, dtype)
         # each E component sees the materials around its own Yee position;
         # components are processed one at a time to bound the memory
         shifts = _YEE_E_SHIFTS if rows == 3 and self.yee_staggered else ((0.0, 0.0, 0.0),)
         subpixel = self.averaging in ("subpixel", "subpixel_full")
-        offdiag = self.averaging == "subpixel_full"
         voxel_normal = subpixel and self.subpixel_normal == "voxel"
         if subpixel:
             # the axes of one cell (2D simulations) get no normal component
             keep = jnp.asarray([float(n > 1) for n in self.grid_shape], dtype=dtype)[:, None, None, None]
             sentinel = np.asarray([m == _ANISOTROPY_SENTINEL for m in compute_ordered_names(self.materials)])
-        inv, cond, w_cell = {}, [], 0.0
+        keep_yee_w = (
+            len(shifts) == 3
+            and arrays.dispersive_c1 is not None
+            and arrays.dispersive_c3.shape[1] in (3, 9)
+        )
+        inv, cond, w_cell, yee_weights = {}, [], 0.0, []
         for c in range(rows):
             if c < len(shifts):
                 if voxel_normal:  # the normals of the component's own voxels (all three if they share them)
                     cols = eps_np[:, [c]] if len(shifts) == rows else eps_np
-                    _, w, tensors = self._weights_and_normals(
-                        params, noise_key, apply_roughness, shifts[c], cols, offdiag=offdiag
-                    )
+                    _, w, tensors = self._weights_and_normals(params, noise_key, apply_roughness, shifts[c], cols)
                     tensors = tensors.astype(dtype)
                 else:
                     w = self.material_weights(params, noise_key, apply_roughness, shifts[c])[1]
                 w = w.astype(dtype)
                 w_cell = w_cell + w / len(shifts)  # cell value for the isotropic quantities
-                if sigma is not None and sigma.shape[1] == len(shifts):
-                    cond.append(jnp.sum(w * sigma[:, c, None, None, None], axis=0))
+                if keep_yee_w:
+                    yee_weights.append(w)
+                self._append_staggered_sigma(cond, sigma, w, c, len(shifts))
             e = eps[:, c, None, None, None]
             if subpixel:
                 # n2 <1/eps> + (1 - n2) / <eps> = (1 + n2 a) / <eps>, with the normal
@@ -8618,20 +8999,11 @@ class StackDevice(StaticMultiMaterialObject):
                 fd = _normal_squared(mean_eps, self._fd_spacing(shifts[min(c, len(shifts) - 1)]))[c]
                 n2 = fd
                 if voxel_normal:
-                    tensor = tensors[0 if len(shifts) == rows else c]  # (4 or 7, nx, ny, nz)
+                    tensor = tensors[0 if len(shifts) == rows else c]  # (4, nx, ny, nz)
                     along = tensor[:3] * keep
                     total = jnp.sum(along, axis=0) + tensor[3] + 1e-12
                     n2 = (along[c] + (tensor[3] + 1e-12) * fd) / total
                 inv[c, c] = (1 + n2 * a) / mean_eps
-                if offdiag:  # (B - 1/A) P_cd = a P_cd / A for the two other components d
-                    fd_off = _normal_dyad(mean_eps)
-                    for k, (i, j) in enumerate(_OFFDIAG_PAIRS):
-                        if c not in (i, j):
-                            continue
-                        p_cd = fd_off[k]
-                        if voxel_normal:
-                            p_cd = (tensor[4 + k] * keep[i] * keep[j] + (tensor[3] + 1e-12) * fd_off[k]) / total
-                        inv[c, j if c == i else i] = a * p_cd / mean_eps
             else:
                 inv[c, c] = jnp.sum(w / e, axis=0)
             lap(f"E{'xyz'[c]}" if rows == 3 else "E", inv[c, c])
@@ -8641,26 +9013,7 @@ class StackDevice(StaticMultiMaterialObject):
             arrays.inv_permittivities.at[:, *self.grid_slice].set(jnp.stack(entries).astype(dtype))
         )
         lap("set_permittivity", arrays)
-        if sigma is not None:
-            if not cond:
-                cond = [
-                    jnp.sum(w_cell * sigma[:, k, None, None, None], axis=0)
-                    for k in range(sigma.shape[1])
-                ]
-            cond = jnp.stack(cond) * _conductivity_scale(self._config)
-            gradient_config = self._config.gradient_config
-            if gradient_config is not None and gradient_config.method == "reversible":
-                # fdtdx's reversible backward pass closes over the conductivity:
-                # it gets no gradient there, and a traced one cannot be closed
-                # over (place_on_grid warns that these gradients are inaccurate)
-                cond = jax.lax.stop_gradient(cond)
-            arrays = arrays.at["electric_conductivity"].set(
-                arrays.electric_conductivity.at[:, *self.grid_slice].set(cond.astype(dtype))
-            )
-            lap("conductivity", arrays)
-        if arrays.dispersive_c1 is not None:
-            arrays = self._write_dispersion(arrays, w_cell)
-        return arrays
+        return self._write_conductivity_and_dispersion(arrays, sigma, cond, w_cell, yee_weights or None, dtype)
 
     @timed("write_complete")
     def write_with_status(
@@ -8708,28 +9061,27 @@ class StackDevice(StaticMultiMaterialObject):
                 "averaging='subpixel_full' needs fully anisotropic (9-component) arrays; build the "
                 "device with from_layer_stack(..., averaging='subpixel_full')"
             )
+        _check_materials(self.materials, self.averaging, self.name)
         dtype = arrays.inv_permittivities.dtype
-        sigma = None
-        if arrays.electric_conductivity is not None:
-            n_c = arrays.electric_conductivity.shape[0]
-            sigma = jnp.asarray(
-                compute_allowed_electric_conductivities(
-                    self.materials, isotropic=n_c == 1, diagonally_anisotropic=n_c == 3
-                ),
-                dtype=dtype,
-            )  # (M, n_c)
+        sigma = self._allowed_conductivity(arrays, dtype)
         shifts = _YEE_E_SHIFTS if self.yee_staggered else ((0.0, 0.0, 0.0),)
         capacity = self._junction_capacity()
         # the rows of the symmetric inverse in its 6-entry storage (xx, yy, zz, xy, xz, yz)
         row_entries = ((0, 3, 4), (3, 1, 5), (4, 5, 2))
-        entries, cond, w_cell, statuses = [], [], 0.0, []
+        keep_yee_w = (
+            len(shifts) == 3
+            and arrays.dispersive_c1 is not None
+            and arrays.dispersive_c3.shape[1] in (3, 9)
+        )
+        entries, cond, w_cell, statuses, yee_weights = [], [], 0.0, [], []
         for c in range(3):
             if c < len(shifts):
                 g = self._interfaces(params, noise_key, apply_roughness, shifts[c])
                 w = g.weights.astype(dtype)
                 w_cell = w_cell + w / len(shifts)
-                if sigma is not None and sigma.shape[1] == len(shifts):
-                    cond.append(jnp.sum(w * sigma[:, c, None, None, None], axis=0))
+                if keep_yee_w:
+                    yee_weights.append(w)
+                self._append_staggered_sigma(cond, sigma, w, c, len(shifts))
                 inv6, status = self._complete_tensor(g, capacity)
                 statuses.append({**status, "corner_dropped": g.corner_dropped, "corner_uncertified": g.corner_uncertified})
             entries += [inv6[..., e] for e in row_entries[c]]
@@ -8764,20 +9116,61 @@ class StackDevice(StaticMultiMaterialObject):
             stacked = jnp.where(failed, jnp.nan, stacked)
         arrays = arrays.at["inv_permittivities"].set(arrays.inv_permittivities.at[:, *self.grid_slice].set(stacked))
         lap("set_permittivity", arrays)
+        arrays = self._write_conductivity_and_dispersion(arrays, sigma, cond, w_cell, yee_weights or None, dtype)
+        return arrays, status
+
+    def _allowed_conductivity(self, arrays: Any, dtype: jnp.dtype) -> Array | None:
+        """Allowed electric conductivity table (M, n_c) in ``dtype``, or None."""
+        if arrays.electric_conductivity is None:
+            return None
+        n_c = arrays.electric_conductivity.shape[0]
+        return jnp.asarray(
+            compute_allowed_electric_conductivities(
+                self.materials, isotropic=n_c == 1, diagonally_anisotropic=n_c == 3
+            ),
+            dtype=dtype,
+        )
+
+    @staticmethod
+    def _append_staggered_sigma(
+        cond: list[Array], sigma: Array | None, w: Array, component: int, n_shifts: int
+    ) -> None:
+        """Appends Yee-weighted conductivity row(s) for component ``c`` when ``sigma`` has 3 or 9 entries."""
+        if sigma is None or n_shifts != 3:
+            return
+        if sigma.shape[1] == 3:
+            cond.append(jnp.sum(w * sigma[:, component, None, None, None], axis=0))
+        elif sigma.shape[1] == 9:
+            for d in range(3):
+                cond.append(jnp.sum(w * sigma[:, 3 * component + d, None, None, None], axis=0))
+
+    def _write_conductivity_and_dispersion(
+        self,
+        arrays: Any,
+        sigma: Array | None,
+        cond: list[Array],
+        w_cell: Array,
+        yee_weights: Sequence[Array] | None,
+        dtype: jnp.dtype,
+    ) -> Any:
+        """Writes mixed electric conductivity and dispersive pole coefficients for this box."""
         if sigma is not None:
             if not cond:
                 cond = [jnp.sum(w_cell * sigma[:, k, None, None, None], axis=0) for k in range(sigma.shape[1])]
-            cond = jnp.stack(cond) * _conductivity_scale(self._config)
+            mixed_cond = jnp.stack(cond) * _conductivity_scale(self._config)
             gradient_config = self._config.gradient_config
             if gradient_config is not None and gradient_config.method == "reversible":
-                cond = jax.lax.stop_gradient(cond)
+                # fdtdx's reversible backward pass closes over the conductivity:
+                # it gets no gradient there, and a traced one cannot be closed
+                # over (place_on_grid warns that these gradients are inaccurate)
+                mixed_cond = jax.lax.stop_gradient(mixed_cond)
             arrays = arrays.at["electric_conductivity"].set(
-                arrays.electric_conductivity.at[:, *self.grid_slice].set(cond.astype(dtype))
+                arrays.electric_conductivity.at[:, *self.grid_slice].set(mixed_cond.astype(dtype))
             )
             lap("conductivity", arrays)
         if arrays.dispersive_c1 is not None:
-            arrays = self._write_dispersion(arrays, w_cell)
-        return arrays, status
+            arrays = self._write_dispersion(arrays, w_cell, yee_weights=yee_weights)
+        return arrays
 
     def interface_status(
         self, params: dict[str, Array] | None = None, noise_key: Array | None = None, apply_roughness: bool = True
@@ -8790,20 +9183,28 @@ class StackDevice(StaticMultiMaterialObject):
         largest residual. Use it to check coverage before an optimization, or after one at its final
         parameters.
         """
+        p = {**self.init_params(), **(params or {})}
         shifts = _YEE_E_SHIFTS if self.yee_staggered else ((0.0, 0.0, 0.0),)
         capacity = self._junction_capacity()
-        out = {"junctions": 0, "junction_overflow": 0, "corner_dropped": 0, "corner_uncertified": 0,
-               "closure_residual": 0.0}
+        junctions = overflow = dropped = uncertified = jnp.zeros((), dtype=jnp.int32)
+        residual = jnp.zeros((), dtype=self.dtype)
         for shift in shifts:
-            g = self._interfaces(params, noise_key, apply_roughness, shift)
-            _, status = self._complete_tensor(g, capacity)
-            out["junctions"] += int(status["junctions"])
-            out["junction_overflow"] += int(status["junction_overflow"])
-            out["corner_dropped"] += int(g.corner_dropped)
-            out["corner_uncertified"] += int(g.corner_uncertified)
-            out["closure_residual"] = max(out["closure_residual"], float(status["closure_residual"]))
-        out["junction_voxels"] = capacity
-        return out
+            j, o, d, u, r = _interface_status_core(
+                self, p, noise_key, bool(apply_roughness), capacity, shift
+            )
+            junctions = junctions + j
+            overflow = overflow + o
+            dropped = dropped + d
+            uncertified = uncertified + u
+            residual = jnp.maximum(residual, r)
+        return {
+            "junctions": int(junctions),
+            "junction_overflow": int(overflow),
+            "corner_dropped": int(dropped),
+            "corner_uncertified": int(uncertified),
+            "closure_residual": float(residual),
+            "junction_voxels": capacity,
+        }
 
     def coarse_vertices(self, params: dict[str, Array], mesh: Any) -> Any:
         """How many vertices sit in grid cells wider than their target, per source layer.
@@ -8837,25 +9238,27 @@ class StackDevice(StaticMultiMaterialObject):
         return coarse_vertices(self, params, mesh)
 
     @timed("dispersion")
-    def _write_dispersion(self, arrays: Any, w: Array) -> Any:
+    def _write_dispersion(self, arrays: Any, w: Array, yee_weights: Sequence[Array] | None = None) -> Any:
         """Writes the pole coefficients of the box.
 
         c1, c2 are the slot constants in every voxel, also where no material
         with that pole is (c3 = 0 keeps P = 0 there, and the adjoint of c3 sees
-        the material's recurrence); ``c3 = sum_m w_m c3_m``. Slots that other
-        objects need beyond the stack's own are zeroed in the box. The slots
-        are isotropic; they fill whatever component axes the arrays have (other
-        objects may make them per-axis, or c3 a 3x3 tensor).
+        the material's recurrence); ``c3 = sum_m w_m c3_m`` (using per-axis Yee
+        fractions ``yee_weights = (w_Ex, w_Ey, w_Ez)`` for 3- or 9-component
+        couplings when staggered). Slots that other objects need beyond the
+        stack's own are zeroed in the box.
 
         Args:
             arrays: fdtdx ArrayContainer with dispersive arrays.
             w: (M, nx, ny, nz) material fractions in fdtdx's material order.
+            yee_weights: optional ``(w_Ex, w_Ey, w_Ez)`` staggered fractions.
 
         Returns:
             The arrays with c1, c2 and c3 overwritten in the box.
 
         Raises:
-            ValueError: if the arrays have fewer pole slots than the device needs.
+            ValueError: if the arrays have fewer pole slots than the device needs,
+                or ``yee_weights`` does not have length 3.
         """
         n_slots, n_comp = arrays.dispersive_c1.shape[:2]
         n_coupling = arrays.dispersive_c3.shape[1]
@@ -8873,7 +9276,7 @@ class StackDevice(StaticMultiMaterialObject):
         c3 = jnp.zeros((n_slots, n_coupling, *self.grid_shape), dtype=dtype)
         if n:
             a1, a2, _ = compute_pole_coefficients(slots, dt)
-            # (M, n, n_coupling): the slots' K, diagonal entries only (isotropic)
+            # (M, n, n_coupling): the slots' K (isotropic, diagonal, or row-major 3x3)
             _, _, a3 = compute_allowed_dispersive_coefficients(
                 self.materials, dt, max_num_poles=n, num_components=n_comp, coupling_components=n_coupling
             )
@@ -8885,12 +9288,34 @@ class StackDevice(StaticMultiMaterialObject):
 
             c1 = c1.at[:n].set(per_slot(a1))
             c2 = c2.at[:n].set(per_slot(a2))
-            mixed = jnp.einsum(  # full precision: GPUs default to TF32 for matmuls
-                "msc,mxyz->scxyz",
-                jnp.asarray(a3, dtype),
-                w.astype(dtype),
-                precision=jax.lax.Precision.HIGHEST,
-            )
+            a3_arr = jnp.asarray(a3, dtype)
+            if yee_weights is not None and len(yee_weights) != 3:
+                raise ValueError(f"yee_weights must have 3 entries (Ex, Ey, Ez), got {len(yee_weights)}")
+            if n_coupling == 1 or yee_weights is None:
+                mixed = jnp.einsum(  # full precision: GPUs default to TF32 for matmuls
+                    "msc,mxyz->scxyz",
+                    a3_arr,
+                    w.astype(dtype),
+                    precision=jax.lax.Precision.HIGHEST,
+                )
+            elif n_coupling == 3:
+                w_yee = jnp.stack([wy.astype(dtype) for wy in yee_weights])
+                mixed = jnp.einsum(
+                    "msc,cmxyz->scxyz",
+                    a3_arr,
+                    w_yee,
+                    precision=jax.lax.Precision.HIGHEST,
+                )
+            elif n_coupling == 9:
+                w_yee = jnp.stack([wy.astype(dtype) for wy in yee_weights])
+                mixed = jnp.einsum(
+                    "msab,amxyz->sabxyz",
+                    a3_arr.reshape(a3_arr.shape[0], n, 3, 3),
+                    w_yee,
+                    precision=jax.lax.Precision.HIGHEST,
+                ).reshape(n, 9, *self.grid_shape)
+            else:
+                raise ValueError(f"Unexpected dispersive_c3 coupling components {n_coupling}")
             c3 = c3.at[:n].set(mixed)
         for name, value in (
             ("dispersive_c1", c1),
@@ -8955,6 +9380,11 @@ class StackDevice(StaticMultiMaterialObject):
         """
         if self.partial_real_shape is None or None in tuple(self.partial_real_shape):
             raise ValueError(f"StackDevice {self.name!r} has no box (partial_real_shape)")
+        if isinstance(spacing_um, bool) or not isinstance(spacing_um, (int, float, np.number)):
+            raise TypeError(f"spacing_um must be a positive finite number, got {spacing_um!r}")
+        spacing = float(spacing_um)
+        if not math.isfinite(spacing) or spacing <= 0.0:
+            raise ValueError(f"spacing_um must be finite and > 0, got {spacing_um!r}")
         sizes = [float(s) * 1e6 for s in self.partial_real_shape]
         middles = (float(self.center[0]), float(self.center[1]), float(self.z_center))
         out = []
@@ -8962,17 +9392,17 @@ class StackDevice(StaticMultiMaterialObject):
             mid, size = middles[axis], sizes[axis]
             lo, hi = mid - 0.5 * size, mid + 0.5 * size
             if given is None:
-                n = round(size / spacing_um)
-                if n < 1 or abs(n * spacing_um - size) > 1e-6:
+                n = round(size / spacing)
+                if n < 1 or abs(n * spacing - size) > 1e-6:
                     raise ValueError(
                         f"StackDevice {self.name!r}: the box is {size:g} um along {'xyz'[axis]}, not a whole "
-                        f"number of {spacing_um:g} um cells; pass its edges ({'xyz'[axis]}_um)"
+                        f"number of {spacing:g} um cells; pass its edges ({'xyz'[axis]}_um)"
                     )
-                edges = spacing_um * (np.arange(n + 1) - 0.5 * n)
+                edges = spacing * (np.arange(n + 1) - 0.5 * n)
             else:
                 e = np.array(given, dtype=np.float64)
-                if e.ndim != 1 or len(e) < 2 or np.any(np.diff(e) <= 0):
-                    raise ValueError(f"{'xyz'[axis]}_um must be strictly increasing edges, got {given!r}")
+                if e.ndim != 1 or len(e) < 2 or not np.all(np.isfinite(e)) or np.any(np.diff(e) <= 0):
+                    raise ValueError(f"{'xyz'[axis]}_um must be finite strictly increasing edges, got {given!r}")
                 if abs(e[0] - lo) > 1e-6 or abs(e[-1] - hi) > 1e-6:
                     raise ValueError(
                         f"StackDevice {self.name!r}: {'xyz'[axis]}_um must run from the box's face {lo:g} to "
@@ -8980,7 +9410,13 @@ class StackDevice(StaticMultiMaterialObject):
                     )
                 e[0], e[-1] = lo, hi
                 edges = e - mid
-            out.append(jnp.asarray(edges * 1e-6, dtype=self.dtype))
+            edges_grid = jnp.asarray(edges * 1e-6, dtype=self.dtype)
+            if not bool(jnp.all(jnp.diff(edges_grid) > 0)):
+                raise ValueError(
+                    f"StackDevice {self.name!r}: {'xyz'[axis]}_um collapses adjacent edges after casting to "
+                    f"{np.dtype(self.dtype).name}"
+                )
+            out.append(edges_grid)
         return fdtdx.core.grid.RectilinearGrid(x_edges=out[0], y_edges=out[1], z_edges=out[2])
 
     def _grid_in_dtype(self, grid: Any) -> Any:
@@ -9061,6 +9497,26 @@ class StackDevice(StaticMultiMaterialObject):
                 "truncate everything to float32. Importing bifrost turns it on; remove the "
                 "jax.enable_x64(False) around this call or the jax.config.update that turned it off"
             )
+        if _same_dtype(self.dtype, np.float32) and self.source_vertices:
+            if grid is not None:
+                min_sp = getattr(grid, "min_spacing", None)
+                if min_sp is None:
+                    min_sp = min(float(np.min(np.diff(np.asarray(grid.edges(a))))) for a in range(3))
+                h_um = float(min_sp) * 1e6
+            elif hasattr(config.grid, "min_spacing"):
+                h_um = float(config.grid.min_spacing) * 1e6
+            else:
+                h_um = float(config.uniform_spacing()) * 1e6
+            max_coord = max((float(np.abs(v).max()) for v in self.source_vertices if v.size), default=0.0)
+            quant_um = max_coord * float(np.finfo(np.float32).eps)
+            if h_um > 0.0 and quant_um > 0.01 * h_um:
+                warnings.warn(
+                    f"StackDevice {self.name!r}: float32 vertex coordinates up to {max_coord:g} um have ULP "
+                    f"rounding (~{quant_um:.3g} um) exceeding 1% of the finest grid spacing ({h_um:.3g} um); "
+                    "use dtype=jnp.float64 or center the component near (0, 0)",
+                    UserWarning,
+                    stacklevel=3,
+                )
 
     def _port(self, port: str) -> _Port:
         """Looks up a port by name.
@@ -9101,8 +9557,9 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             plane: ``"xy"``, ``"xz"`` or ``"yz"``.
-            port_offset: shift (um) along the normal; positive moves toward the
-                outward direction (+normal).
+            port_offset: shift (um) along ``"in"`` (``-normal``); negative moves toward
+                the outward direction (``+normal``). Note: absolute viewer placement
+                with ``port="None"`` keeps ``"in"`` along ``+axis``.
             level: a level name, :data:`Z_CENTER_LEVEL`, or ``None`` for the
                 volume's mid-height.
 
@@ -9130,7 +9587,9 @@ class StackDevice(StaticMultiMaterialObject):
             spans = [_span(lv) for lv in match]
             z = 0.5 * (min(a for a, _ in spans) + max(b for _, b in spans))
         center = [float(self.center[0]), float(self.center[1]), z]
-        center[axis] += port_offset
+        # Keep outward = +1 so "in" points along -normal and +port_offset moves along "in";
+        # viewer placement with port="None" (no port) keeps "in" -> +axis.
+        center[axis] -= port_offset
         port = _Port(name=plane, x=center[0], y=center[1], orientation=None, width=width, layer=-1)
         return port, axis, 1, center, height
 
@@ -9267,12 +9726,15 @@ class StackDevice(StaticMultiMaterialObject):
         u_axis, v_axis = _IN_PLANE[axis]
         real[u_axis] = width_um * 1e-6
         real[v_axis] = height_um * 1e-6
+        snapped_extents = [width_um, height_um]
         if grid is not None:
-            for a, extent in ((u_axis, width_um), (v_axis, height_um)):
-                snapped = self._snap_extent(grid, a, center[a], extent)
+            for idx, (a, extent) in enumerate(((u_axis, width_um), (v_axis, height_um))):
+                snapped = self._snap_extent_span(grid, a, center[a], extent)
                 if snapped is not None:
-                    cells[a], center[a] = snapped
+                    cells[a], center[a], snapped_extents[idx] = snapped
                     real[a] = None
+        if issubclass(cls, fdtdx.GaussianPlaneSource) and fields.get("radius") is None:
+            fields["radius"] = 0.5 * min(snapped_extents) * 1e-6
         if direction is not None:
             fields["direction"] = _axis_direction(direction, sign)
         if "dtype" not in fields:
@@ -9291,24 +9753,10 @@ class StackDevice(StaticMultiMaterialObject):
         own = detector_plane_own_positions(axis) if isinstance(obj, fdtdx.Detector) else (0, 0, 0)
         return obj, self._place_at(obj, center, own)
 
-    def _snap_extent(self, grid: Any, axis: int, center_um: float, extent_um: float) -> tuple[int, float] | None:
-        """Whole cells for an extent along a non-uniform axis of the grid the device fills.
-
-        Args:
-            grid: a ``SimulationConfig`` or a ``RectilinearGrid`` spanning this device's box.
-            axis: 0, 1 or 2.
-            center_um: the extent's center (stack coordinates, um).
-            extent_um: its length (um).
-
-        Returns:
-            (cells, snapped center in um): the extent's faces moved to the nearest edges, at
-            least one cell; None where the grid's cells along ``axis`` are all one size (or
-            the grid is not resolved), which fdtdx places exactly.
-
-        Raises:
-            ValueError: if the grid does not span the device's box along ``axis``: the device
-                must fill the simulation volume, whose middle is then the box's center.
-        """
+    def _snap_extent_span(
+        self, grid: Any, axis: int, center_um: float, extent_um: float
+    ) -> tuple[int, float, float] | None:
+        """Whole cells, snapped center (um), and snapped span (um) along a non-uniform axis."""
         resolved = grid.resolved_grid if isinstance(grid, SimulationConfig) else grid
         if not isinstance(resolved, fdtdx.core.grid.RectilinearGrid):
             return None
@@ -9333,7 +9781,28 @@ class StackDevice(StaticMultiMaterialObject):
         if hi <= lo:
             hi = min(lo + 1, len(edges) - 1)
             lo = hi - 1
-        return hi - lo, 0.5 * (edges[lo] + edges[hi]) - offset
+        return hi - lo, 0.5 * (edges[lo] + edges[hi]) - offset, float(edges[hi] - edges[lo])
+
+    def _snap_extent(self, grid: Any, axis: int, center_um: float, extent_um: float) -> tuple[int, float] | None:
+        """Whole cells for an extent along a non-uniform axis of the grid the device fills.
+
+        Args:
+            grid: a ``SimulationConfig`` or a ``RectilinearGrid`` spanning this device's box.
+            axis: 0, 1 or 2.
+            center_um: the extent's center (stack coordinates, um).
+            extent_um: its length (um).
+
+        Returns:
+            (cells, snapped center in um): the extent's faces moved to the nearest edges, at
+            least one cell; None where the grid's cells along ``axis`` are all one size (or
+            the grid is not resolved), which fdtdx places exactly.
+
+        Raises:
+            ValueError: if the grid does not span the device's box along ``axis``: the device
+                must fill the simulation volume, whose middle is then the box's center.
+        """
+        snapped = self._snap_extent_span(grid, axis, center_um, extent_um)
+        return None if snapped is None else (snapped[0], snapped[1])
 
     # ------------------------------------------------------------ sources on ports
 
@@ -9422,10 +9891,8 @@ class StackDevice(StaticMultiMaterialObject):
             The source and the constraints placing it relative to this device.
         """
         wavelengths_um = [wave_character.get_wavelength() * 1e6]
-        if radius is None:
-            p, *_, height = self._port_frame(port, level, port_offset)
-            radius = 0.5 * min(plane_extents(p.width, height, port_padding, wavelengths_um))
         fields = _given(
+            radius=None if radius is None else radius * 1e-6,
             temporal_profile=temporal_profile,
             fixed_E_polarization_vector=fixed_E_polarization_vector,
             fixed_H_polarization_vector=fixed_H_polarization_vector,
@@ -9434,7 +9901,7 @@ class StackDevice(StaticMultiMaterialObject):
             fdtdx.GaussianPlaneSource, port, port_padding, "gaussian_source",
             wavelengths_um=wavelengths_um,
             direction=direction,
-            level=level, port_offset=port_offset, name=name, wave_character=wave_character, radius=radius * 1e-6,
+            level=level, port_offset=port_offset, name=name, wave_character=wave_character,
             std=std, **fields, **kwargs,
         )
 
@@ -9575,12 +10042,24 @@ class StackDevice(StaticMultiMaterialObject):
             The source and the constraints placing it relative to this device.
         """
         _, _, _, center, _ = self._port_frame(port, level, port_offset)
-        axis = {"x": 0, "y": 1, "z": 2}.get(polarization, polarization)  # type: ignore[call-overload]
+        if isinstance(polarization, bool) or not isinstance(polarization, (str, int, np.integer)):
+            raise TypeError(
+                f"polarization must be 0, 1, 2 or 'x', 'y', 'z', got {type(polarization).__name__}: {polarization!r}"
+            )
+        if isinstance(polarization, str):
+            axis_map = {"x": 0, "y": 1, "z": 2}
+            if polarization not in axis_map:
+                raise ValueError(f"polarization must be 0, 1, 2 or 'x', 'y', 'z', got {polarization!r}")
+            axis = axis_map[polarization]
+        else:
+            axis = int(polarization)
+            if axis not in (0, 1, 2):
+                raise ValueError(f"polarization must be 0, 1, 2 or 'x', 'y', 'z', got {polarization!r}")
         source = fdtdx.PointDipoleSource(
             name=name or f"{port}_dipole_source",
             partial_grid_shape=(1, 1, 1),
             wave_character=wave_character,
-            polarization=int(axis),
+            polarization=axis,
             azimuth_angle=azimuth_angle,
             elevation_angle=elevation_angle,
             source_type=source_type,
@@ -9970,11 +10449,12 @@ def _normal_dyad(q: Array) -> Array:
 
 
 def _check_materials(materials: dict[str, fdtdx.Material], averaging: str, name: str) -> None:
-    """Checks the permittivity of the materials a StackDevice paints.
+    """Checks the permittivity and magnetic properties of the materials a StackDevice paints.
 
-    Every tensor must be finite, symmetric and positive definite
+    Every permittivity tensor must be finite, symmetric and positive definite
     (:func:`bifrost.subpixel.check_permittivity`); off-diagonal entries are written by
     ``averaging="subpixel_full"`` only, so with another averaging they are an error rather than dropped.
+    Magnetic materials and magnetic conductivities are not supported by StackDevice.
 
     Args:
         materials: the device's materials (the anisotropy placeholder is skipped).
@@ -9982,11 +10462,17 @@ def _check_materials(materials: dict[str, fdtdx.Material], averaging: str, name:
         name: the device's name, for the message.
 
     Raises:
-        ValueError: an invalid tensor, or off-diagonal entries without "subpixel_full".
+        ValueError: an invalid tensor, off-diagonal entries without "subpixel_full",
+            or a magnetic / magnetically conductive material.
     """
     for key, material in materials.items():
         if key == _ANISOTROPY_SENTINEL:
             continue
+        if getattr(material, "is_magnetic", False) or getattr(material, "is_magnetically_conductive", False):
+            raise ValueError(
+                f"Material {key!r} of StackDevice {name!r} has magnetic properties or magnetic conductivity, "
+                "which StackDevice does not mix"
+            )
         eps = material_tensor(material)
         check_permittivity(eps, key)
         if averaging != "subpixel_full" and not is_diagonal(eps):
@@ -10123,6 +10609,27 @@ def init_stack_params(objects: Any) -> dict[str, dict[str, Array]]:
     return {o.name: o.init_params() for o in stack_devices(objects)}
 
 
+@partial(jax.jit, static_argnames=("apply_roughness", "capacity", "shift"))
+def _interface_status_core(
+    device: StackDevice,
+    params: dict[str, Array],
+    noise_key: Array | None,
+    apply_roughness: bool,
+    capacity: int,
+    shift: tuple[float, float, float],
+) -> tuple[Array, Array, Array, Array, Array]:
+    """JIT-compiled interface status computation for one Yee shift."""
+    g = device._interfaces(params, noise_key, apply_roughness, shift)
+    _, status = device._complete_tensor(g, capacity)
+    return (
+        jnp.asarray(status["junctions"], dtype=jnp.int32),
+        jnp.asarray(status["junction_overflow"], dtype=jnp.int32),
+        jnp.asarray(g.corner_dropped, dtype=jnp.int32),
+        jnp.asarray(g.corner_uncertified, dtype=jnp.int32),
+        jnp.asarray(status["closure_residual"], dtype=device.dtype),
+    )
+
+
 @timed("apply_stack")
 def apply_stack(
     arrays: Any,
@@ -10146,20 +10653,20 @@ def apply_stack(
     ``fdtdx.apply_params`` (0.6.3) re-applies only those overlapping a
     ``Device``; without this step a mode source would launch the mode of that
     painting, not of the stack, and scatter where it is injected. An object
-    is skipped while its materials are those it was last applied with here
-    (same values, compared concretely; under ``jax.grad`` by the primal
-    values), so repeated calls with unchanged parameters solve no modes.
-    ``info["stack_reapplied"]`` and ``info["stack_reused"]`` name the objects.
+    is skipped while its materials match a previous solve in a bounded LRU
+    cache keyed by configuration and compact content digests (under ``jax.grad``
+    by the primal values), so repeated calls with unchanged parameters solve no
+    modes. ``info["stack_reapplied"]`` and ``info["stack_reused"]`` name the
+    objects.
 
     In dispersive simulations with mode or plane-wave sources, fdtdx 0.6.2
     builds the sources' dispersive filter with numpy, so this call (like
     ``fdtdx.apply_params``) cannot run inside ``jax.jit``; ``jax.grad`` works.
 
     The returned objects also have their PML coefficients in the stacks'
-    ``dtype``: fdtdx 0.6.3 derives them as float64 under JAX's 64-bit mode (which
-    importing bifrost turns on) and float32 simulations would then fail in
-    ``fdtdx.run_fdtd``. No ``jax.enable_x64(False)`` is needed around the run,
-    for either dtype.
+    ``dtype``: when 64-bit JAX mode is active, fdtdx 0.6.3 derives them as
+    float64 and float32 simulations would otherwise fail in ``fdtdx.run_fdtd``.
+    No ``jax.enable_x64(False)`` is needed around the run, for either dtype.
 
     Args:
         arrays: fdtdx ArrayContainer.
@@ -10174,14 +10681,49 @@ def apply_stack(
         (arrays, objects, info) as ``fdtdx.apply_params`` returns them.
     """
     stacks = stack_devices(objects)
+    if stacks:
+        expected_dtype = stacks[0].dtype
+        for o in stacks[1:]:
+            if not _same_dtype(o.dtype, expected_dtype):
+                raise ValueError(
+                    f"apply_stack: StackDevices must share one dtype, got "
+                    f"{stacks[0].name!r} ({expected_dtype}) and {o.name!r} ({o.dtype})"
+                )
+        if not _same_dtype(arrays.inv_permittivities.dtype, expected_dtype):
+            raise ValueError(
+                f"apply_stack: arrays.inv_permittivities has dtype {arrays.inv_permittivities.dtype}, "
+                f"expected StackDevice dtype {expected_dtype}"
+            )
+        for i, a in enumerate(stacks):
+            for b in stacks[i + 1 :]:
+                if _boxes_overlap(a, b):
+                    raise ValueError(
+                        f"apply_stack: StackDevices {a.name!r} and {b.name!r} have overlapping grid boxes "
+                        f"{a.grid_slice_tuple} and {b.grid_slice_tuple}"
+                    )
     statuses = {}
     for o in stacks:
         arrays, status = o.write_with_status(arrays, params.get(o.name), noise_key, apply_roughness)
         if status:
             statuses[o.name] = status
     lap("write_stacks", arrays)
-    device_params = {d.name: params[d.name] for d in objects.devices}
-    arrays, objects, info = fdtdx.apply_params(arrays, objects, device_params, key, **transform_kwargs)
+    skipped_devices = {d.name: d for d in objects.devices if d.name not in params}
+    if skipped_devices:
+        device_params = {d.name: params[d.name] for d in objects.devices if d.name in params}
+        volume_obj = objects.volume
+        filtered_list = [o for o in objects.object_list if o.name not in skipped_devices]
+        apply_objects = ObjectContainer(object_list=filtered_list, volume_idx=filtered_list.index(volume_obj))
+        arrays, applied_objects, info = fdtdx.apply_params(
+            arrays, apply_objects, device_params, key, **transform_kwargs
+        )
+        by_name = {o.name: o for o in applied_objects.object_list}
+        objects = ObjectContainer(
+            object_list=[skipped_devices.get(o.name, by_name[o.name]) for o in objects.object_list],
+            volume_idx=objects.volume_idx,
+        )
+    else:
+        device_params = {d.name: params[d.name] for d in objects.devices}
+        arrays, objects, info = fdtdx.apply_params(arrays, objects, device_params, key, **transform_kwargs)
     lap("apply_params", arrays)
     objects, reapplied, reused = _reapply_stack_objects(arrays, objects, stacks, key)
     lap("reapply_objects", objects)
@@ -10210,21 +10752,113 @@ def _primal(x: Any) -> Any:
     return x
 
 
-def _same_materials(record: Any, slices: tuple[Any, ...]) -> bool:
-    """Whether the materials recorded at the last re-apply equal the current ones (False when unknown)."""
-    if record is None or len(record) != len(slices):
-        return False
-    for old, new in zip(record, slices, strict=True):
-        if old is None or new is None:
-            if old is not new:
-                return False
+def _hashable_config_value(val: Any, seen: set[int] | None = None) -> Any:
+    """Converts an object field or configuration value into a hashable key."""
+    if val is None or isinstance(val, (bool, int, float, str, bytes, np.dtype, jnp.dtype, type, Enum)):
+        return val
+    val = _primal(val)
+    if isinstance(val, jax.core.Tracer):
+        return ("tracer", id(val))
+    if isinstance(val, (np.ndarray, jax.Array)):
+        arr = np.ascontiguousarray(np.asarray(val))
+        return ("array", arr.dtype.str, arr.shape, hashlib.blake2b(arr, digest_size=16).digest())
+    if isinstance(val, np.generic):
+        return (type(val).__name__, val.item())
+    if seen is None:
+        seen = set()
+    obj_id = id(val)
+    if obj_id in seen:
+        return ("cycle", obj_id)
+    if isinstance(val, (tuple, list)):
+        seen.add(obj_id)
+        try:
+            return (type(val).__name__, tuple(_hashable_config_value(v, seen) for v in val))
+        finally:
+            seen.remove(obj_id)
+    if isinstance(val, dict):
+        seen.add(obj_id)
+        try:
+            return (
+                "dict",
+                tuple((_hashable_config_value(k, seen), _hashable_config_value(v, seen)) for k, v in val.items()),
+            )
+        finally:
+            seen.remove(obj_id)
+    if hasattr(val, "get_class_fields"):
+        seen.add(obj_id)
+        try:
+            return (
+                type(val),
+                tuple((f.name, _hashable_config_value(getattr(val, f.name), seen)) for f in val.get_class_fields()),
+            )
+        finally:
+            seen.remove(obj_id)
+    if dataclasses.is_dataclass(val) and not isinstance(val, type):
+        seen.add(obj_id)
+        try:
+            return (
+                type(val),
+                tuple((f.name, _hashable_config_value(getattr(val, f.name), seen)) for f in dataclasses.fields(val)),
+            )
+        finally:
+            seen.remove(obj_id)
+    try:
+        hash(val)
+        return val
+    except TypeError:
+        if hasattr(val, "__dict__"):
+            seen.add(obj_id)
+            try:
+                return (type(val), _hashable_config_value(vars(val), seen))
+            finally:
+                seen.remove(obj_id)
+        return ("id", obj_id)
+
+
+def _mode_solver_config_key(obj: Any) -> Any | None:
+    """Compact hashable key of all configuration fields affecting ``obj.apply()``, or None if stochastic."""
+    if (
+        getattr(obj, "max_angle_random_offset", 0.0) != 0.0
+        or getattr(obj, "max_vertical_offset", 0.0) != 0.0
+        or getattr(obj, "max_horizontal_offset", 0.0) != 0.0
+    ):
+        return None
+    fields = tuple((f.name, _hashable_config_value(f.value)) for f in obj.get_public_fields())
+    return (
+        type(obj),
+        obj.grid_slice_tuple,
+        _hashable_config_value(getattr(obj, "_config", None)),
+        _hashable_config_value(getattr(obj, "_cached_face_area_weights", None)),
+        fields,
+    )
+
+
+def _slice_cache_key(slices: tuple[Any, ...]) -> tuple[Any, ...] | None:
+    """Tuple of ``(dtype, shape, blake2b_16B)`` digests for concrete slices, or None if traced."""
+    out: list[Any] = []
+    for item in slices:
+        if item is None:
+            out.append(None)
             continue
-        new = _primal(new)
-        if isinstance(new, jax.core.Tracer) or isinstance(old, jax.core.Tracer):
-            return False  # traced (jit): cannot tell, apply again
-        if jnp.shape(old) != jnp.shape(new) or not bool(jnp.array_equal(old, new)):
-            return False
-    return True
+        item = _primal(item)
+        if isinstance(item, jax.core.Tracer):
+            return None
+        arr = np.ascontiguousarray(np.asarray(item))
+        out.append((arr.dtype.str, arr.shape, hashlib.blake2b(arr, digest_size=16).digest()))
+    return tuple(out)
+
+
+_PENDING_REAPPLY: contextvars.ContextVar[Callable[[], Any] | None] = contextvars.ContextVar(
+    "_PENDING_REAPPLY", default=None
+)
+
+
+@lru_cache(maxsize=32)
+def _reapply_cache(mode_solver_config_key: Any, slice_key: tuple[Any, ...]) -> Any:
+    """Bounded LRU cache storing concrete ``obj.apply()`` outputs keyed by config and slice digests."""
+    fn = _PENDING_REAPPLY.get()
+    assert fn is not None
+    return fn()
 
 
 def _boxes_overlap(a: Any, b: Any) -> bool:
@@ -10246,8 +10880,8 @@ def _reapply_stack_objects(
     """Applies the material-reading objects that overlap a stack again, with the final arrays (see :func:`apply_stack`).
 
     Returns:
-        The objects, and the names of those applied again and of those whose
-        materials had not changed since their last re-apply.
+        The objects, and the names of those applied again and of those reused
+        from the bounded content-digest cache.
     """
     if not stacks:
         return objects, [], []
@@ -10263,31 +10897,44 @@ def _reapply_stack_objects(
         ):
             new_objects.append(obj)
             continue
-        slices = _material_slices(arrays, obj)
-        if _same_materials(getattr(obj, "_stack_materials", None), slices):
-            reused.append(obj.name)
-            new_objects.append(obj)
-            continue
 
         def frozen(name: str) -> Any:
             a = getattr(arrays, name, None)
             return a if a is None or not isinstance(a, jax.Array) else jax.lax.stop_gradient(a)
 
-        with timed_step("reapply_object") as step:
-            obj = step.done(
-                obj.apply(
-                    key=jax.random.fold_in(key, i),
-                    inv_permittivities=frozen("inv_permittivities"),
-                    inv_permeabilities=frozen("inv_permeabilities"),
-                    dispersive_c1=frozen("dispersive_c1"),
-                    dispersive_c2=frozen("dispersive_c2"),
-                    dispersive_c3=frozen("dispersive_c3"),
-                    electric_conductivity=frozen("electric_conductivity"),
+        slices = _material_slices(arrays, obj)
+        slice_key = _slice_cache_key(slices)
+        config_key = None if slice_key is None else _mode_solver_config_key(obj)
+        ran = False
+
+        def solve(cur_obj: Any = obj, idx: int = i) -> Any:
+            nonlocal ran
+            ran = True
+            with timed_step("reapply_object") as step:
+                return step.done(
+                    cur_obj.apply(
+                        key=jax.random.fold_in(key, idx),
+                        inv_permittivities=frozen("inv_permittivities"),
+                        inv_permeabilities=frozen("inv_permeabilities"),
+                        dispersive_c1=frozen("dispersive_c1"),
+                        dispersive_c2=frozen("dispersive_c2"),
+                        dispersive_c3=frozen("dispersive_c3"),
+                        electric_conductivity=frozen("electric_conductivity"),
+                    )
                 )
-            )
-        record = tuple(None if x is None else _primal(x) for x in slices)
-        if not any(isinstance(x, jax.core.Tracer) for x in record):
-            obj = obj.aset("_stack_materials", record, create_new_ok=True)
-        reapplied.append(obj.name)
-        new_objects.append(obj)
+
+        if config_key is not None and slice_key is not None:
+            token = _PENDING_REAPPLY.set(solve)
+            try:
+                applied = _reapply_cache(config_key, slice_key)
+            finally:
+                _PENDING_REAPPLY.reset(token)
+            if ran:
+                reapplied.append(applied.name)
+            else:
+                reused.append(applied.name)
+        else:
+            applied = solve()
+            reapplied.append(applied.name)
+        new_objects.append(applied)
     return type(objects)(object_list=new_objects, volume_idx=objects.volume_idx), reapplied, reused

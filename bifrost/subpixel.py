@@ -20,6 +20,7 @@ simulation; nothing here rotates a material: a crystal whose principal axes are
 rotated by R relative to the simulation axes has the tensor ``R @ eps @ R.T``.
 """
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -211,21 +212,40 @@ def laminate(eps: Any, fractions: Array, normal: Array) -> Array:
     dtype = fractions.dtype
     eps = jnp.asarray(eps, dtype=dtype)
     num = eps.shape[0]
-    f = fractions / jnp.sum(fractions, axis=-1, keepdims=True)
-    n2 = jnp.sum(normal * normal, axis=-1, keepdims=True)
-    n = normal * jax.lax.rsqrt(jnp.where(n2 > 0, n2, 1.0))
-    n = jnp.where(n2 > 0, n, jnp.asarray([0.0, 0.0, 1.0], dtype=dtype))
+    if num == 0:
+        return jnp.broadcast_to(jnp.eye(3, dtype=dtype), (*fractions.shape[:-1], 3, 3))
+    normal = jnp.asarray(normal, dtype=dtype)
+    # Safe thresholds so squaring small divisors in reverse-mode AD never underflows tiny in float32/float64.
+    eps2 = float(jnp.finfo(dtype).tiny)
+    min_scale = 10.0 * math.sqrt(eps2)
+    f_sum = jnp.sum(fractions, axis=-1, keepdims=True)
+    ok_f = (f_sum > min_scale) & jnp.all(jnp.isfinite(fractions), axis=-1, keepdims=True)
+    f_sum_safe = jnp.where(ok_f, f_sum, 1.0)
+    f = jnp.where(ok_f, fractions / f_sum_safe, 0.0)
+    # Normalize normal by its stop-gradient infinity norm so u^2 lies in [1, 3] and rsqrt'(u^2) cannot overflow.
+    n_scale = jnp.max(jnp.abs(normal), axis=-1, keepdims=True)
+    has_dir = (n_scale > min_scale) & jnp.all(jnp.isfinite(normal), axis=-1, keepdims=True)
+    n_scale_safe = jax.lax.stop_gradient(jnp.where(has_dir, n_scale, 1.0))
+    u = jnp.where(has_dir, normal / n_scale_safe, 0.0)
+    u2 = jnp.sum(u * u, axis=-1, keepdims=True)
+    u2_safe = jnp.where(has_dir & (u2 > 0), u2, 1.0)
+    n = u * jax.lax.rsqrt(u2_safe)
+    n = jnp.where(has_dir, n, jnp.asarray([0.0, 0.0, 1.0], dtype=dtype))
     # sum_m f_m tau_m, part by part; materials one at a time (M is small and static), so that no
     # (..., M, 3, 3) array is formed over a whole grid
     t = jnp.zeros(f.shape[:-1], dtype=dtype)  # -sum f / a
     s = jnp.zeros((*f.shape[:-1], 3), dtype=dtype)  # sum f b / a
     bb = jnp.zeros((*f.shape[:-1], 3, 3), dtype=dtype)  # sum f b b^T / a
     mean = jnp.zeros((*f.shape[:-1], 3, 3), dtype=dtype)  # sum f eps (its tangential block is sum f C)
+    ok_terms = jnp.ones(f.shape[:-1], dtype=bool)
     for m in range(num):
         en = jnp.einsum("ij,...j->...i", eps[m], n, precision=_HIGHEST)  # eps n
         a = jnp.sum(en * n, axis=-1)  # n . eps n > 0
+        ok_a = jnp.isfinite(a) & (jnp.abs(a) > min_scale)
+        a_safe = jnp.where(ok_a, a, 1.0)
+        w = jnp.where(ok_a, f[..., m] / a_safe, 0.0)
+        ok_terms = ok_terms & (ok_a | (f[..., m] == 0))
         b = en - a[..., None] * n  # (I - n n^T) eps n
-        w = f[..., m] / a
         t = t - w
         s = s + w[..., None] * b
         bb = bb + w[..., None, None] * b[..., :, None] * b[..., None, :]
@@ -240,11 +260,20 @@ def laminate(eps: Any, fractions: Array, normal: Array) -> Array:
     )
     gamma = tangential - bb  # sum f (C - b b^T / a)
     # tau^-1: a_eff = -1/t, b_eff = -s/t, C_eff = gamma - s s^T / t
-    a_eff = -1.0 / t
-    b_eff = -s / t[..., None]
-    c_eff = gamma - s[..., :, None] * s[..., None, :] / t[..., None, None]
+    ok_t = jnp.isfinite(t) & (jnp.abs(t) > min_scale)
+    t_safe = jnp.where(ok_t, t, -1.0)
+    a_eff = -1.0 / t_safe
+    b_eff = -s / t_safe[..., None]
+    c_eff = gamma - s[..., :, None] * s[..., None, :] / t_safe[..., None, None]
     nn = n[..., :, None] * n[..., None, :]
-    return a_eff[..., None, None] * nn + n[..., :, None] * b_eff[..., None, :] + b_eff[..., :, None] * n[..., None, :] + c_eff
+    out = (
+        a_eff[..., None, None] * nn
+        + n[..., :, None] * b_eff[..., None, :]
+        + b_eff[..., :, None] * n[..., None, :]
+        + c_eff
+    )
+    ok = ok_f[..., 0] & ok_t & ok_terms & jnp.all(jnp.isfinite(out), axis=(-2, -1))
+    return jnp.where(ok[..., None, None], out, jnp.eye(3, dtype=dtype))
 
 
 # ---------------------------------------------------------------- junction closure
@@ -326,6 +355,66 @@ def _periodic_assembly(shape: tuple[int, int, int]) -> tuple[np.ndarray, np.ndar
     return nodes, np.arange(n1 * n2 * n3)
 
 
+def _factor_and_solve_spd(kr: Array, rhs: Array, ke_scale: Array) -> tuple[Array, Array, Array]:
+    """Factors SPD ``kr`` via Cholesky and solves ``kr x = rhs``.
+
+    Returns ``(x, ok, chol)`` with ``ok`` certifying finite inputs, Cholesky diagonals
+    above both the underflow floor and element-stiffness rounding noise, and finite
+    solutions. Non-certified entries use ``x = 0`` and ``chol = I`` so linear solves
+    and reverse-mode cotangents remain finite.
+    """
+    dtype = kr.dtype
+    n = kr.shape[-1]
+    finfo = jnp.finfo(dtype)
+    eye = jnp.broadcast_to(jnp.eye(n, dtype=dtype), kr.shape)
+    min_diag_abs = 10.0 * math.sqrt(float(finfo.tiny))
+    scale_fin = jnp.where(jnp.isfinite(ke_scale) & (ke_scale > 0.0), ke_scale, 0.0)
+    min_diag = jnp.maximum(min_diag_abs, jnp.sqrt(32.0 * float(finfo.eps) * scale_fin))
+    finite = jnp.all(jnp.isfinite(kr), axis=(-2, -1)) & jnp.all(jnp.isfinite(rhs), axis=(-2, -1))
+    kr_fin = jnp.where(finite[..., None, None], kr, eye)
+    rhs_fin = jnp.where(finite[..., None, None], rhs, jnp.zeros_like(rhs))
+    with jax.default_matmul_precision("highest"):
+        chol_raw = jnp.linalg.cholesky(kr_fin)
+    chol_ok = (
+        finite
+        & jnp.all(jnp.isfinite(chol_raw), axis=(-2, -1))
+        & jnp.all(jnp.diagonal(chol_raw, axis1=-2, axis2=-1) > min_diag[..., None], axis=-1)
+    )
+    chol_safe = jnp.where(chol_ok[..., None, None], chol_raw, eye)
+    with jax.default_matmul_precision("highest"):
+        y = jax.scipy.linalg.solve_triangular(chol_safe, rhs_fin, lower=True)
+        x_raw = jax.scipy.linalg.solve_triangular(jnp.swapaxes(chol_safe, -1, -2), y, lower=False)
+    ok = chol_ok & jnp.all(jnp.isfinite(x_raw), axis=(-2, -1))
+    x = jnp.where(ok[..., None, None], x_raw, jnp.zeros_like(rhs))
+    chol = jnp.where(ok[..., None, None], chol_safe, eye)
+    return x, ok, chol
+
+
+@jax.custom_jvp
+def _spd_solve(kr: Array, rhs: Array, ke_scale: Array) -> tuple[Array, Array]:
+    """Solves ``kr x = rhs`` with SPD Cholesky certification, returning ``(x, ok_float)``."""
+    x, ok, _ = _factor_and_solve_spd(kr, rhs, ke_scale)
+    return x, ok.astype(kr.dtype)
+
+
+@_spd_solve.defjvp
+def _spd_solve_jvp(
+    primals: tuple[Array, Array, Array], tangents: tuple[Array, Array, Array]
+) -> tuple[tuple[Array, Array], tuple[Array, Array]]:
+    """Implicit JVP for ``_spd_solve``, avoiding Cholesky differentiation and zeroing non-SPD cotangents."""
+    kr, rhs, ke_scale = primals
+    d_kr, d_rhs, _ = tangents
+    x, ok, chol = _factor_and_solve_spd(kr, rhs, ke_scale)
+    mask = ok[..., None, None]
+    with jax.default_matmul_precision("highest"):
+        res = jnp.where(mask, d_rhs - jnp.matmul(d_kr, x, precision=_HIGHEST), jnp.zeros_like(rhs))
+        y = jax.scipy.linalg.solve_triangular(chol, res, lower=True)
+        dx = jax.scipy.linalg.solve_triangular(jnp.swapaxes(chol, -1, -2), y, lower=False)
+    dx = jnp.where(mask, dx, jnp.zeros_like(x))
+    ok_f = ok.astype(kr.dtype)
+    return (x, ok_f), (dx, jnp.zeros_like(ok_f))
+
+
 def periodic_cell_tensor(coefficients: Array, sides: Array | None = None) -> tuple[Array, Array]:
     """Effective tensor of a periodic cell made of constant-tensor sub-cells.
 
@@ -384,24 +473,46 @@ def periodic_cell_tensor(coefficients: Array, sides: Array | None = None) -> tup
         return mean, jnp.zeros(batch, dtype=dtype)
     # phi is defined up to a constant: fix it at node 0
     kr, fr = k[..., 1:, 1:], f[..., 1:, :]
-    with jax.default_matmul_precision("highest"):
-        chol = jnp.linalg.cholesky(kr)
-        y = jax.scipy.linalg.solve_triangular(chol, fr, lower=True)
-        phi = -jax.scipy.linalg.solve_triangular(jnp.swapaxes(chol, -1, -2), y, lower=False)
+    ke_scale = jax.lax.stop_gradient(jnp.max(jnp.abs(ke), axis=(-3, -2, -1)))
+    phi, ok_f = _spd_solve(kr, -fr, ke_scale)
+    ok = ok_f > 0
     # the fields e_i + grad phi_i at every element's Gauss points (..., E, 8 points, 3 fields, 3 components)
     full_phi = jnp.concatenate([jnp.zeros_like(phi[..., :1, :]), phi], axis=-2)  # (..., num, 3)
     grads = jnp.asarray(_q1_gauss_gradients((1.0 / n1, 1.0 / n2, 1.0 / n3)), dtype=dtype)  # (8, 8, 3)
     nodal = full_phi[..., nodes, :]  # (..., E, 8 nodes, 3 fields)
     fields = jnp.eye(3, dtype=dtype) + jnp.einsum("qac,...eai->...eqic", grads, nodal, precision=_HIGHEST)
-    flux = jnp.einsum("...ecd,...eqjd->...eqjc", a, fields, precision=_HIGHEST)  # A (e_j + grad phi_j)
+    a_safe = jnp.where(ok[..., None, None, None], a, jnp.zeros_like(a))
+    flux = jnp.einsum("...ecd,...eqjd->...eqjc", a_safe, fields, precision=_HIGHEST)  # A (e_j + grad phi_j)
     tensor = jnp.einsum("...eqic,...eqjc->...ij", fields, flux, precision=_HIGHEST) / (num * 8)
+    tensor = 0.5 * (tensor + jnp.swapaxes(tensor, -1, -2))
+    # Fallback for singular / non-SPD cells (e.g. lossless plasmonic eps1 + eps2 == 0):
+    # well-conditioned isotropic average magnitude so primal stays finite & SPD and bwd stays NaN-free.
+    a_fin = jnp.where(jnp.isfinite(a), a, 0.0)
+    diag_mean = jnp.mean(jnp.abs(jnp.diagonal(a_fin, axis1=-2, axis2=-1)), axis=(-2, -1))
+    min_scale = max(1e-12, 10.0 * float(jnp.finfo(dtype).tiny) ** (1.0 / 3.0))
+    ok_iso = (diag_mean > min_scale) & jnp.isfinite(diag_mean)
+    iso = jnp.where(ok_iso, diag_mean, jnp.ones_like(diag_mean))
+    fallback = iso[..., None, None] * jnp.eye(3, dtype=dtype)
+    t_scale = jax.lax.stop_gradient(jnp.max(jnp.abs(tensor), axis=(-2, -1)))
+    t_norm = tensor / jnp.where(t_scale > 0, t_scale, 1.0)[..., None, None]
+    t00, t01, t02 = t_norm[..., 0, 0], t_norm[..., 0, 1], t_norm[..., 0, 2]
+    t11, t12, t22 = t_norm[..., 1, 1], t_norm[..., 1, 2], t_norm[..., 2, 2]
+    minor2 = t00 * t11 - t01 * t01
+    det3 = t00 * (t11 * t22 - t12 * t12) - t01 * (t01 * t22 - t02 * t12) + t02 * (t01 * t12 - t02 * t11)
+    tensor_spd = (t00 > 0) & (minor2 > 0) & (det3 > 0)
+    tensor_ok = ok & jnp.all(jnp.isfinite(tensor), axis=(-2, -1)) & tensor_spd
+    out_tensor = jnp.where(tensor_ok[..., None, None], tensor, fallback)
     # the solve's normwise backward error |K phi + F| / (|K| |phi| + |F|) (NaN where the factorization failed)
-    misfit = jnp.sqrt(jnp.sum((jnp.matmul(kr, phi, precision=_HIGHEST) + fr) ** 2, axis=(-2, -1)))
-    scale = jnp.sqrt(jnp.sum(kr**2, axis=(-2, -1)) * jnp.sum(phi**2, axis=(-2, -1))) + jnp.sqrt(
-        jnp.sum(fr**2, axis=(-2, -1))
+    kr_safe = jnp.where(ok[..., None, None], kr, jnp.zeros_like(kr))
+    fr_safe = jnp.where(ok[..., None, None], fr, jnp.zeros_like(fr))
+    with jax.default_matmul_precision("highest"):
+        misfit = jnp.sqrt(jnp.sum((jnp.matmul(kr_safe, phi, precision=_HIGHEST) + fr_safe) ** 2, axis=(-2, -1)))
+    scale = jnp.sqrt(jnp.sum(kr_safe**2, axis=(-2, -1)) * jnp.sum(phi**2, axis=(-2, -1))) + jnp.sqrt(
+        jnp.sum(fr_safe**2, axis=(-2, -1))
     )
     residual = jnp.where(scale > 0, misfit / jnp.where(scale > 0, scale, 1.0), 0.0)
-    return 0.5 * (tensor + jnp.swapaxes(tensor, -1, -2)), jax.lax.stop_gradient(residual)
+    residual = jnp.where(tensor_ok, residual, jnp.asarray(jnp.nan, dtype=dtype))
+    return out_tensor, jax.lax.stop_gradient(residual)
 
 
 # ---------------------------------------------------------------- classification

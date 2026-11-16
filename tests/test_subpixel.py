@@ -461,3 +461,115 @@ def test_no_interface_has_finite_zero_derivatives_in_float32() -> None:
 
     grad = np.asarray(jax.grad(loss)(zero))
     assert np.all(np.isfinite(grad)) and np.all(grad == 0.0)
+
+
+def _check_laminate_guards(dtype: jnp.dtype) -> None:
+    eps = jnp.asarray(np.stack([np.eye(3), 12.0 * np.eye(3)]), dtype=dtype)
+    f_ref = jnp.asarray([0.4, 0.6], dtype=dtype)
+    n_ez = jnp.asarray([0.0, 0.0, 1.0], dtype=dtype)
+    ref_ez = bf.subpixel.laminate(eps, f_ref, n_ez)
+    ref_ex = bf.subpixel.laminate(eps, f_ref, jnp.asarray([1.0, 0.0, 0.0], dtype=dtype))
+
+    def eval_loss(f, n, e):
+        return jnp.sum(bf.subpixel.laminate(e, f, n))
+
+    grad_fn = jax.grad(eval_loss, argnums=(0, 1, 2))
+
+    # Zero normal falls back cleanly to e_z with zero d/d(normal).
+    n_zero = jnp.zeros(3, dtype=dtype)
+    val_zero = bf.subpixel.laminate(eps, f_ref, n_zero)
+    assert np.allclose(np.asarray(val_zero), np.asarray(ref_ez))
+    gf, gn, ge = grad_fn(f_ref, n_zero, eps)
+    assert all(bool(jnp.all(jnp.isfinite(g))) for g in (gf, gn, ge))
+    assert np.all(np.asarray(gn) == 0.0)
+
+    # Tiny nonzero normal where |n|^(-3) would overflow float32 stays exact and finite in AD.
+    n_tiny = jnp.asarray([1e-13, 0.0, 0.0], dtype=dtype)
+    val_tiny = bf.subpixel.laminate(eps, f_ref, n_tiny)
+    assert np.allclose(np.asarray(val_tiny), np.asarray(ref_ex))
+    assert all(bool(jnp.all(jnp.isfinite(g))) for g in grad_fn(f_ref, n_tiny, eps))
+
+    # Sub-threshold normal falls back to e_z without overflow.
+    n_sub = jnp.asarray([1e-20, 0.0, 0.0], dtype=dtype)
+    assert np.all(np.isfinite(np.asarray(bf.subpixel.laminate(eps, f_ref, n_sub))))
+    assert all(bool(jnp.all(jnp.isfinite(g))) for g in grad_fn(f_ref, n_sub, eps))
+
+    # All-zero fractions fall back to identity with finite zero gradients, while batched neighbors keep exact grads.
+    f_batch = jnp.asarray([[0.0, 0.0], [0.4, 0.6]], dtype=dtype)
+    n_batch = jnp.asarray([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=dtype)
+    out_batch = bf.subpixel.laminate(eps, f_batch, n_batch)
+    assert np.allclose(np.asarray(out_batch[0]), np.eye(3))
+    assert np.allclose(np.asarray(out_batch[1]), np.asarray(ref_ex))
+    gfb, gnb, geb = jax.grad(lambda f, n, e: jnp.sum(bf.subpixel.laminate(e, f, n)), argnums=(0, 1, 2))(
+        f_batch, n_batch, eps
+    )
+    assert all(bool(jnp.all(jnp.isfinite(g))) for g in (gfb, gnb, geb))
+    gf_ref, _, _ = grad_fn(f_ref, jnp.asarray([1.0, 0.0, 0.0], dtype=dtype), eps)
+    assert np.allclose(np.asarray(gfb[1]), np.asarray(gf_ref), rtol=1e-5, atol=1e-6)
+
+
+def test_laminate_handles_zero_fractions_and_tiny_normals_in_float32_and_float64() -> None:
+    _check_laminate_guards(jnp.float32)
+    with enable_x64():
+        _check_laminate_guards(jnp.float64)
+
+
+def _check_periodic_plasmonic_and_jvp(dtype: jnp.dtype) -> None:
+    eye3 = np.eye(3)
+    # 2x1x1 resonant cell with eps1 + eps2 == 0 -> singular stiffness K == 0.
+    coeffs_2x1 = np.zeros((2, 1, 1, 3, 3))
+    coeffs_2x1[0, 0, 0] = -2.0 * eye3
+    coeffs_2x1[1, 0, 0] = 2.0 * eye3
+    # 2x2x2 indefinite plasmonic cell with half -2*I and half +2*I.
+    coeffs_2x2 = np.zeros((2, 2, 2, 3, 3))
+    coeffs_2x2[0] = -2.0 * eye3
+    coeffs_2x2[1] = 2.0 * eye3
+
+    for arr in (coeffs_2x1, coeffs_2x2):
+        c = jnp.asarray(arr, dtype=dtype)
+        for sides in (None, jnp.asarray([1.0, 2.0, 3.0], dtype=dtype)):
+            tensor, res = bf.subpixel.periodic_cell_tensor(c, sides=sides)
+            t_np = np.asarray(tensor)
+            assert np.all(np.isfinite(t_np))
+            assert np.allclose(t_np, t_np.T)
+            assert np.all(np.linalg.eigvalsh(t_np) > 0.0)
+            assert bool(jnp.isnan(res))
+
+            grad_c = jax.grad(lambda x, s=sides: jnp.sum(bf.subpixel.periodic_cell_tensor(x, sides=s)[0]))(c)
+            assert bool(jnp.all(jnp.isfinite(grad_c)))
+            tangent = jnp.ones_like(c)
+            primal, dt = jax.jvp(
+                lambda x, s=sides: bf.subpixel.periodic_cell_tensor(x, sides=s)[0], (c,), (tangent,)
+            )
+            assert bool(jnp.all(jnp.isfinite(primal))) and bool(jnp.all(jnp.isfinite(dt)))
+
+    # Mixed batch under vmap: SPD cell 0 and singular plasmonic cell 1 stay isolated in primal and grad.
+    rng = np.random.default_rng(7)
+    spd_cell = np.empty((2, 2, 2, 3, 3))
+    a_spd, b_spd = random_spd(rng, 1.5, 4.0), random_spd(rng, 6.0, 12.0)
+    spd_cell[0] = a_spd
+    spd_cell[1] = b_spd
+    batch = jnp.asarray(np.stack([spd_cell, coeffs_2x2]), dtype=dtype)
+
+    vmap_fn = jax.vmap(bf.subpixel.periodic_cell_tensor)
+    t_b, res_b = vmap_fn(batch)
+    t0_single, res0_single = bf.subpixel.periodic_cell_tensor(batch[0])
+    assert np.allclose(np.asarray(t_b[0]), np.asarray(t0_single), rtol=1e-5, atol=1e-6)
+    assert float(res_b[0]) == pytest.approx(float(res0_single), rel=1e-5, abs=1e-6)
+    assert bool(jnp.isnan(res_b[1])) and bool(jnp.all(jnp.isfinite(t_b[1])))
+
+    g_b = jax.grad(lambda b: jnp.sum(vmap_fn(b)[0]))(batch)
+    g0_single = jax.grad(lambda x: jnp.sum(bf.subpixel.periodic_cell_tensor(x)[0]))(batch[0])
+    assert bool(jnp.all(jnp.isfinite(g_b)))
+    assert np.allclose(np.asarray(g_b[0]), np.asarray(g0_single), rtol=1e-4, atol=1e-6)
+
+    # Implicit custom_jvp matches jax.grad directional derivative on the SPD cell.
+    direction = jnp.asarray(rng.normal(size=batch[0].shape), dtype=dtype)
+    _, jvp_val = jax.jvp(lambda x: jnp.sum(bf.subpixel.periodic_cell_tensor(x)[0]), (batch[0],), (direction,))
+    assert float(jvp_val) == pytest.approx(float(jnp.sum(g0_single * direction)), rel=1e-4, abs=1e-5)
+
+
+def test_periodic_cell_tensor_plasmonic_resonance_and_gradients() -> None:
+    _check_periodic_plasmonic_and_jvp(jnp.float32)
+    with enable_x64():
+        _check_periodic_plasmonic_and_jvp(jnp.float64)

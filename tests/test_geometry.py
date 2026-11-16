@@ -15,7 +15,7 @@ fdtdx = pytest.importorskip("fdtdx")
 
 import gdsfactory as gf  # noqa: E402
 import bifrost as bf  # noqa: E402
-from gdsfactory._jax import to_numpy  # noqa: E402
+from bifrost.geometry import has_tracers, to_numpy  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -542,13 +542,18 @@ def _recipe_region(recipes, pool):
 def _part_region(recipe, pool):
     shapely = pytest.importorskip("shapely")
     rings = bf.geometry.recipe_rings(recipe, bf.geometry.run_recipe(recipe.kind, recipe.index, recipe.positions, pool, np))
+
+    def signed_area(r: np.ndarray) -> float:
+        q = np.roll(r, -1, axis=0)
+        return 0.5 * float(np.sum(r[:, 0] * q[:, 1] - q[:, 0] * r[:, 1]))
+
+    areas = [signed_area(r) for r in rings]
     region = shapely.Polygon()
-    for r in rings:
-        if shapely.LinearRing(r).is_ccw:
-            region = region.union(shapely.make_valid(shapely.Polygon(r)))
-    for r in rings:
-        if not shapely.LinearRing(r).is_ccw:
-            region = region.difference(shapely.make_valid(shapely.Polygon(r)))
+    for idx in sorted(range(len(rings)), key=lambda i: abs(areas[i]), reverse=True):
+        if areas[idx] > 0:
+            region = region.union(shapely.make_valid(shapely.Polygon(rings[idx])))
+        elif areas[idx] < 0:
+            region = region.difference(shapely.make_valid(shapely.Polygon(rings[idx])))
     return region
 
 
@@ -703,3 +708,104 @@ def test_crossing_changes_finds_crossings_that_left_their_edges() -> None:
     moved = pool.copy()
     moved[4:, 0] = np.where(moved[4:, 0] < 1.5, -0.1, moved[4:, 0])  # the etch starts before the waveguide
     assert len(bf.geometry.crossing_changes(recipe, moved, 1e-6)) == 2
+
+
+def test_jax_helpers_and_exports_are_self_contained() -> None:
+    assert "joint_changes" in bf.geometry.__all__
+    cyclic: list[object] = []
+    cyclic.append(cyclic)
+    obj_arr = np.empty(2, dtype=object)
+    obj_arr[0] = None
+    obj_arr[1] = {"x": [jnp.ones(2)]}
+    assert not has_tracers(None)
+    assert not has_tracers(jnp.ones(3))
+    assert not has_tracers({"a": (1, "x", cyclic), "b": obj_arr})
+
+    observed: dict[str, object] = {}
+
+    def inner(x):
+        traced_arr = np.empty(1, dtype=object)
+        traced_arr[0] = x
+        observed["eager_has_nested"] = has_tracers({"k": (x, jnp.zeros(1))})
+        observed["eager_has_obj"] = has_tracers(traced_arr)
+        observed["primal"] = to_numpy(x)
+        return jnp.sum(x**2)
+
+    jax.grad(inner)(jnp.asarray(3.0))
+    assert observed["eager_has_nested"] is True
+    assert observed["eager_has_obj"] is True
+    assert np.allclose(observed["primal"], 3.0)  # type: ignore[arg-type]
+
+    observed.clear()
+    jax.grad(jax.grad(inner))(jnp.asarray(3.0))
+    assert observed["eager_has_nested"] is True
+    assert np.allclose(observed["primal"], 3.0)  # type: ignore[arg-type]
+
+    @jax.jit
+    def check_jit(x):
+        assert has_tracers((x,))
+        with pytest.raises(TypeError):
+            to_numpy(x)
+        return x
+
+    check_jit(jnp.asarray(1.0))
+
+
+def test_signed_distance_collapsed_polygon_at_origin_is_outside() -> None:
+    """Zero-area rings (orientation 0), including rings collapsed to (0, 0), must not mark (0, 0) as inside."""
+    collapsed = jnp.zeros((4, 2), dtype=jnp.float32)
+    slit = jnp.asarray([[-1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [-1.0, 0.0]], dtype=jnp.float32)
+    pts = jnp.asarray([[0.0, 0.0], [1.0, 0.0]], dtype=jnp.float32)
+    for verts in (collapsed, slit):
+        nxt = np.array([1, 2, 3, 0])
+        ids = np.zeros(4, dtype=np.int32)
+        boundary = np.ones(4, dtype=bool)
+        sd = bf.geometry.signed_distance(pts, verts, verts[nxt], ids, boundary)
+        assert float(sd[0]) > 0.0
+        assert float(sd[1]) > 0.0
+        grad = jax.grad(lambda v: jnp.sum(bf.geometry.signed_distance(pts, v, v[nxt], ids, boundary)))(verts)
+        assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+def test_derive_polygons_preserves_nested_islands_in_holes() -> None:
+    shapely = pytest.importorskip("shapely")
+    layers = [_sq(0, 0, 10, 10), _sq(1, 1, 9, 9), _sq(3, 3, 7, 7), _sq(4, 4, 6, 6)]
+    expr = ("or", ("not", ("layer", 0), ("layer", 1)), ("not", ("layer", 2), ("layer", 3)))
+    recipes = bf.geometry.derive_polygons(layers, expr)
+    pool = np.concatenate([v for v, _ in layers])
+    got = _recipe_region(recipes, pool)
+    want = _boolean_region(layers, expr, shapely.box(-1, -1, 11, 11))
+    assert got.symmetric_difference(want).area == pytest.approx(0.0, abs=1e-9)
+    assert got.area == pytest.approx((100.0 - 64.0) + (16.0 - 4.0), abs=1e-9)
+
+    pts = np.array([[0.5, 0.5], [2.0, 2.0], [3.5, 3.5], [5.0, 5.0]])
+    signs = [
+        min(
+            float(
+                bf.geometry.signed_distance(
+                    jnp.asarray([pt]),
+                    jnp.asarray(v),
+                    jnp.asarray(v)[nxt],
+                    ids,
+                    boundary,
+                )[0]
+            )
+            for r in recipes
+            for v in [bf.geometry.run_recipe(r.kind, r.index, r.positions, pool, np)]
+            for nxt, ids, boundary in [bf.geometry._edge_topology(r.positions, (len(v),), 1e-6)]
+        )
+        < 0.0
+        for pt in pts
+    ]
+    assert signs == [True, False, True, False]
+
+
+def test_gaussian_random_field_validates_correlation_length() -> None:
+    key = jax.random.PRNGKey(0)
+    for bad in (-1.0, -1e-6, float("nan"), float("inf"), (-1.0, 2.0), (2.0, -0.5), (1.0, float("nan")), (1.0,)):
+        with pytest.raises(ValueError, match="correlation_length"):
+            bf.geometry.gaussian_random_field((8, 8), bad, key)  # type: ignore[arg-type]
+    for ok in (0.0, (0.0, 0.0), (2.0, 3.0)):
+        field = bf.geometry.gaussian_random_field((16, 16), ok, key)
+        assert field.shape == (16, 16)
+        assert bool(jnp.all(jnp.isfinite(field)))
