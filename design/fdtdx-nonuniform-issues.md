@@ -32,6 +32,13 @@ under it. The `normalize_by_energy=False` path normalizes by `sum(profile * cell
 (432-452) but by `sum(profile)` in index units on uniform ones (455-464), a scale difference of about
 `1 / (dx dy)` between the two (inferred, not run). Suggest weighting by the cells' face areas in both.
 
+- **bifrost's resolution (mode ports):** `bf.ModePlaneSource` and `bf.ModeOverlapDetector` in `bifrost/stack.py`
+  wrap the corresponding `fdtdx` classes to normalize graded port planes by `min_spacing**2`
+  (`ModePlaneSource.apply` rescales `_E` and `_H` by `sqrt(mean(face_area) / min_spacing**2)`, and
+  `ModeOverlapDetector.place_on_grid` sets `_cached_face_area_weights` to
+  `face_area / sqrt(mean(face_area) * min_spacing**2)`), leaving uniform grids unchanged. The upstream `fdtdx`
+  `LinearPolarization` note above remains open.
+
 ## 4. Expose the conductivity scale (read)
 
 Conductivities are stored times `c * dt / courant_number` (`initialization.py:727-729`, inverted in

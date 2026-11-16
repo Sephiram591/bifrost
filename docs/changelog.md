@@ -66,7 +66,7 @@ moved here from gdsfactoryx.
   roughness, dispersive and anisotropic materials, diagnostics and timing.
 - `StackDevice(dtype=...)`: the whole simulation in float32 (default) or float64.
 - `bf.view`: the 3D viewer widget for setting up, running and inspecting a simulation, with a precomputed
-  [live demo](live-demo.md).
+  [Widget Demo](live-demo.md) and standalone [Explorer demo](demo/index.html).
 - Examples: the [waveguide bend](examples/waveguide-bend.md) tutorial, and the
   [elevator](examples/elevator-coupler.md) and [directional](examples/directional-coupler.md) couplers compared with
   MEEP.

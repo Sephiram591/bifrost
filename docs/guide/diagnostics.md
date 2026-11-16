@@ -74,13 +74,24 @@ with bf.record_timings() as timings:
 print(timings.table())  # per step: calls, wall, trace, compile, run (s)
 ```
 
-The steps are `from_layer_stack` (laps `compile_levels`, `polygons`, `port_extensions`, `select_levels`),
-`derived_shapes`, `place_on_grid` (`keep_reachable_levels`, `pole_alignment`, `corner_budget`, `diagnose`), `pack`
-(`pack_vertices`, `topology_check`), `check_topology`, `retopologize`, `apply_stack` (`write_stacks`, `apply_params`),
-`write` (laps `Ex`, `Ey`, `Ez` or `E`, `set_permittivity`, `conductivity`, step `dispersion`) and, inside `write` or
-`material_weights`, `weights` with `level_surfaces`, `layer_geometry` (where derived shapes are evaluated),
-`source_sdfs`, `corner_plan`, `corner_capacity`, `corner_inputs`, `composite` or `composite_samples`, `corner_pass` and
-`normal_tensor`. Nested steps also count in their callers.
+The steps and laps are:
+
+- **`from_layer_stack`** (laps `compile_levels`, `polygons`, `port_extensions`, `select_levels`) and **`derived_shapes`**
+- **`pack`** (`pack_vertices`, `topology_check`), **`check_topology`**, and **`retopologize`**
+- **`place_on_grid`** (`keep_reachable_levels`, lap `pole_alignment`, `corner_budget`, `junction_budget` for
+  `"subpixel_full"`, `diagnose`)
+- **`apply_stack`** (runs `write_complete` per device, then laps `write_stacks`, `apply_params`, `reapply_objects`)
+- **`write`** (for `"inverse"` and `"subpixel"`, with laps `Ex`, `Ey`, `Ez` or `E`, `set_permittivity`, `conductivity`,
+  and step `dispersion`) and, inside `write` or `material_weights`, **`weights`** with `level_surfaces`,
+  `layer_geometry` (where derived shapes are evaluated), `source_sdfs`, `corner_plan`, `corner_capacity`,
+  `corner_inputs`, `composite` or `composite_samples`, `corner_pass`, and `normal_tensor`
+- **`write_complete`** (`write_with_status`, for `"subpixel_full"`, delegating to `write` otherwise): runs
+  **`interfaces`** (`level_surfaces`, `layer_geometry`, `source_sdfs`, `corner_plan`, `corner_capacity`, `corner_inputs`,
+  `interface_composite` with `interface_corner_pass`, and `composite_samples` with `corner_pass` when sub-sampling
+  corners) and **`complete_tensor`**, plus laps `Ex`, `Ey`, `Ez`, `set_permittivity`, `conductivity`, and step
+  `dispersion` (`junction_budget` also calls `interfaces`)
+
+Nested steps also count in their callers.
 
 A step that runs while JAX traces a function for `jax.jit` counts its wall time as tracing time, which is part of
 compiling. A step on concrete values, also under eager `jax.grad` (without `jit`), waits for its outputs

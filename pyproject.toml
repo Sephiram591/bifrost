@@ -47,5 +47,19 @@ addopts = "--tb=short"
 testpaths = ["tests"]
 
 [tool.ruff]
+target-version = "py312"
 line-length = 120
 extend-exclude = ["docs/"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E741"]
+
+[tool.ruff.lint.per-file-ignores]
+"examples/**" = ["E402"]
+"benchmarks/**" = ["E402"]
+"tests/**" = ["E402"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true

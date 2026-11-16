@@ -6,6 +6,7 @@
        mpirun -np 48 python examples/meep_elevator_coupler.py run 1.00
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -76,7 +77,9 @@ def run(overlap: float, symmetry: bool = True, resolution: float | None = None, 
                 geometry.append(mp.Prism(vertices, height=lv["thickness"], material=medium))
 
     plane = mp.Vector3(0, cell.y - 2 * pml, cell.z - 2 * pml)
-    at_x = lambda x: mp.Vector3(x, center.y, center.z)  # noqa: E731
+
+    def at_x(x: float):
+        return mp.Vector3(x, center.y, center.z)
     # same Gaussian envelope as fdtdx: sigma_t = 1 / (2 pi * 0.05 f0)
     pulse = mp.GaussianSource(f0, fwidth=2 * np.pi * 0.05 * f0)
     parity = mp.ODD_Y  # TE0 (E_y even about y = 0) is odd as a vector field
@@ -115,11 +118,22 @@ def run(overlap: float, symmetry: bool = True, resolution: float | None = None, 
         )
 
 
-if __name__ == "__main__":
-    if sys.argv[1] == "export":
-        export(float(sys.argv[2]) if len(sys.argv) > 2 else 0.02)
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    export_parser = sub.add_parser("export", help="Export component polygons and LayerStack levels to JSON.")
+    export_parser.add_argument("resolution", nargs="?", type=float, default=0.02, help="Default grid resolution in um.")
+    run_parser = sub.add_parser("run", help="Run the 3D MEEP simulation for one overlap.")
+    run_parser.add_argument("overlap", type=float, help="Coupler overlap length in um.")
+    run_parser.add_argument("--res", type=float, default=None, help="Override resolution in um.")
+    run_parser.add_argument("--tag", default="meep", help="Output filename tag prefix.")
+    run_parser.add_argument("--nosym", action="store_true", help="Disable Y mirror symmetry.")
+    args = parser.parse_args()
+    if args.command == "export":
+        export(args.resolution)
     else:
-        args = sys.argv[3:]
-        res = float(args[args.index("--res") + 1]) if "--res" in args else None
-        tag = args[args.index("--tag") + 1] if "--tag" in args else "meep"
-        run(float(sys.argv[2]), symmetry="--nosym" not in args, resolution=res, tag=tag)
+        run(args.overlap, symmetry=not args.nosym, resolution=args.res, tag=args.tag)
+
+
+if __name__ == "__main__":
+    main()

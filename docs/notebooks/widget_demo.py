@@ -87,13 +87,13 @@ def _(PROSE, mo):
         The viewer on the result of the <a href="../../getting-started/" target="_top">bend tutorial</a>, in your browser with
         no installation and no Python. Drag to orbit, scroll to zoom, and use the **Result** tab to choose what to display.
 
-        <a href="index.html" target="_blank">Open the demo full screen</a> ·
-        <a href="../index.html" target="_blank">the same viewer without the notebook</a>
+        <a href="index.html" target="_blank">Open the Widget Demo full screen</a> ·
+        <a href="../index.html" target="_blank">open the Explorer demo without the notebook</a>
 
-        The demo is a <a href="https://marimo.io" target="_blank">marimo</a> notebook that runs in your browser: it starts a
-        Python runtime there (Pyodide), so the first load takes a few seconds longer than the plain viewer. It needs a
-        browser with WebGL. If it does not load, the picture behind it shows the same result; reload the page to try again,
-        or use the plain viewer.
+        The Widget Demo is a <a href="https://marimo.io" target="_blank">marimo</a> notebook that runs in your browser:
+        it starts a Python runtime there (Pyodide), so the first load takes a few seconds longer than the standalone
+        Explorer demo. It needs a browser with WebGL. If it does not load, the picture behind it shows the same result;
+        reload the page to try again, or open the <a href="../index.html" target="_blank">Explorer demo</a>.
         """
     ).style(PROSE)
     return
@@ -152,8 +152,8 @@ def _(PROSE, mo):
         """
         ## How it was made
 
-        The demo's data is the output of one real run of `examples/waveguide_bend.py`, exported by `scripts/build_demo.py`
-        (see <a href="../../development/#the-live-demo" target="_top">Contributing and tests</a>).
+        The Widget Demo's data is the output of one real run of `examples/waveguide_bend.py`, exported by
+        `scripts/build_demo.py` (see <a href="../../development/#the-widget-demo" target="_top">Contributing and tests</a>).
         `docs/demo/data/manifest.json` records the source revision, the package versions, the simulation parameters, and
         the size of every file. The documentation build only publishes those prepared files; it never reruns the
         simulation.

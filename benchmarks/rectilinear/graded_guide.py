@@ -51,6 +51,48 @@ LINE = (-1.2, 1.8)  # um: the Ey phasor line along the guide's axis (past the so
 TRIM = 0.3  # um left out of the fit at both ends of the line
 
 
+_MESH_HEADS = ("mesh", "meshppw", "lattice", "latticeppw")
+_GRADED_STATIC = ("graded", "graded-snap", "graded-wide")
+
+
+def _parse_float_suffix(kind: str, prefix: str, *, allow_zero: bool = False) -> float:
+    if "-" not in kind:
+        raise ValueError(f"Invalid grid {kind!r}: expected '{prefix}-<value>'")
+    head, raw = kind.split("-", 1)
+    if head != prefix:
+        raise ValueError(f"Unknown grid kind {kind!r}")
+    try:
+        val = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"Invalid numeric suffix in grid {kind!r}: {raw!r}") from exc
+    if not math.isfinite(val) or (val < 0 if allow_zero else val <= 0):
+        bound = ">= 0" if allow_zero else "> 0"
+        raise ValueError(f"Invalid numeric value in grid {kind!r}: expected finite {bound}, got {val}")
+    return val
+
+
+def parse_grid_kind(kind: str) -> tuple[str, float | None]:
+    """Validate a grid specification and return ``(family, parameter)``."""
+    if kind in _GRADED_STATIC:
+        return kind, None
+    head, sep, _ = kind.partition("-")
+    if not sep:
+        raise ValueError(
+            f"Invalid grid {kind!r}: expected one of {_GRADED_STATIC} or '<prefix>-<value>' "
+            f"(uniform, tail, {', '.join(_MESH_HEADS)})"
+        )
+    if head in _MESH_HEADS:
+        return head, _parse_float_suffix(kind, head, allow_zero=not head.endswith("ppw"))
+    if head == "tail":
+        return head, _parse_float_suffix(kind, "tail", allow_zero=True)
+    if head == "uniform":
+        return head, _parse_float_suffix(kind, "uniform", allow_zero=False)
+    raise ValueError(
+        f"Unknown grid {kind!r}: expected uniform-<nm>, graded[-snap|-wide], tail-<um>, or "
+        f"{{mesh,meshppw,lattice,latticeppw}}-<val>"
+    )
+
+
 def pml_cells(e: np.ndarray, low: bool) -> int:
     """Cells from a face of edges e covering PML um."""
     w = np.diff(e) if low else np.diff(e)[::-1]
@@ -59,6 +101,8 @@ def pml_cells(e: np.ndarray, low: bool) -> int:
 
 def build(kind: str):
     """The placed objects, arrays, params and config on one grid."""
+    head, param = parse_grid_kind(kind)
+
     import fdtdx
     import gdsfactory as gf
     import jax
@@ -81,26 +125,26 @@ def build(kind: str):
         c, ls, mats, background="clad", zrange_layers=["core"], name="stack", diagnostics=False,
         boundary_offset=(0.0, 0.0, y1 - h, y0 + h, z1 - THICKNESS, z0),
     )
-    if kind.startswith(("mesh", "lattice")):
-        head, val = kind.split("-", 1)
+    if head in _MESH_HEADS:
+        assert param is not None
         quantum = 0.001 if head.startswith("lattice") else None
         if head.endswith("ppw"):
-            m = bf.mesh(stack, WAVELENGTH, ppw=float(val), pml=PML, quantum=quantum)
+            m = bf.mesh(stack, WAVELENGTH, ppw=param, pml=PML, quantum=quantum)
         else:  # 20 nm in silicon (on uniform-20's lattice), 60 nm in silica, the tail in decay lengths
-            tail = float(val)
             m = bf.mesh(stack, WAVELENGTH, ppw=WAVELENGTH / (N_CORE * 0.02), pml=PML, center_faces=False,
                         quantum=quantum,
-                        refine=bf.Refine(global_dilation=tail, global_z_padding=tail, material_cells={"clad": 0.06}))
+                        refine=bf.Refine(global_dilation=param, global_z_padding=param, material_cells={"clad": 0.06}))
         print(m.summary(), flush=True)
         grid, bound = m.grid, m.boundary
-    elif kind.startswith(("graded", "tail")):
+    elif head in _GRADED_STATIC or head == "tail":
         n = math.ceil(PML / 0.06 - 1e-9)
-        if kind == "graded":
+        if head == "graded":
             fy, fz, snap, ends = (-h - 0.2, h + 0.2), (-0.2, THICKNESS + 0.2), False, (n, n)
-        elif kind == "graded-snap":  # the fine block's faces on uniform-20's edges (-1.6 + 0.02 j, -1.48 + 0.02 k)
+        elif head == "graded-snap":  # the fine block's faces on uniform-20's edges (-1.6 + 0.02 j, -1.48 + 0.02 k)
             fy, fz, snap, ends = (-0.46, 0.46), (-0.2, 0.42), True, (n, n)
-        elif kind.startswith("tail-"):  # the block t um past the core, out to uniform-20's next edges
-            t = float(kind.split("-")[1])
+        elif head == "tail":  # the block t um past the core, out to uniform-20's next edges
+            assert param is not None
+            t = param
 
             def lattice(a: float, base: float, up: bool) -> float:
                 """The uniform-20 edge (from base) at or past a, outward."""
@@ -110,7 +154,7 @@ def build(kind: str):
             fy = (lattice(-h - t, y0, False), lattice(h + t, y0, True))
             fz = (lattice(-t, z0, False), lattice(THICKNESS + t, z0, True))
             snap, ends = True, (0, 0)
-        else:
+        else:  # graded-wide
             fy, fz, snap, ends = (-0.86, 0.86), (-0.6, 0.82), True, (0, 0)
         ey, ez = (
             bf.graded_edges(lo, hi, 0.06, fine=[(*f, 0.02)], growth=1.25, uniform_ends=ends, snap=f if snap else ())
@@ -122,7 +166,8 @@ def build(kind: str):
         bound = fdtdx.BoundaryConfig(thickness_grid_minx=nx, thickness_grid_maxx=nx, thickness_grid_miny=ny0,
                                      thickness_grid_maxy=ny1, thickness_grid_minz=nz0, thickness_grid_maxz=nz1)
     else:
-        res = float(kind.split("-")[1]) * 1e-3
+        assert param is not None
+        res = param * 1e-3
         grid = fdtdx.core.grid.UniformGrid(spacing=res * 1e-6)
         bound = fdtdx.BoundaryConfig.from_uniform_bound(thickness=round(PML / res))
     config = stack.get_simulation_config(time=200e-15, grid=grid)
@@ -256,6 +301,11 @@ def main() -> None:
     parser.add_argument("--save-eps", default=None, help="with one grid: save its yz inverse permittivity here")
     parser.add_argument("--mode-only", action="store_true", help="the mode solver's neff only (no run)")
     args = parser.parse_args()
+    for kind in args.grids:
+        try:
+            parse_grid_kind(kind)
+        except ValueError as exc:
+            parser.error(str(exc))
     rows = []
     if args.reference:
         rows.append(reference())

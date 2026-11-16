@@ -46,10 +46,11 @@ adding a type or an extra:
 A field whose default is `None` (`filter_pol`, `aggregate`) shows as empty: empty means "off" or "unrestricted", and
 clearing the field leaves it empty.
 
-## The live demo
+## The widget demo
 
-The [live demo](live-demo.md) is the viewer's own front end playing back a precomputed result, with no Python.
-Its pieces:
+The [Widget Demo](live-demo.md) wraps a [marimo](https://marimo.io) notebook around the standalone
+[Explorer demo](demo/index.html) (`docs/demo/index.html`), which is the viewer's own front end playing back a
+precomputed result with no Python. Its pieces:
 
 | Piece | Where |
 | --- | --- |
@@ -57,7 +58,7 @@ Its pieces:
 | the exporter (geometry, fields, 2D slices) | `bifrost/viewer/export.py` |
 | the regeneration script | `scripts/build_demo.py` |
 | the browser adapter that stands in for the kernel | `js/viewer/static.ts`, entry `js/viewer/demo.ts` |
-| the page, bundle and data that are published | `docs/demo/` (`index.html`, `viewer-demo.js`, `viewer.css`, `data/`) |
+| the Explorer demo page, bundle and data that are published | `docs/demo/` (`index.html`, `viewer-demo.js`, `viewer.css`, `data/`) |
 | the notebook around it (the Widget Demo page embeds it, and all that page's text is in it) | `docs/notebooks/widget_demo.py`, exported to `docs/demo/notebook/` by `make demo-notebook`; the export is generated, not committed. It opens in dark mode (the PEP 723 header at the top of the file) and the viewer opens with its cards collapsed (`js/viewer/demo.ts`). Its links to other pages are written from `docs/demo/notebook/` (`../../guide/viewer/`) with `target="_top"`, and `tests/test_docs.py` checks them |
 
 To regenerate it after changing the example, the viewer or the export format, run on a GPU node, then commit `docs/demo/`:

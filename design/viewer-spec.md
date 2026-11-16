@@ -2,6 +2,8 @@
 
 **Status:** drafting · **Owner:** floresh2 · **Last updated:** 2026-10-16
 
+> **Post-M4 implementation note:** Beyond M4, the viewer gained static browser-demo export (`bifrost/viewer/export.py`), multi-frame playback controls in the explorer (`js/viewer/explorer.ts`), and client-side WebCodecs video capture wrapped into MP4 by ffmpeg (`js/viewer/video.ts`, `bifrost.viewer.widget.wrap_video`). Where this spec names `ModePlaneSource` or `ModeOverlapDetector`, `StackDevice.create_mode_plane_source_at` and `StackDevice.create_mode_overlap_detector_at` now construct `bifrost`'s area-normalized wrappers (`bf.ModePlaneSource` and `bf.ModeOverlapDetector` in `bifrost/stack.py`, normalized to `min_spacing**2` on non-uniform grids) rather than bare `fdtdx` objects.
+
 How to use this file: we workshop it, then distill only the **Accepted** items
 into an implementation brief for an agent. IDs (G#, C#, R#, D#, Q#, F#, M#) are
 stable: never renumber, only add. Item status is one of *Proposed*, *Accepted*,

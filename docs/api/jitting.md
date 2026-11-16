@@ -1,4 +1,4 @@
-# bf.jit
+# bf.jitting
 
 ::: bifrost.jitting
     options:

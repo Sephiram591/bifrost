@@ -67,11 +67,12 @@ The arguments every method shares:
 
 | Argument | Meaning |
 | --- | --- |
-| `port` | the port's name |
+| `port` | a component port name, or a simulation-box plane port (`"xy"`, `"xz"`, `"yz"` in `bf.stack.PLANE_PORTS`) |
 | `port_padding` | `(lateral, vertical)`: the plane extends this far past the port's width and the level's height on each side, in units of the mean wavelength of the object's wave characters (negative values shrink the plane). Field, energy and Poynting-flux monitors have none, so they take `wavelength_um` for the unit |
-| `direction` | `"in"` (into the component) or `"out"`; sources default to `"in"`, monitors to `"out"` |
+| `direction` | `"in"` (into the component, or `-normal` on a plane port) or `"out"`; sources default to `"in"`, monitors to `"out"` |
 | `port_offset` | shift in µm along the injection direction; a negative value moves the plane out of the component, e.g. into a port extension |
-| `level` | the level whose z span sets the plane's height (default: the levels that draw the port's layer) |
+| `level` | the level whose z span sets the plane's height (default: the levels that draw the port's layer, or volume mid-height for a plane port); pass `bf.stack.Z_CENTER_LEVEL` (`"z_center"`) to pin the z center to `stack.z_center` |
+| `grid` | optional `SimulationConfig` or `RectilinearGrid` for plane methods (`create_point_dipole_source_at` is always one cell); snaps faces to the nearest grid edges along any non-uniform in-plane axis |
 
 !!! note "Where to put a source and its monitors"
     - Keep source and monitor planes **outside the PML** and well clear of the box faces: the box's absorbing layer
@@ -83,23 +84,44 @@ The arguments every method shares:
     - Planes must be tall enough to hold the mode: the mode of a 220 nm silicon guide reaches about 0.5 µm into the
       cladding above and below, so a 1.1 µm tall plane is plenty.
 
-The methods and the fdtdx objects they make:
+The methods and the objects they make (`bf.*` wrappers live in `bifrost.stack` and subclass the matching `fdtdx` class):
 
-| Method | fdtdx object |
+| Method | Object created |
 | --- | --- |
-| `create_mode_plane_source_at` | `ModePlaneSource` |
-| `create_gaussian_plane_source_at` | `GaussianPlaneSource` |
-| `create_uniform_plane_source_at` | `UniformPlaneSource` |
-| `create_hard_constant_amplitude_plane_source_at` | `HardConstantAmplitudePlanceSource` |
-| `create_point_dipole_source_at` | `PointDipoleSource` |
-| `create_mode_overlap_detector_at` | `ModeOverlapDetector` |
-| `create_poynting_flux_detector_at` | `PoyntingFluxDetector` |
-| `create_phasor_detector_at` | `PhasorDetector` |
-| `create_field_detector_at` | `FieldDetector` |
-| `create_energy_detector_at` | `EnergyDetector` |
-| `create_diffractive_detector_at` | `DiffractiveDetector` |
+| `create_mode_plane_source_at` | `bf.ModePlaneSource` (`fdtdx.ModePlaneSource` subclass) |
+| `create_gaussian_plane_source_at` | `fdtdx.GaussianPlaneSource` |
+| `create_uniform_plane_source_at` | `fdtdx.UniformPlaneSource` |
+| `create_hard_constant_amplitude_plane_source_at` | `HardConstantAmplitudePlanceSource` (`fdtdx`) |
+| `create_point_dipole_source_at` | `fdtdx.PointDipoleSource` |
+| `create_mode_overlap_detector_at` | `bf.ModeOverlapDetector` (`fdtdx.ModeOverlapDetector` subclass) |
+| `create_poynting_flux_detector_at` | `fdtdx.PoyntingFluxDetector` |
+| `create_phasor_detector_at` | `fdtdx.PhasorDetector` |
+| `create_field_detector_at` | `fdtdx.FieldDetector` |
+| `create_energy_detector_at` | `fdtdx.EnergyDetector` |
+| `create_diffractive_detector_at` | `fdtdx.DiffractiveDetector` |
+
+`bf.ModePlaneSource` and `bf.ModeOverlapDetector` normalize against the simulation-wide `min_spacing**2` on non-uniform
+`RectilinearGrid`s so launched power and overlap ratios do not shift with plane size or orientation, while leaving uniform
+grids unchanged bit for bit.
 
 Other fdtdx fields go in as keyword arguments. Boundaries, regular fdtdx devices and other objects are added as usual.
+
+### Plane ports, z centering and grid snapping
+
+- **Plane ports (`bf.stack.PLANE_PORTS = {"yz": 0, "xz": 1, "xy": 2}`):** passing `"xy"`, `"xz"`, or `"yz"` as `port`
+  places the source, detector, or point dipole on the plane through the simulation box's center, spanning the box's
+  in-plane extents (`width`, `height`) rather than a component port (they are virtual frames, not entries in `stack.ports`).
+  For these plane ports, `"in"` faces the negative normal axis (`-normal`), `"out"` faces `+normal`, and positive
+  `port_offset` shifts along `"in"` (`-normal`); `port_padding=(0, 0)` keeps the box extent unchanged.
+- **Pinning z to box center (`bf.stack.Z_CENTER_LEVEL = "z_center"`):** passing `level=bf.stack.Z_CENTER_LEVEL` centers
+  the plane at `stack.z_center` instead of the middle of the port's or named level's z span (for component ports, the
+  height still comes from the port's level span; for plane ports, `level=None` also centers on `stack.z_center`, while a
+  level name places the plane at that level's span middle).
+- **Non-uniform grid snapping (`grid=`):** passing `grid=config` (a `SimulationConfig` or resolved `RectilinearGrid`) to
+  any plane `create_*_at` method snaps the plane's faces to the nearest grid edges along any non-uniform in-plane axis
+  and expresses the size in whole cells (`partial_grid_shape`) rather than physical length (`partial_real_shape`). This
+  requires the `StackDevice` to fill the simulation volume from `get_simulation_volume(...)`. `create_point_dipole_source_at`
+  always uses `partial_grid_shape=(1, 1, 1)` and does not take `grid=`.
 
 ## Place, apply and run
 
@@ -244,8 +266,10 @@ config = stack.get_simulation_config(time=100e-15, grid=fdtdx.core.grid.UniformG
   Scripts written before this wrapped the run in `jax.enable_x64(False)`; that still works for float32, but a float64
   device refuses to be placed while the 64-bit mode is off.
 - float64 doubles the memory of every array and is slow on GPUs built for single precision. fdtdx 0.6.3 still
-  computes a few auxiliary quantities in float32 (the time window of phasor monitors and the face weights of mode-overlap
-  monitors), so a float64 run has float64 fields and permittivity, not every intermediate in double precision.
+  computes phasor monitor time windows and uniform-grid mode-overlap face weights in float32 (on non-uniform
+  `RectilinearGrid`s, `bf.ModeOverlapDetector.place_on_grid` computes its face weights in `placed._config.dtype`:
+  `float64` in double precision when overlap monitors are `complex128`, and `float32` otherwise), so a float64 run
+  has float64 fields and permittivity, not every intermediate in double precision.
 
 ## Troubleshooting
 

@@ -10,8 +10,8 @@ from one fit S0 + C h^p to every uniform grid of 25 nm and finer, S0 and p share
 
 from __future__ import annotations
 
+import argparse
 import json
-import sys
 
 import matplotlib
 
@@ -28,8 +28,10 @@ MID_SHIFT = "@3.2,"  # the uniform grids shifted half a cell in z: <grid>@3.2,<h
 
 def joint_fit(groups: list[list[tuple[float, float]]]) -> tuple[float, float, list[float], float]:
     """(S0, p, C per group, rms) of the least-squares fit s = S0 + C_g h^p, S0 and p shared, p over [1, 4]."""
-    best = None
     rows = [(g, h, s) for g, points in enumerate(groups) for h, s in points]
+    if not rows:
+        raise ValueError("joint_fit requires at least one data point")
+    best: tuple[float, float, np.ndarray] | None = None
     b = np.array([s for _, _, s in rows])
     for p in np.linspace(1.0, 4.0, 3001):
         a = np.zeros((len(rows), 1 + len(groups)))
@@ -40,6 +42,8 @@ def joint_fit(groups: list[list[tuple[float, float]]]) -> tuple[float, float, li
         res = float(np.sum((a @ coef - b) ** 2))
         if best is None or res < best[0]:
             best = (res, float(p), coef)
+    if best is None:
+        raise ValueError("joint_fit failed to find a fit")
     res, p, coef = best
     return float(coef[0]), p, [float(c) for c in coef[1:]], float(np.sqrt(res / len(rows)))
 
@@ -140,5 +144,13 @@ def main(src: str, dst: str) -> None:
     print("wrote", dst)
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("src", help="Input JSONL results from dc_convergence.py.")
+    parser.add_argument("dst", help="Output PNG plot path.")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    main(*sys.argv[1:3])
+    args = _parse_args()
+    main(args.src, args.dst)

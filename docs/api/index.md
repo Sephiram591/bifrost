@@ -1,6 +1,7 @@
 # API reference
 
-Import as `import bifrost as bf`. For `Component`, cells, routing and PDKs see the
+Import as `import bifrost as bf`. For `Component`, cells, routing and PDKs see
+[gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx) (the JAX port of gdsfactory) and the
 [gdsfactory API reference](https://gdsfactory.github.io/gdsfactory/api/).
 
 | Name | What it is |
@@ -20,11 +21,13 @@ Import as `import bifrost as bf`. For `Component`, cells, routing and PDKs see t
 | [`bf.axis_edges`][bifrost.grids.axis_edges] | continuous cell edges of one axis within their targets, PMLs and centered faces |
 | [`bf.lattice_edges`][bifrost.grids.lattice_edges] | exact cell edges of one axis on a lattice of quanta, within their targets |
 | [`bf.graded_edges`][bifrost.grids.graded_edges] | cell edges of a graded axis, for `StackDevice.rectilinear_grid` |
+| [`bf.AxisEdges`][bifrost.grids.AxisEdges] | the cell edges, PML counts and alignment returned by `axis_edges` and `lattice_edges` |
 | [`bf.jit`][bifrost.jitting.jit] | `jax.jit` with the XLA option gradients through fdtdx's time loop need |
 | [`bf.compiler_options`][bifrost.jitting.compiler_options] | those options merged with your own, for another jit wrapper |
+| [`bf.COMPILER_OPTIONS`][bifrost.jitting.COMPILER_OPTIONS] | the XLA compiler options `bf.jit` adds (`simplify-conditional` disabled) |
 | [`bf.record_timings`][bifrost.timing.record_timings] | times the geometry steps |
 | [`bf.view`][bifrost.viewer.widget.view] | the 3D viewer widget for a `StackDevice` |
 
 The modules: [bf.stack](stack.md), [bf.geometry](geometry.md), [bf.grids](grids.md), [bf.meshing](meshing.md),
-[bf.jit](jitting.md),
+[bf.jitting](jitting.md),
 [bf.subpixel and bf.timing](subpixel-timing.md) and [bf.viewer](viewer.md).

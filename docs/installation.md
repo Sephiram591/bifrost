@@ -3,9 +3,9 @@
 ## Requirements
 
 - Python 3.12, 3.13 or 3.14.
-- A fresh virtual environment (see the warning on gdsfactory below).
+- A fresh virtual environment (see the warning on [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx) vs upstream gdsfactory below).
 - For simulations of any size, an accelerator that JAX supports, such as a GPU or TPU (see [JAX setup](#jax-setup)). A
-  CPU is enough for the [live demo](live-demo.md), for building devices and for the viewer.
+  CPU is enough for the [Widget Demo](live-demo.md) (or standalone [Explorer demo](demo/index.html)), for building devices and for the viewer.
 
 ## Basic installation
 
@@ -66,7 +66,7 @@ pip install -e ".[dev,docs]"
 | --- | --- |
 | `make test` | the Python tests (`pytest tests`) |
 | `make test-js` | the viewer's JavaScript tests and typecheck |
-| `make test-docs` | checks of the docs and the live demo, including browser tests (run `playwright install chromium` once first) |
+| `make test-docs` | checks of the docs and the widget demo, including browser tests (run `playwright install chromium` once first) |
 | `make test-hardware` | the tutorial's full simulations (needs a GPU) |
 | `make viewer-js` | rebuilds the viewer bundle in `bifrost/viewer/static/` after editing `js/viewer/*.ts` |
 | `make docs` | builds this documentation with strict checks |

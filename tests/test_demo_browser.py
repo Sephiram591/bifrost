@@ -475,12 +475,12 @@ def test_the_notebooks_links_reach_the_site_pages_and_leave_the_iframe(browser, 
         page = context.new_page()
         page.goto(f"{base_url}/demo/notebook/index.html")
         page.get_by_role("heading", name="How it was made").wait_for(timeout=120000)
-        site = {"bend tutorial": "getting-started/", "Contributing and tests": "development/#the-live-demo", "Viewer guide": "guide/viewer/"}
+        site = {"bend tutorial": "getting-started/", "Contributing and tests": "development/#the-widget-demo", "Viewer guide": "guide/viewer/"}
         for name, path in site.items():
             link = page.get_by_role("link", name=name)
             assert link.get_attribute("target") == "_top", name
             assert link.evaluate("(a) => a.href") == f"{base_url}/{path}", name
-        for name, path in {"Open the demo full screen": "demo/notebook/index.html", "the same viewer without the notebook": "demo/index.html"}.items():
+        for name, path in {"Open the Widget Demo full screen": "demo/notebook/index.html", "open the Explorer demo without the notebook": "demo/index.html"}.items():
             link = page.get_by_role("link", name=name)
             assert link.get_attribute("target") == "_blank", name
             assert link.evaluate("(a) => a.href") == f"{base_url}/{path}", name

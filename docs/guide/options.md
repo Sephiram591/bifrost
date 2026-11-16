@@ -22,8 +22,8 @@ returns a built device's options.
 | Option (default) | What it buys |
 |---|---|
 | `corner_lines=2` (0: off) | exact fill at polygon corners and edge crossings: corner voxels off by up to 0.25 (convex) and 0.31 (rotated polygons) without, 1e-6 with |
-| `averaging="subpixel"` (`"inverse"`) | Kottke averaging (the diagonal of the averaged tensor): second-order accurate at interfaces along the grid; first order at oblique ones (see below) |
-| `averaging="subpixel_full"` (opt-in) | complete tensors: anisotropic materials (full tensors), Kottke's anisotropic laminate at planar interfaces in every entry, a junction closure at corners (see below) |
+| `averaging="subpixel"` (`"inverse"`) | Kottke averaging (the diagonal of the averaged tensor): second-order accurate at interfaces along the grid; first order at oblique ones ([Permittivity averaging](geometry-model.md#permittivity-averaging)) |
+| `averaging="subpixel_full"` (opt-in) | complete tensors: anisotropic materials (full tensors), Kottke's anisotropic laminate at planar interfaces in every entry, a junction closure at corners ([Full tensors](geometry-model.md#full-tensors)) |
 | `subpixel_normal="voxel"` (`"gradient"`) | the normal of each voxel's own model: exact at slanted walls (0.01 deg), where finite differences of the mean eps are 8-33 deg off |
 | `yee_staggered=True` | each E component's own Yee position (first-order error without) |
 | `xy_subsamples=1` | s > 1 refines tips and dense curves, at about s² the cost |

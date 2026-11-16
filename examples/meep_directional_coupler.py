@@ -6,6 +6,7 @@
        mpirun -np 48 python examples/meep_directional_coupler.py run [resolution_um]
 """
 
+import argparse
 import json
 import sys
 import time as clock
@@ -79,7 +80,9 @@ def run(resolution: float | None = None) -> None:
             geometry.append(mp.Prism(vertices, height=lv["thickness"], material=medium))
 
     plane = mp.Vector3(0, g["plane"][0], g["plane"][1])
-    at = lambda port, dx=0.0: mp.Vector3(g["ports"][port][0] + dx, g["ports"][port][1], 0)
+
+    def at(port: str, dx: float = 0.0):
+        return mp.Vector3(g["ports"][port][0] + dx, g["ports"][port][1], 0)
     # same Gaussian envelope as fdtdx: sigma_t = 1 / (2 pi PULSE_WIDTH f0), peak at 6 sigma_t
     pulse = mp.GaussianSource(f0, fwidth=2 * np.pi * g["pulse_width"] * f0, cutoff=6)
     source = mp.EigenModeSource(pulse, center=at("o1", -0.3), size=plane, eig_band=1, eig_match_freq=True)
@@ -124,8 +127,18 @@ def run(resolution: float | None = None) -> None:
         )
 
 
-if __name__ == "__main__":
-    if sys.argv[1] == "export":
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("export", help="Export component polygons and LayerStack levels to JSON.")
+    run_parser = sub.add_parser("run", help="Run the 3D MEEP simulation.")
+    run_parser.add_argument("resolution", nargs="?", type=float, default=None, help="Grid resolution in um.")
+    args = parser.parse_args()
+    if args.command == "export":
         export()
     else:
-        run(float(sys.argv[2]) if len(sys.argv) > 2 else None)
+        run(args.resolution)
+
+
+if __name__ == "__main__":
+    main()

@@ -5,11 +5,13 @@ checked separately, on suitable hardware: ``BIFROST_HARDWARE=1 pytest tests/test
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import shutil
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -218,15 +220,171 @@ def test_hardware_the_width_optimization_improves_the_bend() -> None:
     assert optimized > uniform, done.stdout
 
 
+# ------------------------------------------------------------------ inline code & recipes
+
+
+PY_BLOCK = re.compile(r"^```python[ \t]*\n(.*?)^```", re.S | re.M)
+
+
+def _extract_snippet(name: str, section: str | None) -> str:
+    text = (ROOT / name).read_text()
+    if not section:
+        return text
+    pattern = re.compile(
+        rf"^[^\n]*--8<-- \[start:{re.escape(section)}\]\s*\n(.*?)^[ \t]*# --8<-- \[end:{re.escape(section)}\]",
+        re.S | re.M,
+    )
+    match = pattern.search(text)
+    assert match is not None, f"{name} has no snippet section {section!r}"
+    return textwrap.dedent(match.group(1))
+
+
+def _expand_python_block(block: str) -> str:
+    lines: list[str] = []
+    for line in block.splitlines():
+        match = SNIPPET.fullmatch(line.strip())
+        if match:
+            lines.append(_extract_snippet(match.group(1), match.group(2)).rstrip("\n"))
+        else:
+            lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
+@pytest.mark.parametrize("page", MARKDOWN, ids=lambda p: str(p.relative_to(DOCS)))
+def test_python_code_blocks_parse_cleanly(page: Path) -> None:
+    """Every ``python`` fenced block in docs/ (after expanding snippet includes) is valid Python syntax."""
+    for index, block in enumerate(PY_BLOCK.findall(page.read_text()), start=1):
+        code = _expand_python_block(block)
+        ast.parse(code, filename=f"{page.relative_to(DOCS)}#block-{index}")
+
+
+def _simulation_setup_device():
+    import fdtdx
+    import gdsfactory as gf
+    from gdsfactory.technology import LayerLevel, LayerStack
+
+    import bifrost as bf
+
+    gf.gpdk.PDK.activate()
+    component = gf.components.straight(length=5)
+    layer_stack = LayerStack(
+        layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
+    )
+    materials = {
+        "core": fdtdx.Material(permittivity=3.48**2),
+        "clad": fdtdx.Material(permittivity=1.444**2),
+    }
+    stack = bf.StackDevice.from_layer_stack(
+        component, layer_stack, materials, background="clad", zrange_layers=["core"],
+        extend_ports=(("o1", 2.0), ("o2", 2.0)), boundary_offset=(0.0, 0.0, 1.55, -1.55, 1.59, -1.59), name="stack",
+    )
+    wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
+    return stack, wave
+
+
+def test_graded_grids_recipe_in_simulation_setup() -> None:
+    """Exercise the graded-grid and port-source recipe in docs/guide/simulation-setup.md."""
+    import fdtdx
+    import jax
+    import numpy as np
+
+    import bifrost as bf
+
+    stack, wave = _simulation_setup_device()
+    half = 0.5 * stack.partial_real_shape[2] * 1e6
+    z = bf.graded_edges(
+        stack.z_center - half, stack.z_center + half, 0.06,
+        fine=[(-0.05, 0.27, 0.02)],
+        snap=[0.0, 0.22],
+        uniform_ends=(10, 10),
+    )
+    config = stack.get_simulation_config(time=100e-15, grid=stack.rectilinear_grid(0.06, z_um=z))
+    volume, constraints = stack.get_simulation_volume()
+    source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid=config)
+    boundaries, b_placing = fdtdx.boundary_objects_from_config(
+        fdtdx.BoundaryConfig(
+            thickness_grid_minx=15, thickness_grid_maxx=15,
+            thickness_grid_miny=15, thickness_grid_maxy=15,
+            thickness_grid_minz=10, thickness_grid_maxz=10,
+        ),
+        volume,
+    )
+    objects = [volume, stack, source, *boundaries.values()]
+    placed, arrays, params, placed_config, _ = fdtdx.place_objects(
+        objects, config, [*constraints, *placing, *b_placing], jax.random.PRNGKey(0)
+    )
+    arrays, placed, _ = bf.apply_stack(
+        arrays, placed, {**params, **bf.init_stack_params(placed)}, jax.random.PRNGKey(0)
+    )
+    assert z[0] == pytest.approx(stack.z_center - half)
+    assert z[-1] == pytest.approx(stack.z_center + half)
+    assert np.allclose(np.diff(z[:11]), 0.06)
+    assert np.allclose(np.diff(z[-11:]), 0.06)
+    assert placed.volume.grid_shape == (150, 60, len(z) - 1)
+    assert placed[source.name].grid_shape[0] == 1
+    assert len(placed_config.resolved_grid.edges(2)) == len(z)
+    assert np.isfinite(np.asarray(arrays.inv_permittivities)).all()
+
+
+def test_automatic_mesh_recipe_in_simulation_setup() -> None:
+    """Exercise the bf.mesh automatic-meshing recipe in docs/guide/simulation-setup.md."""
+    import fdtdx
+    import jax
+    import numpy as np
+
+    import bifrost as bf
+
+    stack, wave = _simulation_setup_device()
+    mesh = bf.mesh(
+        stack, (1.50, 1.60),
+        refine=bf.Refine(dilation={"WG": 0.45}),
+    )
+    summary = mesh.summary(time=500e-15)
+    assert "cells" in summary
+    config = stack.get_simulation_config(time=500e-15, grid=mesh.grid)
+    volume, constraints = stack.get_simulation_volume()
+    boundaries, b_placing = fdtdx.boundary_objects_from_config(mesh.boundary, volume)
+    source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid=config)
+    objects = [volume, stack, source, *boundaries.values()]
+    placed, arrays, params, _, _ = fdtdx.place_objects(
+        objects, config, [*constraints, *b_placing, *placing], jax.random.PRNGKey(0)
+    )
+    arrays, placed, _ = bf.apply_stack(
+        arrays, placed, {**params, **bf.init_stack_params(placed)}, jax.random.PRNGKey(0)
+    )
+    assert placed.volume.grid_shape == mesh.shape
+    assert placed[source.name].grid_shape[0] == 1
+    assert np.isfinite(np.asarray(arrays.inv_permittivities)).all()
+
+
 # ------------------------------------------------------------------ the build
 
 
 @pytest.mark.skipif(shutil.which("zensical") is None, reason="zensical is not installed (pip install -e '.[docs]')")
 def test_the_documentation_builds_strictly(tmp_path: Path) -> None:
+    staged_docs = tmp_path / "docs"
+    shutil.copytree(DOCS, staged_docs, ignore=shutil.ignore_patterns("_build"))
+    config_text = (DOCS / "zensical.yml").read_text()
+    config_text = re.sub(r"(?m)^docs_dir:\s*.*$", "docs_dir: docs", config_text)
+    config_text = re.sub(r"(?m)^site_dir:\s*.*$", "site_dir: site", config_text)
+    config_text = re.sub(
+        r"(?m)^(\s*base_path:\s*).*$",
+        lambda m: f'{m.group(1)}["{ROOT.as_posix()}", "{staged_docs.as_posix()}"]',
+        config_text,
+    )
+    config_text = re.sub(
+        r"(?m)^(\s*paths:\s*).*$",
+        lambda m: f'{m.group(1)}["{ROOT.as_posix()}"]',
+        config_text,
+    )
+    staged_config = tmp_path / "zensical.yml"
+    staged_config.write_text(config_text)
     done = subprocess.run(
-        ["zensical", "build", "--strict", "-f", str(DOCS / "zensical.yml")], capture_output=True, text=True, cwd=ROOT,
+        ["zensical", "build", "--strict", "-f", str(staged_config)],
+        capture_output=True, text=True, cwd=tmp_path,
     )
     assert done.returncode == 0, (done.stdout + done.stderr)[-3000:]
+    assert (tmp_path / "site" / "index.html").is_file()
 
 
 # ------------------------------------------------------------------ the Widget Demo notebook

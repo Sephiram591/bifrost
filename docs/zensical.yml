@@ -8,6 +8,8 @@ docs_dir: .
 site_dir: _build/html
 exclude_docs: |
   _build/
+  zensical.yml
+  notebooks/**
 
 nav:
   - Home: index.md
@@ -34,7 +36,7 @@ nav:
       - bf.geometry: api/geometry.md
       - bf.grids: api/grids.md
       - bf.meshing: api/meshing.md
-      - bf.jit: api/jitting.md
+      - bf.jitting: api/jitting.md
       - bf.subpixel and bf.timing: api/subpixel-timing.md
       - bf.viewer: api/viewer.md
   - Development:
@@ -96,8 +98,6 @@ extra_css:
 
 extra_javascript:
   - javascripts/site-title.js
-  - javascripts/mathjax.js
-  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
 
 plugins:
   - search

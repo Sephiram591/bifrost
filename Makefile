@@ -9,8 +9,8 @@ test: ## Run the Python tests
 test-js: ## Run the viewer's JS tests and typecheck
 	cd js && npm install && npm test && npm run typecheck
 
-test-docs: ## Check the docs: snippets, links, install commands, examples, strict build, demo in a browser
-	pytest tests/test_docs.py tests/test_demo_browser.py tests/test_viewer_export.py
+test-docs: demo-notebook ## Check the docs: snippets, links, install commands, examples, strict build, site & demo in a browser
+	pytest tests/test_docs.py tests/test_docs_site_browser.py tests/test_demo_browser.py tests/test_viewer_export.py
 
 test-hardware: ## Run the tutorial's full simulations (needs a GPU)
 	BIFROST_HARDWARE=1 pytest tests/test_docs.py -k hardware

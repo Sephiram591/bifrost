@@ -114,9 +114,8 @@ def run(kind: str) -> dict:
     jax.block_until_ready(arrays.inv_permittivities)
     t_setup = time.perf_counter() - t0
     t0 = time.perf_counter()
-    with jax.enable_x64(False):  # as the example: gdsfactory turns x64 on
-        _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key, show_progress=False)
-        jax.block_until_ready(arrays.detector_states)
+    _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key, show_progress=False)
+    jax.block_until_ready(arrays.detector_states)
     t_run = time.perf_counter() - t0
     states = arrays.detector_states
     a_in, a_through, a_cross = (objects[n].compute_overlap(states[n]) for n in ("in", "through", "cross"))

@@ -165,11 +165,9 @@ def simulate(resolution: float = RESOLUTION, time: float = TIME, averaging: str 
     key = jax.random.PRNGKey(0)
     objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
     arrays, objects, _ = bf.stack.apply_stack(arrays, objects, {**params, **bf.stack.init_stack_params(objects)}, key)
-    # gdsfactory turns on x64; fdtdx 0.6.3's PML would then promote its float32 state inside the solve loop
     start = clock.perf_counter()
-    with jax.enable_x64(False):
-        _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
-        jax.block_until_ready(arrays.detector_states)
+    _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
+    jax.block_until_ready(arrays.detector_states)
     runtime = clock.perf_counter() - start
     peak = (jax.devices()[0].memory_stats() or {}).get("peak_bytes_in_use", 0) / 2**30  # GiB, the whole process
 

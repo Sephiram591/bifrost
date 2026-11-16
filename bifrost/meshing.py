@@ -43,7 +43,7 @@ from .stack import (
 )
 from .subpixel import material_tensor
 
-__all__ = ["CoarseVertices", "Mesh", "Refine", "coarse_vertices", "mesh"]
+__all__ = ["FACES", "CoarseVertices", "Mesh", "Refine", "coarse_vertices", "mesh"]
 
 _C0 = 299792458.0  # m/s
 # lateral offsets: KLayout's square corners (sizing mode 2) bound a round offset from outside when growing

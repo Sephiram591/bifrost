@@ -47,6 +47,19 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
 
 @pytest.fixture(scope="module")
 def base_url():
+    notebook_index = ROOT / "docs" / "demo" / "notebook" / "index.html"
+    if not notebook_index.exists():
+        if shutil.which("marimo") is None:
+            pytest.skip("docs/demo/notebook is not built and marimo is not installed (make demo-notebook)")
+        exported = subprocess.run(
+            [
+                "marimo", "export", "html-wasm", "docs/notebooks/widget_demo.py",
+                "-o", "docs/demo/notebook", "--mode", "run", "--no-show-code", "--no-sandbox", "-f",
+            ],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+        assert exported.returncode == 0, (exported.stdout + exported.stderr)[-3000:]
+        (ROOT / "docs" / "demo" / "notebook" / "CLAUDE.md").unlink(missing_ok=True)
     if shutil.which("zensical") is None and not (SITE / "index.html").exists():
         pytest.skip("zensical is not installed and the site is not built")
     if shutil.which("zensical") is not None:
@@ -126,7 +139,7 @@ def test_text_and_code_are_readable_in_both_themes(browser, base_url, scheme):
             """() => { const pair = (el) => { let bg = 'rgba(0, 0, 0, 0)', node = el;
                           while (node && (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent')) { bg = getComputedStyle(node).backgroundColor; node = node.parentElement; }
                           return [getComputedStyle(el).color, bg, parseFloat(getComputedStyle(el).fontSize)]; };
-                       return {body: pair(document.querySelector('.md-typeset p')), code: pair(document.querySelector('pre code')), link: pair(document.querySelector('.md-typeset a'))}; }"""
+                       return {body: pair(document.querySelector('.md-typeset p')), code: pair(document.querySelector('pre code')), link: pair(document.querySelector('.md-typeset p a'))}; }"""
         )
         assert contrast(*colors["body"][:2]) >= 4.5, f"body text in {scheme}: {colors['body']}"
         assert contrast(*colors["code"][:2]) >= 4.5, f"code in {scheme}: {colors['code']}"
@@ -171,7 +184,7 @@ def test_the_full_screen_link_and_the_poster_are_served(browser, base_url):
     try:
         page.goto(f"{base_url}/live-demo/")
         # the page's text, this link included, is in the notebook the iframe shows
-        link = page.frame_locator("iframe[title*='bifrost viewer']").get_by_role("link", name="Open the demo full screen")
+        link = page.frame_locator("iframe[title*='bifrost viewer']").get_by_role("link", name="Open the Widget Demo full screen")
         link.wait_for(timeout=120000)
         target = link.evaluate("(a) => a.href")  # as the browser resolves it
         assert target == f"{base_url}/demo/notebook/index.html"

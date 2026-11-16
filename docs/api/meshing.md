@@ -11,3 +11,7 @@
 ::: bifrost.meshing.Mesh
 
 ::: bifrost.meshing.CoarseVertices
+
+::: bifrost.meshing.coarse_vertices
+
+::: bifrost.meshing.FACES

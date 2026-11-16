@@ -96,10 +96,11 @@ def run(kind: str, fine: float, coarse: float, band: float, with_slab: bool, pol
     grid = device.rectilinear_grid(coarse, z_um=z)
     config = device.get_simulation_config(time=120e-15, grid=grid, backend=jax.default_backend())
     volume, constraints = device.get_simulation_volume(material=mats["air"])
-    n_pml = round(PML / coarse)
+    n_pml_min = round(PML / float(z[1] - z[0]))
+    n_pml_max = round(PML / float(z[-1] - z[-2]))
     bound = fdtdx.BoundaryConfig(
         boundary_type_minx="periodic", boundary_type_maxx="periodic", boundary_type_miny="periodic",
-        boundary_type_maxy="periodic", thickness_grid_minz=n_pml, thickness_grid_maxz=n_pml,
+        boundary_type_maxy="periodic", thickness_grid_minz=n_pml_min, thickness_grid_maxz=n_pml_max,
     )
     boundaries, b_constraints = fdtdx.boundary_objects_from_config(bound, volume)
     wave = fdtdx.WaveCharacter(wavelength=WAVELENGTH * 1e-6)
@@ -128,8 +129,7 @@ def run(kind: str, fine: float, coarse: float, band: float, with_slab: bool, pol
     )
     params = {**params, **bf.init_stack_params(objects)}
     arrays, objects, _ = bf.apply_stack(arrays, objects, params, key)
-    with jax.enable_x64(False):
-        _, state = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key, show_progress=False)
+    _, state = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key, show_progress=False)
     rows = [np.asarray(jnp.reshape(state.detector_states[n]["phasor"], (-1,))[:2]) for n in ("trans", "trans2", "refl")]
     facts = {"cells_z": len(z) - 1, "min_dz_nm": float(np.min(np.diff(z)) * 1e3), "steps": int(config.time_steps_total)}
     return np.stack(rows), facts
