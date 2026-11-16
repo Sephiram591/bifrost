@@ -243,7 +243,7 @@ from ._placement import (
     _axis_direction,
     _given,
 )
-from ._corners import (
+from ._corner_model import (
     _clip,
     _area,
     _Cells,

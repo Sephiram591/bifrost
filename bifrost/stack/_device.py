@@ -145,7 +145,7 @@ from ._placement import (
     detector_plane_own_positions,
     plane_extents,
 )
-from ._corners import (
+from ._corner_model import (
     _Cells,
     _CornerInputs,
     _CornerPlan,
@@ -3554,7 +3554,7 @@ class StackDevice(StaticMultiMaterialObject):
         Returns:
             A :class:`bifrost.meshing.CoarseVertices`.
         """
-        from .meshing import coarse_vertices
+        from ..meshing import coarse_vertices
 
         return coarse_vertices(self, params, mesh)
 

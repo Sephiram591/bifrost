@@ -9,7 +9,7 @@ from fdtdx.core.jax.pytrees import TreeClass, autoinit, field, frozen_field
 from ..timing import timed
 from ..geometry import gaussian_random_field, has_tracers
 from ._layers import Array, _BIG, _OFFDIAG_PAIRS, _SampleAxis, _primal
-from ._corners import (
+from ._corner_model import (
     _Cells,
     _CornerInputs,
     _cell_area,

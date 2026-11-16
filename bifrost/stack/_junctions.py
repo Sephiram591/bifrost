@@ -8,7 +8,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, NamedTuple
 from ..subpixel import from_six, laminate, periodic_cell_tensor, principal_direction, symmetric_inverse
 from ._layers import Array, _HIGHEST, _KOTTKE_TINY, _NO_FACES, _SUBCELL_GAP, _SampleAxis
-from ._corners import (
+from ._corner_model import (
     _Cells,
     _CornerInputs,
     _cell_area,
