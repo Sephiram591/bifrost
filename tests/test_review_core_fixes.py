@@ -315,7 +315,7 @@ def test_stack_options_and_device_validation() -> None:
 
 
 def test_junction_inputs_asymmetric_per_x_and_per_y() -> None:
-    """Asymmetric junction_cells uses distinct per_x and per_y subdivision along x and y."""
+    """Asymmetric junction_cells uses distinct per_x and per_y subdivision along x and y under legacy and greens."""
     comp = _poly_comp({WG: [_rect(-0.24, -0.24, 0.24, 0.24)]})
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})
     for jcells in ((2, 4, 4), (4, 2, 4)):
@@ -329,6 +329,7 @@ def test_junction_inputs_asymmetric_per_x_and_per_y() -> None:
             averaging="subpixel_full",
             xy_subsamples=2,
             junction_cells=jcells,
+            voxelizer="legacy",
         )
         objects, arrays, params, _ = _place(dev)
         placed = objects["stack"]
@@ -340,6 +341,22 @@ def test_junction_inputs_asymmetric_per_x_and_per_y() -> None:
         out_arr, status = placed.write_with_status(arrays, params["stack"])
         assert not bool(status["failed"])
         assert bool(jnp.all(jnp.isfinite(out_arr.inv_permittivities)))
+
+        dev_g = StackDevice.from_layer_stack(
+            comp,
+            ls,
+            {"air": MATERIALS["air"], "si": MATERIALS["si"]},
+            background="air",
+            zrange_layers=["core"],
+            boundary_offset=(0.12, -0.12, 0.12, -0.12, 0.08, -0.08),
+            averaging="subpixel_full",
+            xy_subsamples=2,
+            junction_cells=jcells,
+        )
+        objs_g, arrs_g, params_g, _ = _place(dev_g)
+        out_g, st_g = objs_g["stack"].write_with_status(arrs_g, params_g["stack"])
+        assert not bool(st_g["failed"])
+        assert bool(jnp.all(jnp.isfinite(out_g.inv_permittivities)))
 
 
 def test_degenerate_90deg_corner_isotropic_subpixel_full_grad_finite() -> None:
@@ -485,7 +502,7 @@ def test_zero_thickness_nonzero_sidewall_angle_finite_primal_and_grad() -> None:
 
 
 def test_retopologize_grows_junction_voxels_and_check_topology_fill_only() -> None:
-    """retopologize grows junction_voxels for denser corner topologies; check_topology({}) passes on fill stacks."""
+    """retopologize grows junction_voxels under legacy and handles denser topologies dynamically under greens."""
     comp_simple = _poly_comp({WG: [_rect(-0.8, -0.1, 0.8, 0.1)]})
     ls_core = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})
     dev = StackDevice.from_layer_stack(
@@ -497,6 +514,7 @@ def test_retopologize_grows_junction_voxels_and_check_topology_fill_only() -> No
         boundary_offset=(0.4, -0.4, 0.6, -0.6, 0.08, -0.08),
         averaging="subpixel_full",
         interface_failure="raise",
+        voxelizer="legacy",
     )
     objects, arrays, _, _ = _place(dev)
     placed = objects["stack"]
@@ -513,6 +531,22 @@ def test_retopologize_grows_junction_voxels_and_check_topology_fill_only() -> No
     assert (retop.corner_columns or 0) >= (placed.corner_columns or 0)
     _, status = retop.write_with_status(arrays, retop.pack(comp_dense))
     assert int(status["junction_overflow"]) == 0
+
+    dev_g = StackDevice.from_layer_stack(
+        comp_simple,
+        ls_core,
+        {"air": MATERIALS["air"], "si": MATERIALS["si"]},
+        background="air",
+        zrange_layers=["core"],
+        boundary_offset=(0.4, -0.4, 0.6, -0.6, 0.08, -0.08),
+        averaging="subpixel_full",
+        interface_failure="raise",
+    )
+    objs_g, arrs_g, _, _ = _place(dev_g)
+    retop_g = objs_g["stack"].retopologize(comp_dense)
+    assert retop_g.junction_voxels is None
+    _, st_g = retop_g.write_with_status(arrs_g, retop_g.pack(comp_dense))
+    assert int(st_g["junction_overflow"]) == 0
 
     comp_fill = _poly_comp({WAFER: [_rect(-0.3, -0.3, 0.3, 0.3)]})
     ls_fill = LayerStack(layers={"sub": LayerLevel(layer=WAFER, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})

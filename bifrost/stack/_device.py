@@ -29,9 +29,12 @@ from fdtdx.objects.object import PositionConstraint, SimulationObject
 from fdtdx.objects.sources.source import HardConstantAmplitudePlanceSource
 from fdtdx.objects.static_material.static import StaticMultiMaterialObject
 from fdtdx.typing import INVALID_SLICE_TUPLE_3D
+from .. import greens
 from ..subpixel import (
+    _homogenize_diagonal_jit,
     check_permittivity,
     from_six,
+    homogenize_full,
     is_diagonal,
     junction_weight,
     laminate,
@@ -194,10 +197,13 @@ def _validate_stack_options(
     diagnostics: Any,
     junction_cells: Any,
     interface_failure: Any,
+    voxelizer: Any = "greens",
 ) -> None:
     """Validates shared option fields of :class:`StackOptions` and :class:`StackDevice`."""
     if averaging not in ("inverse", "subpixel", "subpixel_full"):
         raise ValueError(f"averaging must be 'inverse', 'subpixel', or 'subpixel_full', got {averaging!r}")
+    if voxelizer not in ("greens", "legacy"):
+        raise ValueError(f"voxelizer must be 'greens' or 'legacy', got {voxelizer!r}")
     if not isinstance(yee_staggered, bool):
         raise TypeError(f"yee_staggered must be a bool, got {yee_staggered!r}")
     if _check_nonbool_int("corner_lines", corner_lines) < 0:
@@ -259,6 +265,9 @@ class StackOptions:
     #: tracing the written box is NaN, so the result cannot be accepted), or "warn"s and keeps the laminate
     #: or half-plane result (counted in the status, see StackDevice.interface_status)
     interface_failure: Literal["raise", "warn"] = "raise"
+    #: backend voxelizer: "greens" (exact 2D/2.5D Green's-theorem grid-line integrator with unified
+    #: Kottke homogenization and dynamic junctions) or "legacy" (fixed-capacity SDF + corner model)
+    voxelizer: Literal["greens", "legacy"] = "greens"
 
     def __post_init__(self) -> None:
         _validate_stack_options(
@@ -270,6 +279,7 @@ class StackOptions:
             self.diagnostics,
             self.junction_cells,
             self.interface_failure,
+            self.voxelizer,
         )
 
     @classmethod
@@ -277,6 +287,23 @@ class StackOptions:
         """Every costly feature off: "inverse" averaging, no Yee staggering, no corner model or diagnostics
         (``derived_shapes`` stays ``"exact"``)."""
         return cls(averaging="inverse", yee_staggered=False, corner_lines=0, diagnostics=False)
+
+
+@jax.jit
+def _homogenize_diag_from_d6(
+    eps_arr: Array, inv_eps_arr: Array, w_in: Array, d6_in: Array, keep_mat: Array
+) -> Array:
+    """JIT-fused z-sliced conversion from 6-component dyad to diagonal inverse permittivity."""
+    dt = eps_arr.dtype
+
+    def _slice_z(inputs: tuple[Array, Array]) -> Array:
+        wk, d6k = inputs
+        w_m = jnp.moveaxis(wk.astype(dt), 0, -1)
+        d_diag = d6k[..., :3].astype(dt) * jnp.diagonal(keep_mat)
+        return _homogenize_diagonal_jit(eps_arr, inv_eps_arr, w_m, d_diag, is_diag_eps=True).astype(dt)
+
+    out_z = jax.lax.map(_slice_z, (jnp.moveaxis(w_in, 3, 0), jnp.moveaxis(d6_in, 2, 0)))
+    return jnp.moveaxis(out_z, 0, 2)
 
 
 @autoinit
@@ -480,6 +507,8 @@ class StackDevice(StaticMultiMaterialObject):
     junction_voxels: int | None = frozen_field(default=None)
     #: averaging="subpixel_full": what a coverage failure does, "raise" or "warn" (see StackOptions)
     interface_failure: Literal["raise", "warn"] = frozen_field(default="raise")
+    #: backend voxelizer: "greens" or "legacy" (see StackOptions)
+    voxelizer: Literal["greens", "legacy"] = frozen_field(default="greens")
     #: precision of the simulation, jnp.float32 or jnp.float64 (see the class docstring); any
     #: spelling of the two is accepted and stored as jnp.float32 / jnp.float64
     dtype: jnp.dtype = frozen_field(default=jnp.float32)
@@ -500,6 +529,7 @@ class StackDevice(StaticMultiMaterialObject):
             self.diagnostics,
             self.junction_cells,
             self.interface_failure,
+            self.voxelizer,
         )
         if isinstance(self.edge_width, bool) or not isinstance(self.edge_width, (int, float, np.number)):
             raise TypeError(f"edge_width must be a positive number, got {self.edge_width!r}")
@@ -1201,13 +1231,18 @@ class StackDevice(StaticMultiMaterialObject):
                 verts.append(v)
             out = self.aset("source_vertices", tuple(verts))
         out = out._with_derived_layers()
-        if out._grid_slice_tuple != INVALID_SLICE_TUPLE_3D and out.corner_lines > 0 and out.corner_columns:
-            budget = out._corner_budget()
-            if budget > out.corner_columns:
-                out = out.aset("corner_columns", budget)
-        if out._grid_slice_tuple != INVALID_SLICE_TUPLE_3D and out.averaging == "subpixel_full":
+        if out.voxelizer == "legacy":
+            if out._grid_slice_tuple != INVALID_SLICE_TUPLE_3D and out.corner_lines > 0 and out.corner_columns:
+                budget = out._corner_budget()
+                if budget > out.corner_columns:
+                    out = out.aset("corner_columns", budget)
+            if out._grid_slice_tuple != INVALID_SLICE_TUPLE_3D and out.averaging == "subpixel_full":
+                jbudget = out._junction_budget()
+                if out.junction_voxels is None or jbudget > out.junction_voxels:
+                    out = out.aset("junction_voxels", jbudget)
+        elif out._grid_slice_tuple != INVALID_SLICE_TUPLE_3D and out.averaging == "subpixel_full" and out.junction_voxels is not None:
             jbudget = out._junction_budget()
-            if out.junction_voxels is None or jbudget > out.junction_voxels:
+            if jbudget > out.junction_voxels:
                 out = out.aset("junction_voxels", jbudget)
         return out
 
@@ -1944,7 +1979,7 @@ class StackDevice(StaticMultiMaterialObject):
                 sizes = (len(topology),)
                 nxt, ids, boundary = _edge_topology(topology, sizes, tol)
                 links = (None, None, None)
-                if self.corner_lines > 0:
+                if self.corner_lines > 0 or self.voxelizer == "greens":
                     links = _boundary_links(topology, sizes, nxt, ids, boundary, tol)
                 out.append(_LayerGeometry(v, nxt, ids, boundary, *links))
         derived = out
@@ -1957,7 +1992,7 @@ class StackDevice(StaticMultiMaterialObject):
             v = to_cells(params[k])[split]
             nxt, ids, boundary = _edge_topology(topology[split], split_sizes, tol)
             links = (None, None, None)
-            if self.corner_lines > 0:
+            if self.corner_lines > 0 or self.voxelizer == "greens":
                 links = _boundary_links(topology[split], split_sizes, nxt, ids, boundary, tol)
             out.append(_LayerGeometry(v, nxt, ids, boundary, *links))
         return out + derived
@@ -2397,6 +2432,13 @@ class StackDevice(StaticMultiMaterialObject):
             names: material names in fdtdx order (``compute_ordered_names``).
             weights: (num_materials, nx, ny, nz), summing to one over materials.
         """
+        if self.voxelizer == "greens":
+            with timed_step("weights") as step:
+                return step.done(
+                    greens.greens_device_interfaces(
+                        self, params, noise_key, apply_roughness, shift, need_direction=False, need_junction=False
+                    )[:2]
+                )
         return self._weights_and_normals(params, noise_key, apply_roughness, shift)[:2]
 
     def _half_planes(
@@ -2652,6 +2694,11 @@ class StackDevice(StaticMultiMaterialObject):
         Returns:
             The grid's interfaces (see :class:`_Interfaces`).
         """
+        if self.voxelizer == "greens":
+            names, w, d6, jctx = greens.greens_device_interfaces(
+                self, params, noise_key, apply_roughness, shift, need_direction=True, need_junction=True
+            )
+            return _Interfaces(names=names, weights=w, direction=d6, voxel=jctx)
         p = {**self.init_params(), **(params or {})}
         nx, ny, nz = self.grid_shape
         names, eps = self._material_table()
@@ -2900,7 +2947,7 @@ class StackDevice(StaticMultiMaterialObject):
         return inputs, cells_of
 
     @timed("complete_tensor")
-    def _complete_tensor(self, g: "_Interfaces", capacity: int) -> tuple[Array, dict[str, Array]]:
+    def _complete_tensor(self, g: "_Interfaces", capacity: int | None) -> tuple[Array, dict[str, Array]]:
         """The inverse effective permittivity of every voxel of a sample grid (averaging="subpixel_full").
 
         A voxel of one material keeps that material's exact inverse. Otherwise its interface direction tensor
@@ -2911,11 +2958,12 @@ class StackDevice(StaticMultiMaterialObject):
         three materials), the junction closure (:func:`_junction_tensor`), blended smoothly with the
         laminate along D's leading direction as the second direction appears (symmetric, positive definite,
         between the materials' harmonic and arithmetic means). Junction voxels are compacted into
-        ``capacity`` slots; candidates beyond it keep the laminate and are counted in the status.
+        ``capacity`` slots (or executed dynamically when ``voxelizer="greens"`` and ``capacity is None``);
+        candidates beyond it keep the laminate and are counted in the status.
 
         Args:
             g: the grid's interfaces (:meth:`_interfaces`).
-            capacity: number of junction slots (static).
+            capacity: number of junction slots (static), or ``None`` for dynamic Green's dispatch.
 
         Returns:
             (nx, ny, nz, 6) the inverse tensor (xx, yy, zz, xy, xz, yz) and the status: ``junctions``
@@ -2925,12 +2973,26 @@ class StackDevice(StaticMultiMaterialObject):
         nx, ny, nz = self.grid_shape
         names, eps = self._material_table()
         dtype = g.weights.dtype
-        inv_eps = np.linalg.inv(eps)
-        # an axis of one cell (2D simulations) has no interface normal along it
         keep = np.asarray([n > 1 for n in self.grid_shape], dtype=float)
         d = from_six(g.direction) * jnp.asarray(np.outer(keep, keep), dtype=dtype)
-        omega, normal = junction_weight(d, _JUNCTION_LOW, _JUNCTION_HIGH)
         f = jnp.moveaxis(g.weights, 0, -1)  # (nx, ny, nz, M)
+        if self.voxelizer == "greens":
+            jfn = g.voxel["junction_cell_fn"] if isinstance(g.voxel, dict) else None
+            jxs = g.voxel["junction_xs"] if isinstance(g.voxel, dict) else None
+            return homogenize_full(
+                eps,
+                f,
+                d,
+                jfn,
+                junction_xs=jxs,
+                junction_low=_JUNCTION_LOW,
+                junction_high=_JUNCTION_HIGH,
+                closure_residual_tol=_CLOSURE_RESIDUAL,
+                max_items=capacity,
+            )
+        inv_eps = np.linalg.inv(eps)
+        # an axis of one cell (2D simulations) has no interface normal along it
+        omega, normal = junction_weight(d, _JUNCTION_LOW, _JUNCTION_HIGH)
 
         def planar(inputs: tuple[Array, Array]) -> Array:
             """(nx, ny, 6) of one voxel layer: the material's own inverse, or the laminate's."""
@@ -3053,18 +3115,19 @@ class StackDevice(StaticMultiMaterialObject):
         warn_reversible_losses(mats, config, self.name, conductivity=True)
         placed = super().place_on_grid(grid_slice_tuple=grid_slice_tuple, config=config, key=key)
         lap("pole_alignment")
-        if placed.corner_lines > 0 and placed.corner_columns is None:
-            placed = placed.aset("corner_columns", placed._corner_budget())
-        if placed.averaging == "subpixel_full" and placed.corner_lines == 0 and placed.diagnostics:
-            warnings.warn(
-                f"StackDevice {placed.name!r}: averaging='subpixel_full' with corner_lines=0 paints every "
-                "polygon corner with one half-plane per level, so its voxels get the laminate along one "
-                "normal; the junction closure resolves corners with the corner model (corner_lines > 0)",
-                StackDiagnosticWarning,
-                stacklevel=2,
-            )
-        if placed.averaging == "subpixel_full" and placed.junction_voxels is None:
-            placed = placed.aset("junction_voxels", placed._junction_budget())
+        if placed.voxelizer == "legacy":
+            if placed.corner_lines > 0 and placed.corner_columns is None:
+                placed = placed.aset("corner_columns", placed._corner_budget())
+            if placed.averaging == "subpixel_full" and placed.corner_lines == 0 and placed.diagnostics:
+                warnings.warn(
+                    f"StackDevice {placed.name!r}: averaging='subpixel_full' with corner_lines=0 paints every "
+                    "polygon corner with one half-plane per level, so its voxels get the laminate along one "
+                    "normal; the junction closure resolves corners with the corner model (corner_lines > 0)",
+                    StackDiagnosticWarning,
+                    stacklevel=2,
+                )
+            if placed.averaging == "subpixel_full" and placed.junction_voxels is None:
+                placed = placed.aset("junction_voxels", placed._junction_budget())
         if placed.diagnostics:
             for finding in placed.diagnose():
                 warnings.warn(finding.message, StackDiagnosticWarning, stacklevel=2)
@@ -3215,7 +3278,10 @@ class StackDevice(StaticMultiMaterialObject):
         Returns:
             (nx, ny, nz) material indices in fdtdx's order.
         """
-        _, w = self.aset("corner_lines", 0).material_weights(apply_roughness=False)
+        if self.voxelizer == "greens":
+            _, w = self.material_weights(apply_roughness=False)
+        else:
+            _, w = self.aset("corner_lines", 0).material_weights(apply_roughness=False)
         return jnp.argmax(w, axis=0).astype(jnp.int32)
 
     @timed("write")
@@ -3296,38 +3362,67 @@ class StackDevice(StaticMultiMaterialObject):
             and arrays.dispersive_c3.shape[1] in (3, 9)
         )
         inv, cond, w_cell, yee_weights = {}, [], 0.0, []
-        for c in range(rows):
-            if c < len(shifts):
-                if voxel_normal:  # the normals of the component's own voxels (all three if they share them)
-                    cols = eps_np[:, [c]] if len(shifts) == rows else eps_np
-                    _, w, tensors = self._weights_and_normals(params, noise_key, apply_roughness, shifts[c], cols)
-                    tensors = tensors.astype(dtype)
-                else:
-                    w = self.material_weights(params, noise_key, apply_roughness, shifts[c])[1]
-                w = w.astype(dtype)
-                w_cell = w_cell + w / len(shifts)  # cell value for the isotropic quantities
+        greens_diag = self.voxelizer == "greens" and voxel_normal
+        if greens_diag and len(shifts) > 1 and (greens.has_tracers(params) or math.prod(self.grid_shape) <= 16_000_000):
+            _, w_all, inv_diag_all = greens.greens_yee_diagonal(self, params, noise_key, apply_roughness, shifts)
+            for c in range(rows):
+                w = w_all[c].astype(dtype)
+                w_cell = w_cell + w / len(shifts)
                 if keep_yee_w:
                     yee_weights.append(w)
                 self._append_staggered_sigma(cond, sigma, w, c, len(shifts))
-            e = eps[:, c, None, None, None]
-            if subpixel:
-                # n2 <1/eps> + (1 - n2) / <eps> = (1 + n2 a) / <eps>, with the normal
-                # of the voxel's own model (the unexplained variance takes the
-                # one-sided differences of the mean eps), or only the latter
-                # with subpixel_normal="gradient"
-                mean_eps = jnp.sum(w * e, axis=0)
-                a = _anisotropy(w, eps_np[:, c], sentinel)
-                fd = _normal_squared(mean_eps, self._fd_spacing(shifts[min(c, len(shifts) - 1)]))[c]
-                n2 = fd
-                if voxel_normal:
-                    tensor = tensors[0 if len(shifts) == rows else c]  # (4, nx, ny, nz)
-                    along = tensor[:3] * keep
-                    total = jnp.sum(along, axis=0) + tensor[3] + 1e-12
-                    n2 = (along[c] + (tensor[3] + 1e-12) * fd) / total
-                inv[c, c] = (1 + n2 * a) / mean_eps
-            else:
-                inv[c, c] = jnp.sum(w / e, axis=0)
-            lap(f"E{'xyz'[c]}" if rows == 3 else "E", inv[c, c])
+                inv[c, c] = inv_diag_all[c, ..., c].astype(dtype)
+                lap(f"E{'xyz'[c]}" if rows == 3 else "E", inv[c, c])
+        else:
+            if greens_diag:
+                _, full_eps = self._material_table()
+                full_eps_j = jnp.asarray(full_eps, dtype=dtype)
+                inv_eps_j = jnp.asarray(np.linalg.inv(np.asarray(full_eps, dtype=np.float64)), dtype=dtype)
+                keep_33 = jnp.asarray(
+                    np.outer([float(n > 1) for n in self.grid_shape], [float(n > 1) for n in self.grid_shape]),
+                    dtype=dtype,
+                )
+                inv_diag = None
+            for c in range(rows):
+                if c < len(shifts):
+                    if greens_diag:
+                        _, w, d6, _ = greens.greens_device_interfaces(
+                            self, params, noise_key, apply_roughness, shifts[c], need_direction=True, need_junction=False
+                        )
+                        inv_diag = _homogenize_diag_from_d6(full_eps_j, inv_eps_j, w, d6, keep_33)
+                    elif voxel_normal:  # the normals of the component's own voxels (all three if they share them)
+                        cols = eps_np[:, [c]] if len(shifts) == rows else eps_np
+                        _, w, tensors = self._weights_and_normals(params, noise_key, apply_roughness, shifts[c], cols)
+                        tensors = tensors.astype(dtype)
+                    else:
+                        w = self.material_weights(params, noise_key, apply_roughness, shifts[c])[1]
+                    w = w.astype(dtype)
+                    w_cell = w_cell + w / len(shifts)  # cell value for the isotropic quantities
+                    if keep_yee_w:
+                        yee_weights.append(w)
+                    self._append_staggered_sigma(cond, sigma, w, c, len(shifts))
+                if greens_diag:
+                    inv[c, c] = inv_diag[..., c]
+                elif subpixel:
+                    e = eps[:, c, None, None, None]
+                    # n2 <1/eps> + (1 - n2) / <eps> = (1 + n2 a) / <eps>, with the normal
+                    # of the voxel's own model (the unexplained variance takes the
+                    # one-sided differences of the mean eps), or only the latter
+                    # with subpixel_normal="gradient"
+                    mean_eps = jnp.sum(w * e, axis=0)
+                    a = _anisotropy(w, eps_np[:, c], sentinel)
+                    fd = _normal_squared(mean_eps, self._fd_spacing(shifts[min(c, len(shifts) - 1)]))[c]
+                    n2 = fd
+                    if voxel_normal:
+                        tensor = tensors[0 if len(shifts) == rows else c]  # (4, nx, ny, nz)
+                        along = tensor[:3] * keep
+                        total = jnp.sum(along, axis=0) + tensor[3] + 1e-12
+                        n2 = (along[c] + (tensor[3] + 1e-12) * fd) / total
+                    inv[c, c] = (1 + n2 * a) / mean_eps
+                else:
+                    e = eps[:, c, None, None, None]
+                    inv[c, c] = jnp.sum(w / e, axis=0)
+                lap(f"E{'xyz'[c]}" if rows == 3 else "E", inv[c, c])
         zero = jnp.zeros_like(inv[0, 0])
         entries = [inv.get((c, d), zero) for c in range(3) for d in range(3)] if full else [inv[c, c] for c in range(rows)]
         arrays = arrays.at["inv_permittivities"].set(
@@ -3386,7 +3481,11 @@ class StackDevice(StaticMultiMaterialObject):
         dtype = arrays.inv_permittivities.dtype
         sigma = self._allowed_conductivity(arrays, dtype)
         shifts = _YEE_E_SHIFTS if self.yee_staggered else ((0.0, 0.0, 0.0),)
-        capacity = self._junction_capacity()
+        if self.voxelizer == "greens":
+            nx, ny, nz = self.grid_shape
+            capacity = None if self.junction_voxels is None else max(0, min(nx * ny * nz, int(self.junction_voxels)))
+        else:
+            capacity = self._junction_capacity()
         # the rows of the symmetric inverse in its 6-entry storage (xx, yy, zz, xy, xz, yz)
         row_entries = ((0, 3, 4), (3, 1, 5), (4, 5, 2))
         keep_yee_w = (
@@ -3394,26 +3493,39 @@ class StackDevice(StaticMultiMaterialObject):
             and arrays.dispersive_c1 is not None
             and arrays.dispersive_c3.shape[1] in (3, 9)
         )
-        entries, cond, w_cell, statuses, yee_weights = [], [], 0.0, [], []
-        for c in range(3):
-            if c < len(shifts):
-                g = self._interfaces(params, noise_key, apply_roughness, shifts[c])
-                w = g.weights.astype(dtype)
+        entries, cond, w_cell, yee_weights = [], [], 0.0, []
+        if self.voxelizer == "greens" and len(shifts) > 1 and (greens.has_tracers(params) or math.prod(self.grid_shape) <= 16_000_000):
+            _, w_all, inv6_all, status = greens.greens_yee_full(self, params, noise_key, apply_roughness, shifts, capacity)
+            for c in range(3):
+                w = w_all[c].astype(dtype)
                 w_cell = w_cell + w / len(shifts)
                 if keep_yee_w:
                     yee_weights.append(w)
                 self._append_staggered_sigma(cond, sigma, w, c, len(shifts))
-                inv6, status = self._complete_tensor(g, capacity)
-                statuses.append({**status, "corner_dropped": g.corner_dropped, "corner_uncertified": g.corner_uncertified})
-            entries += [inv6[..., e] for e in row_entries[c]]
-            lap(f"E{'xyz'[c]}", inv6)
-        status = {
-            "junctions": sum(s["junctions"] for s in statuses),
-            "junction_overflow": sum(s["junction_overflow"] for s in statuses),
-            "corner_dropped": sum(s["corner_dropped"] for s in statuses),
-            "corner_uncertified": sum(s["corner_uncertified"] for s in statuses),
-            "closure_residual": jnp.max(jnp.stack([s["closure_residual"] for s in statuses])),
-        }
+                inv6 = inv6_all[c].astype(dtype)
+                entries += [inv6[..., e] for e in row_entries[c]]
+                lap(f"E{'xyz'[c]}", inv6)
+        else:
+            statuses = []
+            for c in range(3):
+                if c < len(shifts):
+                    g = self._interfaces(params, noise_key, apply_roughness, shifts[c])
+                    w = g.weights.astype(dtype)
+                    w_cell = w_cell + w / len(shifts)
+                    if keep_yee_w:
+                        yee_weights.append(w)
+                    self._append_staggered_sigma(cond, sigma, w, c, len(shifts))
+                    inv6, status_c = self._complete_tensor(g, capacity)
+                    statuses.append({**status_c, "corner_dropped": g.corner_dropped, "corner_uncertified": g.corner_uncertified})
+                entries += [inv6[..., e] for e in row_entries[c]]
+                lap(f"E{'xyz'[c]}", inv6)
+            status = {
+                "junctions": sum(s["junctions"] for s in statuses),
+                "junction_overflow": sum(s["junction_overflow"] for s in statuses),
+                "corner_dropped": sum(s["corner_dropped"] for s in statuses),
+                "corner_uncertified": sum(s["corner_uncertified"] for s in statuses),
+                "closure_residual": jnp.max(jnp.stack([s["closure_residual"] for s in statuses])),
+            }
         failed = (status["junction_overflow"] > 0) | (status["corner_dropped"] > 0) | ~(
             status["closure_residual"] <= _CLOSURE_RESIDUAL
         )
@@ -3505,8 +3617,12 @@ class StackDevice(StaticMultiMaterialObject):
         parameters.
         """
         p = {**self.init_params(), **(params or {})}
+        nx, ny, nz = self.grid_shape
         shifts = _YEE_E_SHIFTS if self.yee_staggered else ((0.0, 0.0, 0.0),)
-        capacity = self._junction_capacity()
+        if self.voxelizer == "greens":
+            capacity = None if self.junction_voxels is None else max(0, min(nx * ny * nz, int(self.junction_voxels)))
+        else:
+            capacity = self._junction_capacity()
         junctions = overflow = dropped = uncertified = jnp.zeros((), dtype=jnp.int32)
         residual = jnp.zeros((), dtype=self.dtype)
         for shift in shifts:
@@ -3524,7 +3640,7 @@ class StackDevice(StaticMultiMaterialObject):
             "corner_dropped": int(dropped),
             "corner_uncertified": int(uncertified),
             "closure_residual": float(residual),
-            "junction_voxels": capacity,
+            "junction_voxels": nx * ny * nz if capacity is None else capacity,
         }
 
     def coarse_vertices(self, params: dict[str, Array], mesh: Any) -> Any:
@@ -4879,7 +4995,7 @@ def _interface_status_core(
     params: dict[str, Array],
     noise_key: Array | None,
     apply_roughness: bool,
-    capacity: int,
+    capacity: int | None,
     shift: tuple[float, float, float],
 ) -> tuple[Array, Array, Array, Array, Array]:
     """JIT-compiled interface status computation for one Yee shift."""

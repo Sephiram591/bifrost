@@ -21,7 +21,8 @@ rotated by R relative to the simulation axes has the tensor ``R @ eps @ R.T``.
 """
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from typing import Any
 
 import jax
@@ -32,6 +33,12 @@ Array = jax.Array
 
 # full float32 precision in contractions (GPUs default to TF32 for them: 10 mantissa bits)
 _HIGHEST = jax.lax.Precision.HIGHEST
+# sparse_voxel_map compacts the active entries before chunking (True), instead of scanning every spatial
+# brick of the grid with its own lax.cond (one device->host predicate sync per brick).
+_COMPACT_SPARSE_MAP = True
+# Junction closures per sparse_voxel_map call (chunk) and per skippable group in homogenize_full
+_JUNCTION_CHUNK = 128
+_JUNCTION_GROUP = 16384
 # size of an interface direction tensor (its largest entry, its trace) below which it has no direction (a
 # full face weighs ~1); its square stays a normal float32, which the derivatives of ratios with it need
 _NO_DIRECTION = 1e-15
@@ -40,6 +47,13 @@ _NO_DIRECTION = 1e-15
 SYMMETRY_RTOL = 1e-6
 #: smallest eigenvalue accepted, relative to the largest one
 DEFINITE_RTOL = 1e-6
+#: default junction transition bounds r = 1 - lambda_1 / tr(D)
+JUNCTION_LOW = 0.002
+JUNCTION_HIGH = 0.02
+#: sub-cell gap (lambda_1 - lambda_2) / tr(D) below which a sub-cell blends from leading normal to axis laminates
+SUBCELL_GAP = (0.02, 0.1)
+#: maximum normwise backward residual accepted for a certified periodic cell solve
+CLOSURE_RESIDUAL = 1e-4
 
 
 # ---------------------------------------------------------------- material tensor contract
@@ -582,3 +596,644 @@ def junction_weight(d: Array, low: float, high: float) -> tuple[Array, Array]:
     omega = x * x * (3.0 - 2.0 * x)
     normal = jnp.where((r < high)[..., None], normal, jax.lax.stop_gradient(normal))
     return omega, normal
+
+
+def is_finite_spd(a: Array) -> Array:
+    """Certify that ``(..., 3, 3)`` symmetric matrices are finite and strictly positive definite."""
+    finite = jnp.all(jnp.isfinite(a), axis=(-2, -1))
+    safe = jnp.where(finite[..., None, None], a, jnp.eye(3, dtype=a.dtype))
+    sym = 0.5 * (safe + jnp.swapaxes(safe, -1, -2))
+    a00 = sym[..., 0, 0]
+    a01, a02 = sym[..., 0, 1], sym[..., 0, 2]
+    a11, a12, a22 = sym[..., 1, 1], sym[..., 1, 2], sym[..., 2, 2]
+    c00 = a11 * a22 - a12 * a12
+    c01 = a02 * a12 - a01 * a22
+    c02 = a01 * a12 - a02 * a11
+    m2 = a00 * a11 - a01 * a01
+    det = a00 * c00 + a01 * c01 + a02 * c02
+    min_det = 2.0 * math.sqrt(float(jnp.finfo(a.dtype).tiny))
+    return finite & (a00 > 0.0) & (m2 > 0.0) & (det > min_det)
+
+
+def safe_symmetric_inverse(a: Array) -> tuple[Array, Array]:
+    """Symmetric 3x3 inverse with finite-SPD certification and double-where gradient guard."""
+    ok = is_finite_spd(a)
+    eye = jnp.eye(3, dtype=a.dtype)
+    a_safe = jnp.where(ok[..., None, None], a, eye)
+    sym = 0.5 * (a_safe + jnp.swapaxes(a_safe, -1, -2))
+    inv_safe = symmetric_inverse(sym)
+    return jnp.where(ok[..., None, None], inv_safe, eye), ok
+
+
+def subcell_direction_blend(
+    d: Array,
+    gap: tuple[float, float] = SUBCELL_GAP,
+) -> tuple[Array, Array, Array]:
+    """Eigenvalue-free blend between leading-normal laminate and axis laminates for a sub-cell.
+
+    Computes ``lambda_1`` via :func:`principal_direction` and the second eigenvalue via the
+    3x3 Frobenius trace/norm identity without ``eigvalsh``, preventing ``NaN`` gradients at
+    repeated eigenvalues (e.g. 90-degree corners).
+
+    Args:
+        d: ``(..., 3, 3)`` positive-semidefinite interface direction tensor.
+        gap: ``(low, high)`` bounds on ``(lambda_1 - lambda_2) / tr(D)``.
+
+    Returns:
+        ``(w_dom, normal, axis_weights)`` with ``w_dom`` shaped ``d.shape[:-2]``,
+        ``normal`` shaped ``(*d.shape[:-2], 3)``, and ``axis_weights`` shaped
+        ``(*d.shape[:-2], 3)`` summing to 1.
+    """
+    low, high = gap
+    if not (0.0 <= low < high <= 1.0):
+        raise ValueError(f"subcell gap must satisfy 0 <= low < high <= 1, got {gap!r}")
+    dtype = d.dtype
+    sym = 0.5 * (d + jnp.swapaxes(d, -1, -2))
+    normal, lam1 = principal_direction(sym, squarings=8)
+    trace = jnp.trace(sym, axis1=-2, axis2=-1)
+    some = trace > _NO_DIRECTION
+    safe_tr = jnp.where(some, trace, jnp.ones((), dtype=dtype))
+    frob2 = jnp.sum(sym * sym, axis=(-2, -1))
+    s = jnp.maximum(trace - lam1, 0.0)
+    q = jnp.maximum(frob2 - lam1 * lam1, 0.0)
+    disc = jnp.maximum(2.0 * q - s * s, 0.0) + (1e-6 * safe_tr) ** 2
+    lam2 = jnp.where(some, 0.5 * (s + jnp.sqrt(jnp.where(some, disc, jnp.ones((), dtype=dtype)))), 0.0)
+    gap_ratio = jnp.where(some, jnp.clip((lam1 - lam2) / safe_tr, 0.0, 1.0), 0.0)
+    t = jnp.clip((gap_ratio - low) / (high - low), 0.0, 1.0)
+    w_dom = t * t * (3.0 - 2.0 * t)
+    normal = jnp.where((gap_ratio > low)[..., None], normal, jax.lax.stop_gradient(normal))
+    diag = jnp.maximum(jnp.diagonal(sym, axis1=-2, axis2=-1), 0.0)
+    diag_sum = jnp.sum(diag, axis=-1, keepdims=True)
+    has_diag = diag_sum > _NO_DIRECTION
+    axis_weights = jnp.where(
+        has_diag,
+        diag / jnp.where(has_diag, diag_sum, jnp.ones((), dtype=dtype)),
+        jnp.full_like(diag, 1.0 / 3.0),
+    )
+    return w_dom, normal, axis_weights
+
+
+def subcell_laminate(
+    eps: Any,
+    fractions: Array,
+    direction: Array,
+    *,
+    gap: tuple[float, float] = SUBCELL_GAP,
+) -> Array:
+    """Smooth ``(..., 3, 3)`` Kottke laminate tensor with eigenvalue-free corner blending."""
+    dtype = fractions.dtype
+    eps_arr = jnp.asarray(eps, dtype=dtype)
+    dir_arr = jnp.asarray(direction, dtype=dtype)
+    w_dom, normal, axis_weights = subcell_direction_blend(dir_arr, gap=gap)
+    lam_dom = laminate(eps_arr, fractions, normal)
+    axes = jnp.eye(3, dtype=dtype)
+    shape_axes = (1,) * (fractions.ndim - 1) + (3, 3)
+    lam_axes = laminate(eps_arr, fractions[..., None, :], axes.reshape(shape_axes))
+    lam_iso = jnp.einsum("...k,...kij->...ij", axis_weights, lam_axes, precision=_HIGHEST)
+    w = w_dom[..., None, None]
+    tensor = w * lam_dom + (1.0 - w) * lam_iso
+    pure = jnp.max(fractions, axis=-1) >= 1.0
+    exact = jnp.einsum("...m,mij->...ij", fractions, eps_arr, precision=_HIGHEST)
+    return jnp.where(pure[..., None, None], exact, tensor)
+
+
+def sparse_voxel_map(
+    fn: Callable[[Array, Array, Any], Any],
+    mask: Array,
+    xs: Any = None,
+    *,
+    chunk_size: int = 64,
+    group_size: int = 1024,
+    max_items: int | None = None,
+) -> Any:
+    """Evaluate ``fn(chunk_indices, chunk_mask, chunk_xs)`` only on the True ``mask`` entries.
+
+    The True entries are first compacted to the front of a flat index list (a cumsum scatter, no
+    static capacity), then processed ``chunk_size`` at a time. A two-level ``jax.lax.scan`` with
+    ``jax.lax.cond`` skips every group of ``group_size`` entries past the active count, so the loop
+    runs ``ceil(active / chunk_size)`` evaluations of ``fn`` plus one cheap skipped ``cond`` per
+    remaining group, instead of one ``cond`` per spatial brick of the whole grid. Supports
+    ``jax.jit``, ``jax.grad`` and ``jax.jvp``; ``max_items`` caps the executed entries.
+    """
+    if not _COMPACT_SPARSE_MAP:
+        return _sparse_voxel_map_bricks(fn, mask, xs, chunk_size=chunk_size, group_size=group_size, max_items=max_items)
+    mask_arr = jnp.asarray(mask, dtype=jnp.bool_)
+    grid_shape = mask_arr.shape
+    n_total = math.prod(grid_shape)
+    if chunk_size <= 0 or group_size <= 0:
+        raise ValueError(f"chunk_size and group_size must be positive, got {chunk_size}, {group_size}")
+
+    eff_chunk = min(chunk_size, max(1, n_total))
+    idx_struct = jax.ShapeDtypeStruct((eff_chunk,), jnp.int32)
+    mask_struct = jax.ShapeDtypeStruct((eff_chunk,), jnp.bool_)
+    xs_struct = (
+        None
+        if xs is None
+        else jax.tree.map(
+            lambda leaf: jax.ShapeDtypeStruct((eff_chunk, *np.shape(leaf)[len(grid_shape) :]), jnp.asarray(leaf).dtype),
+            xs,
+        )
+    )
+    out_spec = jax.eval_shape(fn, idx_struct, mask_struct, xs_struct)
+    if n_total == 0:
+        return jax.tree.map(lambda s: jnp.zeros((*grid_shape, *s.shape[1:]), dtype=s.dtype), out_spec)
+
+    flat_mask = mask_arr.reshape((n_total,))
+    if max_items is not None:
+        if max_items < 0:
+            raise ValueError(f"max_items must be non-negative, got {max_items}")
+        if max_items == 0:
+            return jax.tree.map(lambda s: jnp.zeros((*grid_shape, *s.shape[1:]), dtype=s.dtype), out_spec)
+        flat_mask = flat_mask & (jnp.cumsum(flat_mask.astype(jnp.int32)) <= max_items)
+
+    chunks_per_group = max(1, group_size // eff_chunk)
+    n_chunks = math.ceil(n_total / eff_chunk)
+    chunks_per_group = min(chunks_per_group, n_chunks)
+    n_groups = math.ceil(n_chunks / chunks_per_group)
+    n_pad = n_groups * chunks_per_group * eff_chunk
+
+    # Compact: active flat indices first (in grid order), the tail points at index 0 and is masked out
+    rank = jnp.cumsum(flat_mask.astype(jnp.int32)) - 1
+    count = rank[-1] + 1
+    dest = jnp.where(flat_mask, rank, n_pad)
+    perm = jnp.zeros((n_pad,), dtype=jnp.int32).at[dest].set(jnp.arange(n_total, dtype=jnp.int32), mode="drop")
+    slot_live = jnp.arange(n_pad, dtype=jnp.int32) < count
+
+    flat_xs = None if xs is None else jax.tree.map(lambda leaf: jnp.asarray(leaf).reshape((n_total, *jnp.shape(leaf)[len(grid_shape) :])), xs)
+    # Gather xs into compacted order up front and feed them as scanned inputs: a gather from a closed-over
+    # full-grid array inside the loop would make reverse mode stack one full-grid cotangent per chunk
+    xs_c = None if flat_xs is None else jax.tree.map(lambda a: a[perm], flat_xs)
+
+    @jax.checkpoint
+    def _run_chunk(operand: tuple[Array, Array, Any]) -> Any:
+        c_idx, c_mask, c_xs = operand
+        raw = fn(c_idx, c_mask, c_xs)
+        return jax.tree.map(
+            lambda o: jnp.where(c_mask.reshape((eff_chunk,) + (1,) * (o.ndim - 1)), o, jnp.zeros((), dtype=o.dtype)),
+            raw,
+        )
+
+    def _skip_chunk(_: tuple[Array, Array, Any]) -> Any:
+        return jax.tree.map(lambda s: jnp.zeros((eff_chunk, *s.shape[1:]), dtype=s.dtype), out_spec)
+
+    def _chunk_step(_: None, op: tuple[Array, Array, Any]) -> tuple[None, Any]:
+        return None, jax.lax.cond(op[1][0], _run_chunk, _skip_chunk, op)
+
+    def _run_group(op: tuple[Array, Array, Any]) -> Any:
+        if chunks_per_group == 1:
+            first = jax.tree.map(lambda a: a[0], op)
+            return jax.tree.map(lambda a: a[None], _run_chunk(first))
+        return jax.lax.scan(_chunk_step, None, op)[1]
+
+    def _skip_group(_: tuple[Array, Array, Any]) -> Any:
+        return jax.tree.map(lambda s: jnp.zeros((chunks_per_group, eff_chunk, *s.shape[1:]), dtype=s.dtype), out_spec)
+
+    def _group_step(_: None, op: tuple[Array, Array, Any]) -> tuple[None, Any]:
+        return None, jax.lax.cond(op[1][0, 0], _run_group, _skip_group, op)
+
+    def _grouped(a: Array) -> Array:
+        return a.reshape((n_groups, chunks_per_group, eff_chunk, *a.shape[1:]))
+
+    g_ops = (_grouped(perm), _grouped(slot_live), None if xs_c is None else jax.tree.map(_grouped, xs_c))
+    if n_groups == 1:
+        g0 = jax.tree.map(lambda a: a[0], g_ops)
+        stacked = jax.tree.map(lambda a: a[None], jax.lax.cond(g0[1][0, 0], _run_group, _skip_group, g0))
+    else:
+        _, stacked = jax.lax.scan(_group_step, None, g_ops)
+    out_c = jax.tree.map(lambda a: a.reshape((n_pad, *a.shape[3:])), stacked)
+    scatter_to = jnp.where(slot_live, perm, n_total)
+    return jax.tree.map(
+        lambda a: jnp.zeros((n_total, *a.shape[1:]), dtype=a.dtype)
+        .at[scatter_to]
+        .set(a, mode="drop")
+        .reshape((*grid_shape, *a.shape[1:])),
+        out_c,
+    )
+
+
+def _sparse_voxel_map_bricks(
+    fn: Callable[[Array, Array, Any], Any],
+    mask: Array,
+    xs: Any = None,
+    *,
+    chunk_size: int = 64,
+    group_size: int = 1024,
+    max_items: int | None = None,
+) -> Any:
+    """Evaluate ``fn(chunk_indices, chunk_mask, chunk_xs)`` only on bricks containing True ``mask`` entries.
+
+    Uses fixed spatial bricks with two-level ``jax.lax.scan`` + ``jax.lax.cond`` +
+    ``jax.checkpoint``, supporting ``jax.jit``, ``jax.grad``, and ``jax.jvp`` without
+    a static buffer cap when ``max_items=None``, and capping executed entries to
+    ``max_items`` when an integer cap is provided.
+    """
+    mask_arr = jnp.asarray(mask, dtype=jnp.bool_)
+    grid_shape = mask_arr.shape
+    n_total = math.prod(grid_shape)
+    if chunk_size <= 0 or group_size <= 0:
+        raise ValueError(f"chunk_size and group_size must be positive, got {chunk_size}, {group_size}")
+
+    eff_chunk = min(chunk_size, max(1, n_total))
+    chunks_per_group = max(1, group_size // eff_chunk)
+    eff_group = eff_chunk * chunks_per_group
+
+    idx_struct = jax.ShapeDtypeStruct((eff_chunk,), jnp.int32)
+    mask_struct = jax.ShapeDtypeStruct((eff_chunk,), jnp.bool_)
+    if xs is None:
+        xs_struct = None
+    else:
+        xs_struct = jax.tree.map(
+            lambda leaf: jax.ShapeDtypeStruct((eff_chunk, *np.shape(leaf)[len(grid_shape) :]), jnp.asarray(leaf).dtype),
+            xs,
+        )
+    out_spec = jax.eval_shape(fn, idx_struct, mask_struct, xs_struct)
+
+    def _empty_output(n_rows: int) -> Any:
+        return jax.tree.map(lambda s: jnp.zeros((n_rows, *s.shape[1:]), dtype=s.dtype), out_spec)
+
+    if n_total == 0:
+        return jax.tree.map(lambda s: jnp.zeros((*grid_shape, *s.shape[1:]), dtype=s.dtype), out_spec)
+
+    flat_mask = mask_arr.reshape((n_total,))
+    if max_items is not None:
+        if max_items < 0:
+            raise ValueError(f"max_items must be non-negative, got {max_items}")
+        if max_items == 0:
+            return jax.tree.map(lambda s: jnp.zeros((*grid_shape, *s.shape[1:]), dtype=s.dtype), out_spec)
+        rank = jnp.cumsum(flat_mask.astype(jnp.int32))
+        flat_mask = flat_mask & (rank <= max_items)
+
+    n_chunks = math.ceil(n_total / eff_chunk)
+    use_two_level = n_chunks > chunks_per_group
+    n_groups = math.ceil(n_total / eff_group) if use_two_level else 1
+    chunks_in_group = chunks_per_group if use_two_level else n_chunks
+    n_pad = n_groups * chunks_in_group * eff_chunk
+    pad = n_pad - n_total
+
+    flat_idx = jnp.arange(n_total, dtype=jnp.int32)
+    if pad > 0:
+        flat_idx = jnp.pad(flat_idx, (0, pad), constant_values=0)
+        flat_mask = jnp.pad(flat_mask, (0, pad), constant_values=False)
+
+    def _flatten_and_pad(leaf: Array) -> Array:
+        arr = jnp.asarray(leaf)
+        flat = arr.reshape((n_total, *arr.shape[len(grid_shape) :]))
+        if pad > 0:
+            pad_widths = ((0, pad),) + ((0, 0),) * (flat.ndim - 1)
+            flat = jnp.pad(flat, pad_widths)
+        return flat
+
+    flat_xs = None if xs is None else jax.tree.map(_flatten_and_pad, xs)
+
+    @jax.checkpoint
+    def _run_chunk(operand: tuple[Array, Array, Any]) -> Any:
+        c_idx, c_mask, c_xs = operand
+        raw = fn(c_idx, c_mask, c_xs)
+        return jax.tree.map(
+            lambda o: jnp.where(
+                c_mask.reshape((eff_chunk,) + (1,) * (o.ndim - 1)),
+                o,
+                jnp.zeros((), dtype=o.dtype),
+            ),
+            raw,
+        )
+
+    def _skip_chunk(_: tuple[Array, Array, Any]) -> Any:
+        return _empty_output(eff_chunk)
+
+    def _chunk_step(_: None, chunk_op: tuple[Array, Array, Any]) -> tuple[None, Any]:
+        c_idx, c_mask, c_xs = chunk_op
+        out = jax.lax.cond(jnp.any(c_mask), _run_chunk, _skip_chunk, (c_idx, c_mask, c_xs))
+        return None, out
+
+    if not use_two_level:
+        b_idx = flat_idx.reshape((n_chunks, eff_chunk))
+        b_mask = flat_mask.reshape((n_chunks, eff_chunk))
+        b_xs = (
+            None
+            if flat_xs is None
+            else jax.tree.map(lambda a: a.reshape((n_chunks, eff_chunk, *a.shape[1:])), flat_xs)
+        )
+        if n_chunks == 1:
+            out_flat = jax.lax.cond(
+                jnp.any(b_mask[0]),
+                _run_chunk,
+                _skip_chunk,
+                (b_idx[0], b_mask[0], None if b_xs is None else jax.tree.map(lambda a: a[0], b_xs)),
+            )
+        else:
+            _, stacked = jax.lax.scan(_chunk_step, None, (b_idx, b_mask, b_xs))
+            out_flat = jax.tree.map(lambda a: a.reshape((n_pad, *a.shape[2:])), stacked)
+    else:
+        g_idx = flat_idx.reshape((n_groups, chunks_in_group, eff_chunk))
+        g_mask = flat_mask.reshape((n_groups, chunks_in_group, eff_chunk))
+        g_xs = (
+            None
+            if flat_xs is None
+            else jax.tree.map(lambda a: a.reshape((n_groups, chunks_in_group, eff_chunk, *a.shape[1:])), flat_xs)
+        )
+
+        @jax.checkpoint
+        def _run_group(group_op: tuple[Array, Array, Any]) -> Any:
+            _, res = jax.lax.scan(_chunk_step, None, group_op)
+            return res
+
+        def _skip_group(_: tuple[Array, Array, Any]) -> Any:
+            return jax.tree.map(
+                lambda s: jnp.zeros((chunks_in_group, eff_chunk, *s.shape[1:]), dtype=s.dtype), out_spec
+            )
+
+        def _group_step(_: None, group_op: tuple[Array, Array, Any]) -> tuple[None, Any]:
+            _, gm, _ = group_op
+            out = jax.lax.cond(jnp.any(gm), _run_group, _skip_group, group_op)
+            return None, out
+
+        _, stacked = jax.lax.scan(_group_step, None, (g_idx, g_mask, g_xs))
+        out_flat = jax.tree.map(lambda a: a.reshape((n_pad, *a.shape[3:])), stacked)
+
+    return jax.tree.map(
+        lambda a: a[:n_total].reshape((*grid_shape, *a.shape[1:])),
+        out_flat,
+    )
+
+
+def _inv_eps_array(eps: Any, dtype: Any) -> Array:
+    """Inverse permittivity table computed in float64 when static, or traced when inside jit/grad."""
+    if isinstance(eps, jax.core.Tracer):
+        return jnp.linalg.inv(jnp.asarray(eps, dtype=dtype))
+    return jnp.asarray(np.linalg.inv(np.asarray(eps, dtype=np.float64)), dtype=dtype)
+
+
+def _exact_bulk_inverse(eps: Any, fractions: Array) -> Array:
+    """Inverse permittivity tensor computed in float64 on pure single-material voxels."""
+    inv_eps = _inv_eps_array(eps, fractions.dtype)
+    return jnp.einsum("...m,mij->...ij", fractions, inv_eps, precision=_HIGHEST)
+
+
+@partial(jax.jit, static_argnames=("is_diag_eps",))
+def _homogenize_diagonal_jit(
+    eps_arr: Array,
+    inv_eps_arr: Array,
+    fractions: Array,
+    direction: Array,
+    is_diag_eps: bool = True,
+) -> Array:
+    """JIT-fused diagonal inverse permittivity kernel avoiding 3x3 matrix intermediates.
+
+    Weights the three coordinate-axis Kottke laminates *in inverse space* by ``D_kk / tr(D)``:
+    ``sum_k (D_kk / tr D) inv(L_k)_cc``. For isotropic or diagonally anisotropic materials and any
+    planar interface (oblique, sloped, or axis-aligned), this is algebraically identical to Kottke's
+    ``n_c^2 <1/eps_c> + (1 - n_c^2) / <eps_c>``; at multi-face corners (``D`` of rank >= 2) it retains
+    all faces smoothly with no eigenvalue-gap switch. Accepts ``direction`` shaped either ``(..., 3)``
+    (diagonal ``(D_xx, D_yy, D_zz)``) or ``(..., 3, 3)``.
+    """
+    dtype = fractions.dtype
+    if direction.ndim == fractions.ndim and direction.shape[-1] == 3:
+        diag_d = jnp.maximum(direction, 0.0)
+    else:
+        sym = 0.5 * (direction + jnp.swapaxes(direction, -1, -2))
+        diag_d = jnp.maximum(jnp.diagonal(sym, axis1=-2, axis2=-1), 0.0)
+    d_sum = jnp.sum(diag_d, axis=-1, keepdims=True)
+    has_d = d_sum > _NO_DIRECTION
+    axis_weights = jnp.where(
+        has_d,
+        diag_d / jnp.where(has_d, d_sum, jnp.ones((), dtype=dtype)),
+        jnp.full_like(diag_d, 1.0 / 3.0),
+    )
+    pure = jnp.max(fractions, axis=-1, keepdims=True) >= 1.0
+    inv_eps_d = jnp.diagonal(inv_eps_arr, axis1=-2, axis2=-1)
+    mean_inv = jnp.einsum("...m,mc->...c", fractions, inv_eps_d, precision=_HIGHEST)
+    if is_diag_eps:
+        eps_d = jnp.diagonal(eps_arr, axis1=-2, axis2=-1)
+        mean_eps = jnp.einsum("...m,mc->...c", fractions, eps_d, precision=_HIGHEST)
+        tiny = jnp.asarray(float(jnp.finfo(dtype).tiny), dtype=dtype)
+        inv_mean = jnp.where(mean_eps > tiny, 1.0 / jnp.maximum(mean_eps, tiny), jnp.ones_like(mean_eps))
+        diag = axis_weights * mean_inv + (1.0 - axis_weights) * inv_mean
+        return jnp.where(pure, mean_inv, diag)
+    axes = jnp.eye(3, dtype=dtype)
+    lam_axes = laminate(eps_arr, fractions[..., None, :], axes.reshape((1,) * (fractions.ndim - 1) + (3, 3)))
+    inv_axes, _ = safe_symmetric_inverse(lam_axes)
+    diag_axes = jnp.diagonal(inv_axes, axis1=-2, axis2=-1)
+    diag = jnp.einsum("...k,...kc->...c", axis_weights, diag_axes, precision=_HIGHEST)
+    return jnp.where(pure, mean_inv, diag)
+
+
+def homogenize_diagonal(
+    eps: Any,
+    fractions: Array,
+    direction: Array,
+    *,
+    gap: tuple[float, float] | None = None,
+) -> Array:
+    """Diagonal inverse permittivity ``(..., 3)`` from voxel ``(fractions, direction)``."""
+    _ = gap
+    dtype = fractions.dtype
+    eps_arr = jnp.asarray(eps, dtype=dtype)
+    inv_eps_arr = _inv_eps_array(eps, dtype)
+    dir_arr = jnp.asarray(direction, dtype=dtype)
+    if isinstance(eps, jax.core.Tracer):
+        diag_flag = False
+    else:
+        eps_np = np.asarray(eps, dtype=np.float64)
+        off = eps_np - np.eye(3) * eps_np
+        diag_flag = bool(np.max(np.abs(off)) <= 1e-12 * max(float(np.max(np.abs(eps_np))), 1.0))
+    if fractions.ndim >= 4 and math.prod(fractions.shape[:-1]) > 8_000_000:
+        out_z = jax.lax.map(
+            lambda pair: _homogenize_diagonal_jit(eps_arr, inv_eps_arr, pair[0], pair[1], is_diag_eps=diag_flag),
+            (jnp.moveaxis(fractions, 2, 0), jnp.moveaxis(dir_arr, 2, 0)),
+        )
+        return jnp.moveaxis(out_z, 0, 2)
+    return _homogenize_diagonal_jit(eps_arr, inv_eps_arr, fractions, dir_arr, is_diag_eps=diag_flag)
+
+
+@partial(jax.jit, static_argnames=("junction_low", "junction_high"))
+def _junction_active_jit(
+    eps_arr: Array,
+    fractions: Array,
+    dir_arr: Array,
+    junction_low: float,
+    junction_high: float,
+) -> tuple[Array, Array, Array, Array]:
+    """JIT-fused planar Kottke laminate and junction classifier mask."""
+    omega, normal = junction_weight(dir_arr, junction_low, junction_high)
+    planar = laminate(eps_arr, fractions, normal)
+    active = omega > 0
+    return omega, planar, active, jnp.sum(active, dtype=jnp.int32)
+
+
+@jax.jit
+def _planar_only_jit(
+    inv_eps_arr: Array,
+    fractions: Array,
+    planar: Array,
+    total_junctions: Array,
+) -> tuple[Array, Array]:
+    """JIT-fused planar-only inverse permittivity without junction closure."""
+    pure = jnp.max(fractions, axis=-1) >= 1.0
+    exact = jnp.einsum("...m,mij->...ij", fractions, inv_eps_arr, precision=_HIGHEST)
+    inv_planar = jnp.where(pure[..., None, None], exact, safe_symmetric_inverse(planar)[0])
+    return to_six(inv_planar), jnp.maximum(total_junctions, 0)
+
+
+@partial(jax.jit, static_argnames=("closure_residual_tol",))
+def _blend_full_jit(
+    inv_eps_arr: Array,
+    fractions: Array,
+    planar: Array,
+    omega: Array,
+    executed_mask: Array,
+    junc_tensor: Array,
+    residuals: Array,
+    closure_residual_tol: float,
+) -> tuple[Array, Array, Array]:
+    """JIT-fused certification, planar/junction blending, and safe inversion."""
+    dtype = fractions.dtype
+    pure = jnp.max(fractions, axis=-1) >= 1.0
+    exact = jnp.einsum("...m,mij->...ij", fractions, inv_eps_arr, precision=_HIGHEST)
+    eye3 = jnp.eye(3, dtype=dtype)
+    planar_ok = is_finite_spd(planar)
+    planar_safe = jnp.where(planar_ok[..., None, None], planar, eye3)
+    junc_ok = is_finite_spd(junc_tensor)
+    res_ok = jnp.isfinite(residuals) & (residuals <= closure_residual_tol)
+    junc_cert = executed_mask & junc_ok & res_ok
+    junc_safe = jnp.where(junc_cert[..., None, None], junc_tensor, planar_safe)
+    eff_omega = jnp.where(junc_cert, omega, jnp.zeros((), dtype=dtype))
+    w = eff_omega[..., None, None]
+    blended = (1.0 - w) * planar_safe + w * junc_safe
+    inv_mixed, blended_ok = safe_symmetric_inverse(blended)
+    planar_inv, _ = safe_symmetric_inverse(planar)
+    inv_safe_mix = jnp.where(blended_ok[..., None, None], inv_mixed, planar_inv)
+    inv_eff = jnp.where(pure[..., None, None], exact, inv_safe_mix)
+
+    executed_count = jnp.sum(executed_mask, dtype=jnp.int32)
+    bad_res = jnp.where(junc_ok & planar_ok & blended_ok, residuals, jnp.asarray(jnp.nan, dtype=dtype))
+    return (
+        to_six(inv_eff),
+        executed_count,
+        jnp.max(jnp.where(executed_mask, bad_res, jnp.zeros((), dtype=dtype))),
+    )
+
+
+def homogenize_full(
+    eps: Any,
+    fractions: Array,
+    direction: Array,
+    junction_cell_fn: Callable[[Array, Array, Any], tuple[Array, Array, Array]] | None,
+    *,
+    junction_xs: Any = None,
+    junction_low: float = JUNCTION_LOW,
+    junction_high: float = JUNCTION_HIGH,
+    subcell_gap: tuple[float, float] = SUBCELL_GAP,
+    closure_residual_tol: float = CLOSURE_RESIDUAL,
+    chunk_size: int | None = None,
+    group_size: int | None = None,
+    max_items: int | None = None,
+) -> tuple[Array, dict[str, Array]]:
+    """Unified full-tensor inverse permittivity ``(..., 6)`` blending planar Kottke laminate and cell closures."""
+    chunk_size = _JUNCTION_CHUNK if chunk_size is None else chunk_size
+    group_size = _JUNCTION_GROUP if group_size is None else group_size
+    dtype = fractions.dtype
+    eps_arr = jnp.asarray(eps, dtype=dtype)
+    inv_eps_arr = _inv_eps_array(eps, dtype)
+    dir_arr = jnp.asarray(direction, dtype=dtype)
+    large_3d = fractions.ndim >= 4 and math.prod(fractions.shape[:-1]) > 8_000_000
+    if large_3d:
+        omega_z, planar_z, active_z, cnt_z = jax.lax.map(
+            lambda pair: _junction_active_jit(
+                eps_arr, pair[0], pair[1], junction_low=junction_low, junction_high=junction_high
+            ),
+            (jnp.moveaxis(fractions, 2, 0), jnp.moveaxis(dir_arr, 2, 0)),
+        )
+        omega = jnp.moveaxis(omega_z, 0, 2)
+        planar = jnp.moveaxis(planar_z, 0, 2)
+        active = jnp.moveaxis(active_z, 0, 2)
+        total_junctions = jnp.sum(cnt_z, dtype=jnp.int32)
+    else:
+        omega, planar, active, total_junctions = _junction_active_jit(
+            eps_arr, fractions, dir_arr, junction_low=junction_low, junction_high=junction_high
+        )
+
+    if junction_cell_fn is None or max_items == 0:
+        if large_3d:
+            inv6_z, _ = jax.lax.map(
+                lambda pair: _planar_only_jit(inv_eps_arr, pair[0], pair[1], jnp.zeros((), dtype=jnp.int32)),
+                (jnp.moveaxis(fractions, 2, 0), jnp.moveaxis(planar, 2, 0)),
+            )
+            inv6_planar = jnp.moveaxis(inv6_z, 0, 2)
+            overflow = jnp.maximum(total_junctions, 0)
+        else:
+            inv6_planar, overflow = _planar_only_jit(inv_eps_arr, fractions, planar, total_junctions)
+        status = {
+            "junctions": total_junctions,
+            "junction_overflow": overflow if max_items == 0 else jnp.zeros((), dtype=jnp.int32),
+            "closure_residual": jnp.zeros((), dtype=dtype),
+        }
+        return inv6_planar, status
+
+    if max_items is None:
+        executed_mask = active
+    else:
+        if max_items < 0:
+            raise ValueError(f"max_items must be non-negative, got {max_items}")
+        rank = jnp.cumsum(active.astype(jnp.int32).ravel()).reshape(active.shape)
+        executed_mask = active & (rank <= max_items)
+
+    def _solve_chunk(chunk_indices: Array, chunk_mask: Array, chunk_xs: Any) -> tuple[Array, Array]:
+        sub_fractions, sub_dir, sub_sides = junction_cell_fn(chunk_indices, chunk_mask, chunk_xs)
+        sub_coeffs = subcell_laminate(eps_arr, sub_fractions, sub_dir, gap=subcell_gap)
+        eye3 = jnp.eye(3, dtype=dtype)
+        safe = chunk_mask.reshape((chunk_mask.shape[0],) + (1,) * (sub_coeffs.ndim - 1))
+        safe_coeffs = jnp.where(safe, sub_coeffs, eye3)
+        safe_sides = jnp.where(chunk_mask[:, None], jnp.asarray(sub_sides, dtype=dtype), 1.0)
+        return periodic_cell_tensor(safe_coeffs, safe_sides)
+
+    scan_xs = fractions if junction_xs is None else (fractions, junction_xs)
+    junc_tensor, residuals = sparse_voxel_map(
+        _solve_chunk,
+        active,
+        scan_xs,
+        chunk_size=chunk_size,
+        group_size=group_size,
+        max_items=max_items,
+    )
+    if large_3d:
+        inv6_z, exec_z, res_z = jax.lax.map(
+            lambda xs_z: _blend_full_jit(
+                inv_eps_arr,
+                xs_z[0],
+                xs_z[1],
+                xs_z[2],
+                xs_z[3],
+                xs_z[4],
+                xs_z[5],
+                closure_residual_tol=closure_residual_tol,
+            ),
+            (
+                jnp.moveaxis(fractions, 2, 0),
+                jnp.moveaxis(planar, 2, 0),
+                jnp.moveaxis(omega, 2, 0),
+                jnp.moveaxis(executed_mask, 2, 0),
+                jnp.moveaxis(junc_tensor, 2, 0),
+                jnp.moveaxis(residuals, 2, 0),
+            ),
+        )
+        inv6_eff = jnp.moveaxis(inv6_z, 0, 2)
+        executed_count = jnp.sum(exec_z, dtype=jnp.int32)
+        closure_residual = jnp.max(res_z)
+    else:
+        inv6_eff, executed_count, closure_residual = _blend_full_jit(
+            inv_eps_arr,
+            fractions,
+            planar,
+            omega,
+            executed_mask,
+            junc_tensor,
+            residuals,
+            closure_residual_tol=closure_residual_tol,
+        )
+    status = {
+        "junctions": total_junctions,
+        "junction_overflow": jnp.maximum(total_junctions - executed_count, 0),
+        "closure_residual": closure_residual,
+    }
+    return inv6_eff, status

@@ -730,12 +730,12 @@ TAPERS = {
 }
 
 
-def _tapered_strip(taper: dict, size=(1.6, 1.4, 0.3), z_center=0.11):
+def _tapered_strip(taper: dict, size=(1.6, 1.4, 0.3), z_center=0.11, **kwargs):
     ls = LayerStack(layers={"core": LayerLevel(
         layer=WG, zmin=TAPER_Z[0], thickness=TAPER_Z[1], material="si", mesh_order=1, **taper,
     )})
     mats = {"air": MATERIALS["air"], "si": MATERIALS["si"]}
-    return _weights_of(_polygons(STRIP), ls, mats, size, center=(0.8, 0.0), z_center=z_center)
+    return _weights_of(_polygons(STRIP), ls, mats, size, center=(0.8, 0.0), z_center=z_center, **kwargs)
 
 
 @pytest.mark.parametrize("name", list(TAPERS))
@@ -753,7 +753,7 @@ def test_sidewall_at_the_height_of_each_sub_interval(name: str) -> None:
     ramp above the kink, 0.34 cells per side here).
     """
     taper = TAPERS[name]
-    d, w = _tapered_strip(taper)
+    d, w = _tapered_strip(taper, voxelizer="legacy")
     nx, _, nz = d.grid_shape
     j = cell(d, 0.8, 0.0, 0.0)[1]
     z0 = d.z_center - nz * RES / 2  # stack z of the device bottom
@@ -833,7 +833,7 @@ def test_sidewall_ignores_other_levels_surfaces() -> None:
         "cap": LayerLevel(layer=WG, zmin=0.1061, thickness=0.2, material="sio2", mesh_order=2),
     })
     mats = {n: MATERIALS[n] for n in ("air", "si", "sio2")}
-    objects, _, params = _placed(_polygons(STRIP), ls, mats, (1.6, 1.4, 0.3), (0.8, 0.0), z_center=0.11)
+    objects, _, params = _placed(_polygons(STRIP), ls, mats, (1.6, 1.4, 0.3), (0.8, 0.0), z_center=0.11, voxelizer="legacy")
     d, p = objects["s"], params["s"]
 
     def silicon(cap_zmin):
@@ -918,7 +918,7 @@ def test_convex_corner_at_voxel_center_fills_a_quarter() -> None:
     square = [(0.01, 0.01), (0.61, 0.01), (0.61, 0.41), (0.01, 0.41)]
     for lines, expected in ((2, 0.25), (0, 0.5)):
         d, w = _weights_of(
-            _polygons(square), _core(), CORE_ONLY, (1.0, 0.8, 0.3), center=(0.3, 0.2), z_center=0.11, corner_lines=lines
+            _polygons(square), _core(), CORE_ONLY, (1.0, 0.8, 0.3), center=(0.3, 0.2), z_center=0.11, corner_lines=lines, voxelizer="legacy"
         )
         i, j, k = cell(d, 0.01, 0.01, 0.11)
         around = w["si"][i - 1 : i + 2, j - 1 : j + 2, k]
@@ -1033,7 +1033,7 @@ def test_bent_vertex_on_a_sloped_wall_has_no_seam(angle: float) -> None:
     a 1e-4-wide gradient-stopped switch made the fill jump by up to 0.045 with FD 7/cell vs jvp 0.2)."""
     c = _polygons([(-0.3, -0.3), (0.01, -0.301), (0.3, -0.3), (0.3, 0.3), (-0.3, 0.3)])
     ls = _core(sidewall_angle=angle, width_to_z=0.5)
-    objects, _, params = _placed(c, ls, CORE_ONLY, (1.0, 0.8, 0.3), (0.0, 0.0), z_center=0.11, diagnostics=False)
+    objects, _, params = _placed(c, ls, CORE_ONLY, (1.0, 0.8, 0.3), (0.0, 0.0), z_center=0.11, diagnostics=False, voxelizer="legacy")
     d = objects["s"]
     v0 = np.asarray(params["s"]["vertices/WG"])
     m = int(np.argmin(np.abs(v0[:, 0] - 0.01) + np.abs(v0[:, 1] + 0.301)))
@@ -1104,7 +1104,7 @@ def test_later_levels_corner_leaves_a_sloped_edge_alone() -> None:
     mats = {n: MATERIALS[n] for n in ("air", "si", "sio2")}
     c = _polygons(core)
     c.add_polygon(pad, layer=SLAB)
-    where = dict(size=(1.0, 1.0, 0.3), center=(0.0, 0.0), z_center=0.11, diagnostics=False)
+    where = dict(size=(1.0, 1.0, 0.3), center=(0.0, 0.0), z_center=0.11, diagnostics=False, voxelizer="legacy")
     objects, _, params = _placed(c, ls, mats, **where)
     d, p = objects["s"], params["s"]
     names, w = d.material_weights(p)
@@ -1148,7 +1148,8 @@ def test_vertex_outside_the_voxel() -> None:
     fills = {}
     for lines in (2, 0):
         d, w = _weights_of(
-            _polygons(tip), _core(), CORE_ONLY, (1.4, 0.6, 0.3), center=(0.8, 0.0), z_center=0.11, corner_lines=lines
+            _polygons(tip), _core(), CORE_ONLY, (1.4, 0.6, 0.3), center=(0.8, 0.0), z_center=0.11, corner_lines=lines,
+            voxelizer="legacy",
         )
         fills[lines] = w["si"][:, :, cell(d, 0, 0, 0.11)[2]]
     i, j, _ = cell(d, 0.31, 0.01, 0.11)
@@ -1185,7 +1186,7 @@ def test_corner_model_never_worse() -> None:
         })
         pa, pb = shapely.Polygon(a), shapely.Polygon(b)
         for mode in ("composite", "exact"):
-            box_ = dict(size=(1.4, 1.4, 0.3), center=(0.6, 0.55), z_center=0.11, derived_shapes=mode)
+            box_ = dict(size=(1.4, 1.4, 0.3), center=(0.6, 0.55), z_center=0.11, derived_shapes=mode, voxelizer="legacy")
             d, new = _weights_of(c, ls, mats, **box_)
             _, old = _weights_of(c, ls, mats, **box_, corner_lines=0)
             k = cell(d, 0, 0, 0.11)[2]
@@ -1233,9 +1234,9 @@ def test_corner_model_never_worse_for_the_voxel_average() -> None:
         "two": LayerLevel(layer=LogicalLayer(layer=WG), material="sio2", mesh_order=2, bias=bias, **derived),
     })
     mats = {"air": MATERIALS["air"], "si": MATERIALS["si"], "sio2": MATERIALS["sio2"]}
-    d, new = _weights_of(c, ls, mats, (1.5, 1.4, 0.3), center=(0.6, 0.55), z_center=0.11, xy_subsamples=2)
+    d, new = _weights_of(c, ls, mats, (1.5, 1.4, 0.3), center=(0.6, 0.55), z_center=0.11, xy_subsamples=2, voxelizer="legacy")
     _, old = _weights_of(c, ls, mats, (1.5, 1.4, 0.3), center=(0.6, 0.55), z_center=0.11, xy_subsamples=2,
-                         corner_lines=0)
+                         corner_lines=0, voxelizer="legacy")
     nx, ny, nz = d.grid_shape
     k = nz // 2
     one = shapely.union_all([shapely.Polygon(p) for p in wgs]).intersection(shapely.Polygon(etch))
@@ -1262,9 +1263,18 @@ def test_corner_lines_zero_is_unchanged() -> None:
     """corner_lines=0 is one half-plane per level; the corner model changes only columns near corners."""
     rectangle = _rotated([(0.0, 0.0), (0.9, 0.0), (0.9, 0.5), (0.0, 0.5)], 17.0, np.array([0.4511, 0.2493]))
     ls = _core(sidewall_angle=10.0, width_to_z=0.5)
-    d, w = _weights_of(_polygons(rectangle), ls, CORE_ONLY, (1.3, 1.0, 0.3), center=(0.45, 0.25), z_center=0.11)
+    d, w = _weights_of(
+        _polygons(rectangle), ls, CORE_ONLY, (1.3, 1.0, 0.3), center=(0.45, 0.25), z_center=0.11, voxelizer="legacy"
+    )
     d0, w0 = _weights_of(
-        _polygons(rectangle), ls, CORE_ONLY, (1.3, 1.0, 0.3), center=(0.45, 0.25), z_center=0.11, corner_lines=0
+        _polygons(rectangle),
+        ls,
+        CORE_ONLY,
+        (1.3, 1.0, 0.3),
+        center=(0.45, 0.25),
+        z_center=0.11,
+        corner_lines=0,
+        voxelizer="legacy",
     )
     assert d0.corner_columns is None and d.corner_columns > 0
     changed = np.any(w["si"] != w0["si"], axis=2)
@@ -1383,11 +1393,11 @@ def test_disk_area_matches_shapely() -> None:
 def test_corner_budget() -> None:
     """Placement sizes corner_columns from the candidates; a smaller budget repaints at most that many columns."""
     args = (_polygons(CORNERS), _core(), CORE_ONLY, (1.7, 1.5, 0.3))
-    d, _ = _weights_of(*args, center=(0.6, 0.45), z_center=0.11)
+    d, _ = _weights_of(*args, center=(0.6, 0.45), z_center=0.11, voxelizer="legacy")
     nx, ny, _ = d.grid_shape
     assert 0 < d._corner_candidate_count() <= d.corner_columns <= nx * ny
-    _, w8 = _weights_of(*args, center=(0.6, 0.45), z_center=0.11, corner_columns=8)
-    _, w0 = _weights_of(*args, center=(0.6, 0.45), z_center=0.11, corner_lines=0)
+    _, w8 = _weights_of(*args, center=(0.6, 0.45), z_center=0.11, corner_columns=8, voxelizer="legacy")
+    _, w0 = _weights_of(*args, center=(0.6, 0.45), z_center=0.11, corner_lines=0, voxelizer="legacy")
     changed = np.any(w8["si"] != w0["si"], axis=2)
     assert 0 < changed.sum() <= 8
     np.testing.assert_allclose(w8["si"] + w8["air"], 1.0, atol=1e-6)
@@ -1723,7 +1733,7 @@ def test_kottke_normal_at_a_corner_is_continuous() -> None:
         """inv_permittivities (3,) of the voxel for the corner 2e-4 cells left and right of the bisector."""
         objects, arrays, params = _placed(
             rectangle(0.0), _core(), CORE_ONLY, (1.0, 0.8, 0.3), center=(0.0, 0.0), z_center=0.11,
-            yee_staggered=False, corner_lines=lines,
+            yee_staggered=False, corner_lines=lines, voxelizer="legacy",
         )
         d = objects["s"]
 
@@ -1744,15 +1754,19 @@ def test_kottke_normal_at_a_corner_is_continuous() -> None:
             assert float(before[0]) > float(after[0]) + 0.1 and float(after[1]) > float(before[1]) + 0.1
 
 
-def test_subpixel_gradients_match_finite_differences() -> None:
+@pytest.mark.parametrize("voxelizer", ["greens", "legacy"])
+def test_subpixel_gradients_match_finite_differences(voxelizer: str) -> None:
     """A fixed random weighting of the subpixel inverse permittivity: its gradients with respect to the
     waveguide width and the core's thickness, sidewall angle and zmin match central differences.
 
     The voxels that an interface enters or leaves within a step are left out of the weighting: an
     inverse permittivity's derivative jumps there, and the sloped walls, at a different position in
-    every voxel layer, always come close to a voxel face of some component's Yee grid.
+    every voxel layer, always come close to a voxel face of some component's Yee grid. Under
+    ``voxelizer='greens'``, each sub-interval integrates a sloped wall at two Gauss-Legendre heights, so
+    voxels where a Gauss height crosses a cell face (detected by a nonlinear second difference in ``f``)
+    are excluded as well.
     """
-    objects, arrays, params = place(build(z_range=(-0.1, 0.3), padding=0.1))
+    objects, arrays, params = place(build(z_range=(-0.1, 0.3), padding=0.1, voxelizer=voxelizer))
     d = objects["stack"]
     names = ("thickness/core", "sidewall_angle/core", "zmin/core")
     si = d.material_weights(params["stack"])[0].index("si")
@@ -1765,9 +1779,11 @@ def test_subpixel_gradients_match_finite_differences() -> None:
         return _box(_apply(objects, arrays, {**params, "stack": p}), d, "inv_permittivities")
 
     @jax.jit
-    def whole(p):
-        """Voxels all or nothing silicon, at each component's Yee position."""
-        f = jnp.stack([d.material_weights(p, shift=shift)[1][si] for shift in bf.stack._YEE_E_SHIFTS])
+    def si_frac(p):
+        """Silicon volume fractions at each component's Yee position."""
+        return jnp.stack([d.material_weights(p, shift=shift)[1][si] for shift in bf.stack._YEE_E_SHIFTS])
+
+    def whole_mask(f):
         return (f < 1e-6) | (f > 1 - 1e-6)
 
     x0 = (0.5137, 0.2137, 10.0, 0.004)  # generic: the core's surfaces cut voxels, its corners are off Yee points
@@ -1778,8 +1794,16 @@ def test_subpixel_gradients_match_finite_differences() -> None:
             x = list(x0)
             x[a] += sign * h
             points.append(x)
-    reference = whole(stack_params(x0))
-    keep = jnp.all(jnp.stack([whole(stack_params(x)) == reference for x in points]), axis=0)
+    f0 = si_frac(stack_params(x0))
+    f_pts = [si_frac(stack_params(x)) for x in points]
+    reference = whole_mask(f0)
+    keep = jnp.all(jnp.stack([whole_mask(fp) == reference for fp in f_pts]), axis=0)
+    if voxelizer == "greens":
+        no_gauss_kink = jnp.all(
+            jnp.stack([jnp.abs(f_pts[2 * a] + f_pts[2 * a + 1] - 2.0 * f0) < 1e-4 for a in range(len(steps))]),
+            axis=0,
+        )
+        keep = keep & no_gauss_kink
     assert float(keep.mean()) > 0.99
     weight = jax.random.uniform(jax.random.PRNGKey(7), (3, *d.grid_shape)) * keep
     base = inv(stack_params(x0))
@@ -1791,7 +1815,7 @@ def test_subpixel_gradients_match_finite_differences() -> None:
     for a, h in enumerate(steps):
         fd = (loss(*points[2 * a]) - loss(*points[2 * a + 1])) / (2 * h)
         assert bool(jnp.isfinite(g[a])) and float(g[a]) != 0.0, a
-        assert float(g[a]) == pytest.approx(float(fd), rel=5e-3), (a, float(g[a]), float(fd))
+        assert float(g[a]) == pytest.approx(float(fd), rel=5e-3), (voxelizer, a, float(g[a]), float(fd))
 
 
 def test_subpixel_gradients_finite_at_ties() -> None:
@@ -1944,7 +1968,7 @@ def test_kottke_normal_with_sub_samples_on_their_faces() -> None:
     x0, t0 = 0.31, 0.2137  # the wall on voxel centers, the surfaces off voxel faces
     objects, arrays, params = _placed(
         rib(x0), ls, CORE_ONLY, (0.6, 0.2, 0.3), center=(0.4, 0.0), z_center=0.1137, yee_staggered=False,
-        xy_subsamples=2,
+        xy_subsamples=2, voxelizer="legacy",
     )
     d = objects["s"]
     packed = d.pack(rib(x0))
@@ -2023,7 +2047,7 @@ def test_sub_samples_with_corner_columns() -> None:
     c, ls, mats = _degenerate_corners()
     objects, arrays, params = _placed(
         c, ls, mats, (1.2, 0.8, 0.3), center=(0.5, 0.3), z_center=0.11, xy_subsamples=2, yee_staggered=False,
-        diagnostics=False,
+        diagnostics=False, voxelizer="legacy",
     )
     d = objects["s"]
     assert d.corner_columns > 0
@@ -3366,7 +3390,7 @@ def test_step_timings_change_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
         jitted = jax.jit(lambda p: d.material_weights(p)[1])(params["stack"])
         return [np.asarray(x) for x in (value, grad, weights, jitted)]
 
-    kwargs = dict(averaging="subpixel", corner_lines=2)
+    kwargs = dict(averaging="subpixel", corner_lines=2, voxelizer="legacy")
     off = run(*place(build(**kwargs)))
     assert bf.timing.active() is None
     with bf.stack.record_timings() as timings:
@@ -4006,7 +4030,7 @@ def test_uncertified_corner_columns_are_reported() -> None:
     with pytest.warns(bf.stack.StackDiagnosticWarning, match="not certified"):
         objects, arrays, params = _placed(
             _polygons(*two), _core(), CORE_ONLY, (2.2, 1.6, 0.3), (0.0, 0.0), z_center=0.11,
-            averaging="subpixel_full",
+            averaging="subpixel_full", voxelizer="legacy",
         )
     d = objects["s"]
     status = d.interface_status(params["s"])
@@ -4016,6 +4040,7 @@ def test_uncertified_corner_columns_are_reported() -> None:
     rect = _rotated(_rect(-0.8, -0.3, 0.8, 0.3), 30.0, np.zeros(2))
     objects, _, params = _placed(
         _polygons(rect), _core(), CORE_ONLY, (2.2, 1.6, 0.3), (0.0, 0.0), z_center=0.11, averaging="subpixel_full",
+        voxelizer="legacy",
     )
     assert objects["s"].interface_status(params["s"])["corner_uncertified"] == 0
 

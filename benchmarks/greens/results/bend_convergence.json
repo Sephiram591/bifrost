@@ -1,0 +1,1369 @@
+[
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-40",
+    "shift_frac": 0.0,
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "res_nm": 40.0,
+    "cells": [
+      135,
+      135,
+      60
+    ],
+    "steps": 3934,
+    "T": 0.9930047048707056,
+    "phase_rad": 1.6452821387628447,
+    "setup_s": 19.89,
+    "run_s": 1.32,
+    "peak_gb": 0.276
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-40",
+    "shift_frac": 0.0,
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "res_nm": 40.0,
+    "cells": [
+      135,
+      135,
+      60
+    ],
+    "steps": 3934,
+    "T": 0.993927044305565,
+    "phase_rad": 1.464209508856329,
+    "setup_s": 66.06,
+    "run_s": 6.88,
+    "peak_gb": 0.734
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.0,
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9933766154840162,
+    "phase_rad": 1.4491861648045348,
+    "setup_s": 20.91,
+    "run_s": 3.68,
+    "peak_gb": 0.684
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.0,
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.994128134533838,
+    "phase_rad": 1.3011065244240339,
+    "setup_s": 67.16,
+    "run_s": 23.36,
+    "peak_gb": 1.7
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-25",
+    "shift_frac": 0.0,
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "res_nm": 25.0,
+    "cells": [
+      216,
+      216,
+      96
+    ],
+    "steps": 6294,
+    "T": 0.9930961103368889,
+    "phase_rad": 1.6429564935782301,
+    "setup_s": 22.4,
+    "run_s": 8.41,
+    "peak_gb": 1.148
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-25",
+    "shift_frac": 0.0,
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "res_nm": 25.0,
+    "cells": [
+      216,
+      216,
+      96
+    ],
+    "steps": 6294,
+    "T": 0.9936028706467382,
+    "phase_rad": 1.5213349739441142,
+    "setup_s": 69.13,
+    "run_s": 50.12,
+    "peak_gb": 2.937
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-20",
+    "shift_frac": 0.0,
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "res_nm": 20.0,
+    "cells": [
+      270,
+      270,
+      120
+    ],
+    "steps": 7868,
+    "T": 0.9928053895901581,
+    "phase_rad": 1.6216591719234925,
+    "setup_s": 28.98,
+    "run_s": 29.45,
+    "peak_gb": 2.325
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-20",
+    "shift_frac": 0.0,
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "res_nm": 20.0,
+    "cells": [
+      270,
+      270,
+      120
+    ],
+    "steps": 7868,
+    "T": 0.9933383818061811,
+    "phase_rad": 1.5168257445257978,
+    "setup_s": 86.71,
+    "run_s": 135.55,
+    "peak_gb": 5.538
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-15",
+    "shift_frac": 0.0,
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "res_nm": 15.0,
+    "cells": [
+      360,
+      360,
+      160
+    ],
+    "steps": 10490,
+    "T": 0.9918939892581499,
+    "phase_rad": 1.7987103942469271,
+    "setup_s": 33.11,
+    "run_s": 95.92,
+    "peak_gb": 4.915
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-15",
+    "shift_frac": 0.0,
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "res_nm": 15.0,
+    "cells": [
+      360,
+      360,
+      160
+    ],
+    "steps": 10490,
+    "T": 0.992167054106961,
+    "phase_rad": 1.7204331528926642,
+    "setup_s": 87.17,
+    "run_s": 453.46,
+    "peak_gb": 12.872
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.2,
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9925617384088288,
+    "phase_rad": 1.738127764191982,
+    "setup_s": 26.31,
+    "run_s": 3.9,
+    "peak_gb": 0.684
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.4,
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9925940464772968,
+    "phase_rad": 1.857627721412543,
+    "setup_s": 26.48,
+    "run_s": 3.88,
+    "peak_gb": 0.684
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.6,
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9931948844896604,
+    "phase_rad": 1.8617575692115065,
+    "setup_s": 26.1,
+    "run_s": 3.92,
+    "peak_gb": 0.684
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.8,
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9936067925115447,
+    "phase_rad": 1.750881691890896,
+    "setup_s": 26.37,
+    "run_s": 3.89,
+    "peak_gb": 0.684
+  },
+  {
+    "bench": "soi_grad_check",
+    "averaging": "subpixel",
+    "res_nm": 30.0,
+    "T0": 0.9932408332824707,
+    "grad_ad": 0.034711938351392746,
+    "grad_fd": 0.03355741500854492,
+    "rel_err": 0.034404418294849026
+  },
+  {
+    "bench": "soi_grad_check",
+    "averaging": "subpixel_full",
+    "res_nm": 30.0,
+    "T0": 0.9942262172698975,
+    "grad_ad": 0.029481619596481323,
+    "grad_fd": 0.029206275939941406,
+    "rel_err": 0.009427551020408164
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-120",
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "cells": [
+      103,
+      103,
+      40
+    ],
+    "total_cells": 424360,
+    "steps": 2185,
+    "T": 0.662158369389007,
+    "phase_rad": 0.508738837868331,
+    "setup_s": 24.57,
+    "run_s": 1.19,
+    "peak_gb": 0.134,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-120",
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "cells": [
+      103,
+      103,
+      40
+    ],
+    "total_cells": 424360,
+    "steps": 2185,
+    "T": 0.6626771872582846,
+    "phase_rad": 0.4951198047195646,
+    "setup_s": 78.15,
+    "run_s": 3.23,
+    "peak_gb": 0.312,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-60",
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "cells": [
+      206,
+      206,
+      80
+    ],
+    "total_cells": 3394880,
+    "steps": 4371,
+    "T": 0.5634201309174559,
+    "phase_rad": 1.1485349095422228,
+    "setup_s": 25.86,
+    "run_s": 3.98,
+    "peak_gb": 0.937,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-60",
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "cells": [
+      206,
+      206,
+      80
+    ],
+    "total_cells": 3394880,
+    "steps": 4371,
+    "T": 0.5642245693548538,
+    "phase_rad": 1.136488070713841,
+    "setup_s": 82.52,
+    "run_s": 26.48,
+    "peak_gb": 2.198,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-40",
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "cells": [
+      309,
+      309,
+      120
+    ],
+    "total_cells": 11457720,
+    "steps": 6556,
+    "T": 0.5585580437018215,
+    "phase_rad": 1.7072625489792888,
+    "setup_s": 26.33,
+    "run_s": 29.95,
+    "peak_gb": 3.07,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-40",
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "cells": [
+      309,
+      309,
+      120
+    ],
+    "total_cells": 11457720,
+    "steps": 6556,
+    "T": 0.5593858545513672,
+    "phase_rad": 1.697845883556388,
+    "setup_s": 83.98,
+    "run_s": 147.41,
+    "peak_gb": 7.042,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-30",
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "cells": [
+      412,
+      412,
+      160
+    ],
+    "total_cells": 27159040,
+    "steps": 8742,
+    "T": 0.55711886350778,
+    "phase_rad": 1.944267476079155,
+    "setup_s": 29.1,
+    "run_s": 92.07,
+    "peak_gb": 6.095,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-30",
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "cells": [
+      412,
+      412,
+      160
+    ],
+    "total_cells": 27159040,
+    "steps": 8742,
+    "T": 0.5577229370056951,
+    "phase_rad": 1.9369017172507776,
+    "setup_s": 85.29,
+    "run_s": 480.15,
+    "peak_gb": 16.532,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-12",
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "cells": [
+      185,
+      185,
+      59
+    ],
+    "total_cells": 2019275,
+    "steps": 4101,
+    "T": 0.5756005428306884,
+    "phase_rad": 1.338488289656027,
+    "setup_s": 31.42,
+    "run_s": 2.8,
+    "peak_gb": 0.537,
+    "summary": "mesh of 'stack': 185 x 185 x 59 = 2,019,275 cells\n  x: 185 cells, 64.71 to 86.66 nm, largest ratio 1.250, PML cells 16 / 12 (aligned)\n  y: 185 cells, 64.71 to 86.66 nm, largest ratio 1.250, PML cells 12 / 16\n  z: 59 cells, 62.5 to 125 nm, largest ratio 1.250, PML cells 12 / 8 (faces centered at 0, 0.75 um)\n  time step 121.9 as, 4,101 steps\n  fields (E and H, 32-bit): 0.0485 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-12",
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "cells": [
+      185,
+      185,
+      59
+    ],
+    "total_cells": 2019275,
+    "steps": 4101,
+    "T": 0.577038704346956,
+    "phase_rad": 1.3262130018421512,
+    "setup_s": 93.61,
+    "run_s": 13.68,
+    "peak_gb": 1.396,
+    "summary": "mesh of 'stack': 185 x 185 x 59 = 2,019,275 cells\n  x: 185 cells, 64.71 to 86.66 nm, largest ratio 1.250, PML cells 16 / 12 (aligned)\n  y: 185 cells, 64.71 to 86.66 nm, largest ratio 1.250, PML cells 12 / 16\n  z: 59 cells, 62.5 to 125 nm, largest ratio 1.250, PML cells 12 / 8 (faces centered at 0, 0.75 um)\n  time step 121.9 as, 4,101 steps\n  fields (E and H, 32-bit): 0.0485 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-16",
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "cells": [
+      246,
+      246,
+      77
+    ],
+    "total_cells": 4659732,
+    "steps": 5468,
+    "T": 0.5649095138889543,
+    "phase_rad": 1.4093052917553508,
+    "setup_s": 32.83,
+    "run_s": 7.45,
+    "peak_gb": 1.188,
+    "summary": "mesh of 'stack': 246 x 246 x 77 = 4,659,732 cells\n  x: 246 cells, 48.53 to 66.67 nm, largest ratio 1.250, PML cells 21 / 15 (aligned)\n  y: 246 cells, 48.53 to 66.67 nm, largest ratio 1.250, PML cells 15 / 21\n  z: 77 cells, 46.87 to 95.59 nm, largest ratio 1.250, PML cells 15 / 11 (faces centered at 0, 0.75 um)\n  time step 91.44 as, 5,468 steps\n  fields (E and H, 32-bit): 0.112 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-16",
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "cells": [
+      246,
+      246,
+      77
+    ],
+    "total_cells": 4659732,
+    "steps": 5468,
+    "T": 0.5657367286505456,
+    "phase_rad": 1.3989758254406408,
+    "setup_s": 94.14,
+    "run_s": 44.14,
+    "peak_gb": 2.962,
+    "summary": "mesh of 'stack': 246 x 246 x 77 = 4,659,732 cells\n  x: 246 cells, 48.53 to 66.67 nm, largest ratio 1.250, PML cells 21 / 15 (aligned)\n  y: 246 cells, 48.53 to 66.67 nm, largest ratio 1.250, PML cells 15 / 21\n  z: 77 cells, 46.87 to 95.59 nm, largest ratio 1.250, PML cells 15 / 11 (faces centered at 0, 0.75 um)\n  time step 91.44 as, 5,468 steps\n  fields (E and H, 32-bit): 0.112 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-20",
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "cells": [
+      307,
+      307,
+      96
+    ],
+    "total_cells": 9047904,
+    "steps": 6835,
+    "T": 0.5583399571859476,
+    "phase_rad": 1.9786236001127546,
+    "setup_s": 31.68,
+    "run_s": 23.1,
+    "peak_gb": 2.285,
+    "summary": "mesh of 'stack': 307 x 307 x 96 = 9,047,904 cells\n  x: 307 cells, 38.83 to 53.67 nm, largest ratio 1.250, PML cells 26 / 19 (aligned)\n  y: 307 cells, 38.83 to 53.67 nm, largest ratio 1.250, PML cells 19 / 26\n  z: 96 cells, 37.5 to 76.92 nm, largest ratio 1.250, PML cells 19 / 13 (faces centered at 0, 0.75 um)\n  time step 73.15 as, 6,835 steps\n  fields (E and H, 32-bit): 0.217 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-20",
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "cells": [
+      307,
+      307,
+      96
+    ],
+    "total_cells": 9047904,
+    "steps": 6835,
+    "T": 0.5592882863841222,
+    "phase_rad": 1.9694930255891425,
+    "setup_s": 93.2,
+    "run_s": 115.44,
+    "peak_gb": 5.612,
+    "summary": "mesh of 'stack': 307 x 307 x 96 = 9,047,904 cells\n  x: 307 cells, 38.83 to 53.67 nm, largest ratio 1.250, PML cells 26 / 19 (aligned)\n  y: 307 cells, 38.83 to 53.67 nm, largest ratio 1.250, PML cells 19 / 26\n  z: 96 cells, 37.5 to 76.92 nm, largest ratio 1.250, PML cells 19 / 13 (faces centered at 0, 0.75 um)\n  time step 73.15 as, 6,835 steps\n  fields (E and H, 32-bit): 0.217 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-24",
+    "voxelizer": "legacy",
+    "averaging": "subpixel",
+    "cells": [
+      369,
+      369,
+      114
+    ],
+    "total_cells": 15522354,
+    "steps": 8202,
+    "T": 0.5575568635967268,
+    "phase_rad": 1.864114909739296,
+    "setup_s": 33.48,
+    "run_s": 49.61,
+    "peak_gb": 3.692,
+    "summary": "mesh of 'stack': 369 x 369 x 114 = 15,522,354 cells\n  x: 369 cells, 32.36 to 44.16 nm, largest ratio 1.250, PML cells 31 / 23 (aligned)\n  y: 369 cells, 32.36 to 44.16 nm, largest ratio 1.250, PML cells 23 / 31\n  z: 114 cells, 31.25 to 63.93 nm, largest ratio 1.250, PML cells 23 / 16 (faces centered at 0, 0.75 um)\n  time step 60.96 as, 8,202 steps\n  fields (E and H, 32-bit): 0.373 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-24",
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "cells": [
+      369,
+      369,
+      114
+    ],
+    "total_cells": 15522354,
+    "steps": 8202,
+    "T": 0.558114102465369,
+    "phase_rad": 1.8563414829898912,
+    "setup_s": 97.62,
+    "run_s": 235.09,
+    "peak_gb": 9.369,
+    "summary": "mesh of 'stack': 369 x 369 x 114 = 15,522,354 cells\n  x: 369 cells, 32.36 to 44.16 nm, largest ratio 1.250, PML cells 31 / 23 (aligned)\n  y: 369 cells, 32.36 to 44.16 nm, largest ratio 1.250, PML cells 23 / 31\n  z: 114 cells, 31.25 to 63.93 nm, largest ratio 1.250, PML cells 23 / 16 (faces centered at 0, 0.75 um)\n  time step 60.96 as, 8,202 steps\n  fields (E and H, 32-bit): 0.373 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-40",
+    "shift_frac": 0.0,
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "res_nm": 40.0,
+    "cells": [
+      135,
+      135,
+      60
+    ],
+    "steps": 3934,
+    "T": 0.9929792039971086,
+    "phase_rad": 1.631308684745359,
+    "setup_s": 15.1,
+    "run_s": 1.61,
+    "peak_gb": 0.906
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-40",
+    "shift_frac": 0.0,
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "res_nm": 40.0,
+    "cells": [
+      135,
+      135,
+      60
+    ],
+    "steps": 3934,
+    "T": 0.9942588781966214,
+    "phase_rad": 1.4638883799178184,
+    "setup_s": 25.72,
+    "run_s": 6.86,
+    "peak_gb": 0.734
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.0,
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9932407851287058,
+    "phase_rad": 1.4457844820358545,
+    "setup_s": 15.71,
+    "run_s": 4.06,
+    "peak_gb": 1.595
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.0,
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9942264551882773,
+    "phase_rad": 1.3016229296447428,
+    "setup_s": 26.71,
+    "run_s": 23.25,
+    "peak_gb": 1.7
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-25",
+    "shift_frac": 0.0,
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "res_nm": 25.0,
+    "cells": [
+      216,
+      216,
+      96
+    ],
+    "steps": 6294,
+    "T": 0.9930803682840772,
+    "phase_rad": 1.648046223330828,
+    "setup_s": 16.21,
+    "run_s": 8.58,
+    "peak_gb": 2.508
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-25",
+    "shift_frac": 0.0,
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "res_nm": 25.0,
+    "cells": [
+      216,
+      216,
+      96
+    ],
+    "steps": 6294,
+    "T": 0.9937233318551731,
+    "phase_rad": 1.5215185572130763,
+    "setup_s": 30.42,
+    "run_s": 50.3,
+    "peak_gb": 2.937
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-20",
+    "shift_frac": 0.0,
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "res_nm": 20.0,
+    "cells": [
+      270,
+      270,
+      120
+    ],
+    "steps": 7868,
+    "T": 0.992829443924545,
+    "phase_rad": 1.6230309355252144,
+    "setup_s": 17.79,
+    "run_s": 29.73,
+    "peak_gb": 5.094
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-20",
+    "shift_frac": 0.0,
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "res_nm": 20.0,
+    "cells": [
+      270,
+      270,
+      120
+    ],
+    "steps": 7868,
+    "T": 0.9933037185842643,
+    "phase_rad": 1.5167326132454413,
+    "setup_s": 29.57,
+    "run_s": 135.28,
+    "peak_gb": 5.566
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-15",
+    "shift_frac": 0.0,
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "res_nm": 15.0,
+    "cells": [
+      360,
+      360,
+      160
+    ],
+    "steps": 10490,
+    "T": 0.9922777738636506,
+    "phase_rad": 1.7204061145476268,
+    "setup_s": 56.42,
+    "run_s": 452.99,
+    "peak_gb": 15.841
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.2,
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9924700488339416,
+    "phase_rad": 1.734500275120197,
+    "setup_s": 16.27,
+    "run_s": 4.04,
+    "peak_gb": 1.595
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.4,
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9927613360713163,
+    "phase_rad": 1.8479613602311162,
+    "setup_s": 15.31,
+    "run_s": 3.97,
+    "peak_gb": 1.595
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.6,
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9932027828220792,
+    "phase_rad": 1.8550152175021208,
+    "setup_s": 13.96,
+    "run_s": 3.87,
+    "peak_gb": 1.595
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.8,
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9936483985357842,
+    "phase_rad": 1.7485760340118672,
+    "setup_s": 14.16,
+    "run_s": 3.9,
+    "peak_gb": 1.595
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-28",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      430,
+      430,
+      133
+    ],
+    "total_cells": 24591700,
+    "steps": 9569,
+    "T": 0.5582086825958187,
+    "phase_rad": 1.7675269085176601,
+    "setup_s": 41.75,
+    "run_s": 440.31,
+    "peak_gb": 14.913,
+    "summary": "mesh of 'stack': 430 x 430 x 133 = 24,591,700 cells\n  x: 430 cells, 27.73 to 38.34 nm, largest ratio 1.250, PML cells 37 / 27 (aligned)\n  y: 430 cells, 27.73 to 38.18 nm, largest ratio 1.250, PML cells 27 / 37\n  z: 133 cells, 26.79 to 55.29 nm, largest ratio 1.250, PML cells 27 / 19 (faces centered at 0, 0.75 um)\n  time step 52.25 as, 9,569 steps\n  fields (E and H, 32-bit): 0.59 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-120",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      103,
+      103,
+      40
+    ],
+    "total_cells": 424360,
+    "steps": 2185,
+    "T": 0.6617430611351779,
+    "phase_rad": 0.5073720121027407,
+    "setup_s": 12.56,
+    "run_s": 1.2,
+    "peak_gb": 0.613,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-120",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      103,
+      103,
+      40
+    ],
+    "total_cells": 424360,
+    "steps": 2185,
+    "T": 0.662672473659137,
+    "phase_rad": 0.4955056072361616,
+    "setup_s": 21.28,
+    "run_s": 2.72,
+    "peak_gb": 0.312,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-60",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      206,
+      206,
+      80
+    ],
+    "total_cells": 3394880,
+    "steps": 4371,
+    "T": 0.5636189388444769,
+    "phase_rad": 1.1487296817291555,
+    "setup_s": 13.2,
+    "run_s": 4.04,
+    "peak_gb": 1.915,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-60",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      206,
+      206,
+      80
+    ],
+    "total_cells": 3394880,
+    "steps": 4371,
+    "T": 0.5642511817587181,
+    "phase_rad": 1.1364774278367664,
+    "setup_s": 25.51,
+    "run_s": 25.9,
+    "peak_gb": 2.198,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-40",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      309,
+      309,
+      120
+    ],
+    "total_cells": 11457720,
+    "steps": 6556,
+    "T": 0.5586472356623919,
+    "phase_rad": 1.7074893575290049,
+    "setup_s": 14.87,
+    "run_s": 29.97,
+    "peak_gb": 6.708,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-40",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      309,
+      309,
+      120
+    ],
+    "total_cells": 11457720,
+    "steps": 6556,
+    "T": 0.5594268266387402,
+    "phase_rad": 1.6978373777425766,
+    "setup_s": 32.27,
+    "run_s": 147.13,
+    "peak_gb": 7.198,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-30",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      412,
+      412,
+      160
+    ],
+    "total_cells": 27159040,
+    "steps": 8742,
+    "T": 0.5571327393966337,
+    "phase_rad": 1.9442850792329303,
+    "setup_s": 17.49,
+    "run_s": 92.4,
+    "peak_gb": 16.197,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-30",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      412,
+      412,
+      160
+    ],
+    "total_cells": 27159040,
+    "steps": 8742,
+    "T": 0.5577125211367557,
+    "phase_rad": 1.9369086423247028,
+    "setup_s": 40.18,
+    "run_s": 479.37,
+    "peak_gb": 16.486,
+    "summary": null
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-12",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      185,
+      185,
+      59
+    ],
+    "total_cells": 2019275,
+    "steps": 4101,
+    "T": 0.575546303624332,
+    "phase_rad": 1.3385437121015273,
+    "setup_s": 13.7,
+    "run_s": 2.73,
+    "peak_gb": 1.321,
+    "summary": "mesh of 'stack': 185 x 185 x 59 = 2,019,275 cells\n  x: 185 cells, 64.71 to 86.66 nm, largest ratio 1.250, PML cells 16 / 12 (aligned)\n  y: 185 cells, 64.71 to 86.66 nm, largest ratio 1.250, PML cells 12 / 16\n  z: 59 cells, 62.5 to 125 nm, largest ratio 1.250, PML cells 12 / 8 (faces centered at 0, 0.75 um)\n  time step 121.9 as, 4,101 steps\n  fields (E and H, 32-bit): 0.0485 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-12",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      185,
+      185,
+      59
+    ],
+    "total_cells": 2019275,
+    "steps": 4101,
+    "T": 0.5770665805333848,
+    "phase_rad": 1.3261873929402024,
+    "setup_s": 22.75,
+    "run_s": 12.94,
+    "peak_gb": 1.396,
+    "summary": "mesh of 'stack': 185 x 185 x 59 = 2,019,275 cells\n  x: 185 cells, 64.71 to 86.66 nm, largest ratio 1.250, PML cells 16 / 12 (aligned)\n  y: 185 cells, 64.71 to 86.66 nm, largest ratio 1.250, PML cells 12 / 16\n  z: 59 cells, 62.5 to 125 nm, largest ratio 1.250, PML cells 12 / 8 (faces centered at 0, 0.75 um)\n  time step 121.9 as, 4,101 steps\n  fields (E and H, 32-bit): 0.0485 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-16",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      246,
+      246,
+      77
+    ],
+    "total_cells": 4659732,
+    "steps": 5468,
+    "T": 0.5649517365566249,
+    "phase_rad": 1.4093457400464622,
+    "setup_s": 13.88,
+    "run_s": 7.41,
+    "peak_gb": 2.565,
+    "summary": "mesh of 'stack': 246 x 246 x 77 = 4,659,732 cells\n  x: 246 cells, 48.53 to 66.67 nm, largest ratio 1.250, PML cells 21 / 15 (aligned)\n  y: 246 cells, 48.53 to 66.67 nm, largest ratio 1.250, PML cells 15 / 21\n  z: 77 cells, 46.87 to 95.59 nm, largest ratio 1.250, PML cells 15 / 11 (faces centered at 0, 0.75 um)\n  time step 91.44 as, 5,468 steps\n  fields (E and H, 32-bit): 0.112 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-16",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      246,
+      246,
+      77
+    ],
+    "total_cells": 4659732,
+    "steps": 5468,
+    "T": 0.565743228247511,
+    "phase_rad": 1.3989614498055007,
+    "setup_s": 27.02,
+    "run_s": 43.27,
+    "peak_gb": 2.962,
+    "summary": "mesh of 'stack': 246 x 246 x 77 = 4,659,732 cells\n  x: 246 cells, 48.53 to 66.67 nm, largest ratio 1.250, PML cells 21 / 15 (aligned)\n  y: 246 cells, 48.53 to 66.67 nm, largest ratio 1.250, PML cells 15 / 21\n  z: 77 cells, 46.87 to 95.59 nm, largest ratio 1.250, PML cells 15 / 11 (faces centered at 0, 0.75 um)\n  time step 91.44 as, 5,468 steps\n  fields (E and H, 32-bit): 0.112 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-20",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      307,
+      307,
+      96
+    ],
+    "total_cells": 9047904,
+    "steps": 6835,
+    "T": 0.5583461938159471,
+    "phase_rad": 1.9786417327966315,
+    "setup_s": 14.92,
+    "run_s": 23.67,
+    "peak_gb": 5.236,
+    "summary": "mesh of 'stack': 307 x 307 x 96 = 9,047,904 cells\n  x: 307 cells, 38.83 to 53.67 nm, largest ratio 1.250, PML cells 26 / 19 (aligned)\n  y: 307 cells, 38.83 to 53.67 nm, largest ratio 1.250, PML cells 19 / 26\n  z: 96 cells, 37.5 to 76.92 nm, largest ratio 1.250, PML cells 19 / 13 (faces centered at 0, 0.75 um)\n  time step 73.15 as, 6,835 steps\n  fields (E and H, 32-bit): 0.217 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-20",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      307,
+      307,
+      96
+    ],
+    "total_cells": 9047904,
+    "steps": 6835,
+    "T": 0.559282918108412,
+    "phase_rad": 1.9695033725353062,
+    "setup_s": 26.46,
+    "run_s": 114.78,
+    "peak_gb": 5.611,
+    "summary": "mesh of 'stack': 307 x 307 x 96 = 9,047,904 cells\n  x: 307 cells, 38.83 to 53.67 nm, largest ratio 1.250, PML cells 26 / 19 (aligned)\n  y: 307 cells, 38.83 to 53.67 nm, largest ratio 1.250, PML cells 19 / 26\n  z: 96 cells, 37.5 to 76.92 nm, largest ratio 1.250, PML cells 19 / 13 (faces centered at 0, 0.75 um)\n  time step 73.15 as, 6,835 steps\n  fields (E and H, 32-bit): 0.217 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-24",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      369,
+      369,
+      114
+    ],
+    "total_cells": 15522354,
+    "steps": 8202,
+    "T": 0.5575632180926742,
+    "phase_rad": 1.8641437367210378,
+    "setup_s": 15.77,
+    "run_s": 49.58,
+    "peak_gb": 8.713,
+    "summary": "mesh of 'stack': 369 x 369 x 114 = 15,522,354 cells\n  x: 369 cells, 32.36 to 44.16 nm, largest ratio 1.250, PML cells 31 / 23 (aligned)\n  y: 369 cells, 32.36 to 44.16 nm, largest ratio 1.250, PML cells 23 / 31\n  z: 114 cells, 31.25 to 63.93 nm, largest ratio 1.250, PML cells 23 / 16 (faces centered at 0, 0.75 um)\n  time step 60.96 as, 8,202 steps\n  fields (E and H, 32-bit): 0.373 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-24",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      369,
+      369,
+      114
+    ],
+    "total_cells": 15522354,
+    "steps": 8202,
+    "T": 0.558124377521944,
+    "phase_rad": 1.8563289526092062,
+    "setup_s": 29.54,
+    "run_s": 234.57,
+    "peak_gb": 9.533,
+    "summary": "mesh of 'stack': 369 x 369 x 114 = 15,522,354 cells\n  x: 369 cells, 32.36 to 44.16 nm, largest ratio 1.250, PML cells 31 / 23 (aligned)\n  y: 369 cells, 32.36 to 44.16 nm, largest ratio 1.250, PML cells 23 / 31\n  z: 114 cells, 31.25 to 63.93 nm, largest ratio 1.250, PML cells 23 / 16 (faces centered at 0, 0.75 um)\n  time step 60.96 as, 8,202 steps\n  fields (E and H, 32-bit): 0.373 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)"
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-12",
+    "shift_frac": 0.0,
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "res_nm": 12.0,
+    "cells": [
+      450,
+      450,
+      200
+    ],
+    "steps": 13113,
+    "T": 0.9920570081357524,
+    "phase_rad": 1.5675783410723922,
+    "setup_s": 71.51,
+    "run_s": 1118.7,
+    "peak_gb": null
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-15",
+    "shift_frac": 0.0,
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "res_nm": 15.0,
+    "cells": [
+      360,
+      360,
+      160
+    ],
+    "steps": 10490,
+    "T": 0.991928783075338,
+    "phase_rad": 1.7999176865872617,
+    "setup_s": 21.56,
+    "run_s": 95.7,
+    "peak_gb": 10.858
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.2,
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.992698794269577,
+    "phase_rad": 1.5941119046065575,
+    "setup_s": 25.58,
+    "run_s": 23.19,
+    "peak_gb": 1.7
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.2,
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9926264864783542,
+    "phase_rad": 1.593795640301585,
+    "setup_s": 67.51,
+    "run_s": 23.35,
+    "peak_gb": 1.7
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.4,
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9929191774783349,
+    "phase_rad": 1.7170902467854532,
+    "setup_s": 25.71,
+    "run_s": 23.27,
+    "peak_gb": 1.7
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.4,
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9929501458490547,
+    "phase_rad": 1.7170970124275333,
+    "setup_s": 68.13,
+    "run_s": 23.31,
+    "peak_gb": 1.7
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.6,
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9943065423623217,
+    "phase_rad": 1.7214140812081007,
+    "setup_s": 25.64,
+    "run_s": 23.22,
+    "peak_gb": 1.7
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.6,
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.994322726865775,
+    "phase_rad": 1.7215221434341725,
+    "setup_s": 67.27,
+    "run_s": 23.34,
+    "peak_gb": 1.7
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.8,
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9950099089327794,
+    "phase_rad": 1.6071010441579527,
+    "setup_s": 26.38,
+    "run_s": 23.19,
+    "peak_gb": 1.7
+  },
+  {
+    "bench": "soi_bend",
+    "kind": "uniform-30",
+    "shift_frac": 0.8,
+    "voxelizer": "legacy",
+    "averaging": "subpixel_full",
+    "res_nm": 30.0,
+    "cells": [
+      180,
+      180,
+      80
+    ],
+    "steps": 5245,
+    "T": 0.9950556877818171,
+    "phase_rad": 1.6067191645422083,
+    "setup_s": 68.43,
+    "run_s": 23.3,
+    "peak_gb": 1.7
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-24",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      515,
+      515,
+      200
+    ],
+    "total_cells": 53045000,
+    "steps": 10927,
+    "T": 0.5588444743220226,
+    "phase_rad": 1.7362929015064201,
+    "setup_s": 69.04,
+    "run_s": 1308.25,
+    "peak_gb": null,
+    "summary": null
+  }
+]
