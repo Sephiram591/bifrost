@@ -1,14 +1,17 @@
-/* The word "bifrost" outside code — including the header site name next to the logo, the narrow-viewport drawer
+/* The word "bifröst" outside code — including the header site name next to the logo, the narrow-viewport drawer
    title, and non-code prose/headings wrapped as `.bf-word` by `javascripts/site-title.js` — is set in regular
-   (weight 400) Eczar, loaded by the Google Fonts stylesheet listed before this file in `extra_css` (docs/zensical.yml). */
+   (weight 400) Eczar at its natural letter spacing, loaded by the Google Fonts stylesheet listed before this file
+   in `extra_css` (docs/zensical.yml). */
 .md-header__topic:first-child {
   font-family: "Eczar", serif;
   font-weight: 400;
+  letter-spacing: normal;
 }
 
 .md-nav .md-nav__title[for="__drawer"] {
   font-family: "Eczar", serif;
   font-weight: 400;
+  letter-spacing: normal;
 }
 
 .bf-word,
@@ -21,4 +24,5 @@ strong .bf-word,
 b .bf-word {
   font-family: "Eczar", serif;
   font-weight: 400;
+  letter-spacing: normal;
 }

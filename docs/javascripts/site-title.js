@@ -1,7 +1,7 @@
-/* Style every non-code occurrence of the word "bifrost" in regular Eczar (.bf-word). */
+/* Render every non-code occurrence of the word "bifrost" as "bifröst" in regular Eczar (.bf-word). */
 (() => {
   const SKIP =
-    "code,pre,kbd,samp,var,script,style,noscript,template,textarea,svg,math,[contenteditable],.highlight,.arithmatex,.mjx-container,.bf-word,.md-header__topic:first-child,.md-nav__title[for='__drawer'],.md-source";
+    "code,pre,kbd,samp,var,script,style,noscript,template,textarea,svg,math,[contenteditable],.highlight,.arithmatex,.mjx-container,.bf-word,.md-source";
   const NON_TEXT_SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "TEXTAREA", "SVG"]);
   const OBSERVE_OPTS = { childList: true, subtree: true, characterData: true };
   const BLOCKS = new Set([
@@ -10,7 +10,7 @@
     "HEADER", "HGROUP", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION",
     "SUMMARY", "TABLE", "TD", "TH", "TR", "UL",
   ]);
-  const WORD = /(?<![\w/@-])(?<!\w\.)bifrost(?![\w/-]|\.\w)/gi;
+  const WORD = /(?<![\p{L}\p{N}_/@-])(?<![\p{L}\p{N}_]\.)bifr[o\u00f6]st(?![\p{L}\p{N}_/-]|\.[\p{L}\p{N}_])/giu;
 
   let observer = null;
   let mutating = false;
@@ -20,7 +20,7 @@
     const t = node.textContent || "";
     if (!t) return " ";
     const edge = t.length <= 4 ? t : t.slice(0, 2) + " " + t.slice(-2);
-    return edge.replace(/\w/g, "x");
+    return edge.replace(/[\p{L}\p{N}_]/gu, "x");
   }
 
   function withoutObserving(fn) {
@@ -52,7 +52,7 @@
 
     function flush() {
       if (!segs.length) return;
-      if (/bifrost/i.test(buf)) {
+      if (/bifr[o\u00f6]st/i.test(buf)) {
         WORD.lastIndex = 0;
         const matches = [];
         let m;
@@ -62,17 +62,27 @@
         if (matches.length) {
           const edits = new Map();
           for (const [mStart, mEnd] of matches) {
+            const vowelIdx = mStart + 4;
             for (const seg of segs) {
               if (seg.end <= mStart) continue;
               if (seg.start >= mEnd) break;
               const lo = Math.max(mStart, seg.start);
               const hi = Math.min(mEnd, seg.end);
+              const rStart = lo - seg.start;
+              const rEnd = hi - seg.start;
+              let word = seg.node.nodeValue.slice(rStart, rEnd);
+              if (lo <= vowelIdx && vowelIdx < hi) {
+                const at = vowelIdx - lo;
+                const ch = word[at];
+                const repl = ch === "o" ? "\u00f6" : ch === "O" ? "\u00d6" : ch;
+                if (repl !== ch) word = word.slice(0, at) + repl + word.slice(at + 1);
+              }
               let list = edits.get(seg.node);
               if (!list) {
                 list = [];
                 edits.set(seg.node, list);
               }
-              list.push([lo - seg.start, hi - seg.start]);
+              list.push([rStart, rEnd, word]);
             }
           }
           if (edits.size) {
@@ -81,11 +91,11 @@
                 const text = node.nodeValue;
                 const frag = document.createDocumentFragment();
                 let pos = 0;
-                for (const [start, end] of ranges) {
+                for (const [start, end, word] of ranges) {
                   if (start > pos) frag.append(document.createTextNode(text.slice(pos, start)));
                   const span = document.createElement("span");
                   span.className = "bf-word";
-                  span.textContent = text.slice(start, end);
+                  span.textContent = word;
                   frag.append(span);
                   pos = end;
                 }

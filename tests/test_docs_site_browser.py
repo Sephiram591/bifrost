@@ -219,13 +219,13 @@ def test_the_live_demo_is_its_own_tab_and_fills_the_page(browser, base_url):
 
 
 def test_the_widget_demo_page_is_only_the_notebook_and_its_header_keeps_the_site_name(browser, base_url):
-    """All the page's text is in the notebook; the header keeps "bifrost" there instead of swapping in the page title."""
+    """All the page's text is in the notebook; the header keeps "bifröst" there instead of swapping in the page title."""
     page = browser.new_page(viewport={"width": 1600, "height": 900})
     try:
         page.goto(f"{base_url}/live-demo/")
         assert page.locator(".md-content__inner").inner_text().strip() == "Widget Demo"  # the hidden title, nothing else
         topics = page.locator(".md-header__topic")
-        assert topics.nth(0).inner_text().strip() == "bifrost" and topics.nth(1).inner_text().strip() == "Widget Demo"
+        assert topics.nth(0).inner_text().strip() == "bifröst" and topics.nth(1).inner_text().strip() == "Widget Demo"
         page.wait_for_timeout(800)  # past the theme's 0.4 s slide between the two
         opacity = [float(topics.nth(i).evaluate("(e) => getComputedStyle(e).opacity")) for i in (0, 1)]
         assert opacity == [1.0, 0.0], f"the header shows the page title instead of the site name: {opacity}"
@@ -239,25 +239,32 @@ def test_the_site_name_in_the_header_is_set_in_eczar(browser, base_url, path):
     try:
         page.goto(f"{base_url}/{path}")
         style = page.locator(".md-header__topic").first.evaluate(
-            "(e) => ({ family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight })"
+            "(e) => ({ text: e.innerText.trim(), family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight, spacing: getComputedStyle(e).letterSpacing })"
         )
+        assert style["text"] == "bifröst", style
         assert style["family"].replace('"', "").split(",")[0].strip() == "Eczar", style
         assert style["weight"] == "400", style
+        assert style["spacing"] == "normal", style
         ellipsis = page.locator(".md-header__topic .md-ellipsis").first.evaluate(
-            "(e) => ({ family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight })"
+            "(e) => ({ family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight, spacing: getComputedStyle(e).letterSpacing })"
         )
         assert ellipsis["family"].replace('"', "").split(",")[0].strip() == "Eczar", ellipsis
         assert ellipsis["weight"] == "400", ellipsis
+        assert ellipsis["spacing"] == "normal", ellipsis
+        if path == "":
+            assert page.locator(".md-header__topic").nth(1).inner_text().strip() == "bifröst"
         # the page asks Google Fonts for regular Eczar, as it does for the theme's own fonts
         hrefs = page.evaluate("() => [...document.querySelectorAll('link[rel=stylesheet]')].map(l => l.href)")
         assert any("fonts.googleapis.com/css2?family=Eczar:wght@400" in href for href in hrefs), hrefs
         assert not any("Eczar:wght@700" in href for href in hrefs), hrefs
         page.set_viewport_size({"width": 390, "height": 844})
         drawer = page.locator('.md-nav .md-nav__title[for="__drawer"]').first.evaluate(
-            "(e) => ({ family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight })"
+            "(e) => ({ text: e.innerText.trim(), family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight, spacing: getComputedStyle(e).letterSpacing })"
         )
+        assert drawer["text"] == "bifröst", drawer
         assert drawer["family"].replace('"', "").split(",")[0].strip() == "Eczar", drawer
         assert drawer["weight"] == "400", drawer
+        assert drawer["spacing"] == "normal", drawer
     finally:
         page.close()
 
@@ -276,8 +283,8 @@ def test_every_non_code_bifrost_is_set_in_regular_eczar_and_code_is_not(browser,
               for (const el of document.querySelectorAll('.bf-word')) {
                 const cs = getComputedStyle(el);
                 const fam = cs.fontFamily.replace(/"/g, '').split(',')[0].trim();
-                if (fam !== 'Eczar' || cs.fontWeight !== '400') {
-                  badStyles.push({ text: el.textContent, fam: cs.fontFamily, weight: cs.fontWeight });
+                if (fam !== 'Eczar' || cs.fontWeight !== '400' || cs.letterSpacing !== 'normal' || /[oO]/.test(el.textContent)) {
+                  badStyles.push({ text: el.textContent, fam: cs.fontFamily, weight: cs.fontWeight, spacing: cs.letterSpacing });
                 }
               }
               const skipSel = [
@@ -287,14 +294,37 @@ def test_every_non_code_bifrost_is_set_in_regular_eczar_and_code_is_not(browser,
               const badAncestors = [...document.querySelectorAll(`${skipSel}`)].flatMap(
                 (root) => [...root.querySelectorAll('.bf-word')].map((el) => el.textContent)
               );
+              const badCodeUmlaut = [...document.querySelectorAll('.md-content code, .md-content pre')]
+                .filter((el) => /bifr\\u00f6st/i.test(el.textContent))
+                .map((el) => el.textContent);
               const repo = document.querySelector('.md-source__repository');
               const repoFamily = repo ? getComputedStyle(repo).fontFamily : '';
+              const repoText = repo && repo.firstChild ? repo.firstChild.textContent.trim() : '';
+              const logoLink = document.querySelector('.md-logo');
+              const logoImg = document.querySelector('.md-logo img');
+              const logoAttrs = logoLink && logoImg ? {
+                alt: logoImg.getAttribute('alt'),
+                title: logoLink.getAttribute('title'),
+                ariaLabel: logoLink.getAttribute('aria-label'),
+              } : null;
+              const heroAlt = document.querySelector('.md-content img')?.getAttribute('alt') ?? null;
               const h1Word = document.querySelector('.md-content h1 .bf-word');
               const h1Style = h1Word ? {
                 text: h1Word.textContent,
                 fam: getComputedStyle(h1Word).fontFamily.replace(/"/g, '').split(',')[0].trim(),
                 weight: getComputedStyle(h1Word).fontWeight,
+                spacing: getComputedStyle(h1Word).letterSpacing,
               } : null;
+              const h2 = document.querySelector('.md-content h2');
+              const firstP = [...document.querySelectorAll('.md-content p')].find(
+                (p) => !p.querySelector('.bf-word') && p.textContent.trim()
+              );
+              const restTypography = {
+                h2Fam: h2 ? getComputedStyle(h2).fontFamily.replace(/"/g, '').split(',')[0].trim() : null,
+                h2Spacing: h2 ? parseFloat(getComputedStyle(h2).letterSpacing) : null,
+                pFam: firstP ? getComputedStyle(firstP).fontFamily.replace(/"/g, '').split(',')[0].trim() : null,
+                pSpacing: firstP ? parseFloat(getComputedStyle(firstP).letterSpacing) : null,
+              };
 
               const blocks = new Set([
                 'ADDRESS','ARTICLE','ASIDE','BLOCKQUOTE','BR','DD','DETAILS','DIV','DL','DT',
@@ -302,7 +332,7 @@ def test_every_non_code_bifrost_is_set_in_regular_eczar_and_code_is_not(browser,
                 'HEADER','HGROUP','HR','LI','MAIN','NAV','OL','P','PRE','SECTION',
                 'SUMMARY','TABLE','TD','TH','TR','UL'
               ]);
-              const wordRe = /(?<![\\w/@-])(?<!\\w\\.)bifrost(?![\\w/-]|\\.\\w)/gi;
+              const wordRe = /(?<![\\p{L}\\p{N}_/@-])(?<![\\p{L}\\p{N}_]\\.)bifr[o\\u00f6]st(?![\\p{L}\\p{N}_/-]|\\.[\\p{L}\\p{N}_])/giu;
               const leftover = [];
               const content = document.querySelector('.md-content');
               let buf = '';
@@ -327,19 +357,32 @@ def test_every_non_code_bifrost_is_set_in_regular_eczar_and_code_is_not(browser,
                 count: document.querySelectorAll('.bf-word').length,
                 badStyles,
                 badAncestors,
+                badCodeUmlaut,
                 repoFamily,
+                repoText,
+                docTitle: document.title,
+                logoAttrs,
+                heroAlt,
                 h1Style,
+                restTypography,
                 leftover,
               };
             }"""
         )
         assert not report["badStyles"], report["badStyles"]
         assert not report["badAncestors"], report["badAncestors"]
+        assert not report["badCodeUmlaut"], report["badCodeUmlaut"]
         assert not report["leftover"], report["leftover"]
         assert report["repoFamily"].replace('"', "").split(",")[0].strip() != "Eczar", report["repoFamily"]
+        assert report["repoText"] == "Sephiram591/bifrost", report["repoText"]
+        assert "bifrost" in report["docTitle"].lower() and "bifröst" not in report["docTitle"].lower(), report["docTitle"]
+        assert report["logoAttrs"] == {"alt": "bifrost", "title": "bifrost", "ariaLabel": "bifrost"}, report["logoAttrs"]
         if path == "":
             assert report["count"] > 0
-            assert report["h1Style"] == {"text": "bifrost", "fam": "Eczar", "weight": "400"}, report["h1Style"]
+            assert report["heroAlt"] == "bifrost", report["heroAlt"]
+            assert report["h1Style"] == {"text": "bifröst", "fam": "Eczar", "weight": "400", "spacing": "normal"}, report["h1Style"]
+            assert report["restTypography"]["h2Fam"] != "Eczar" and report["restTypography"]["h2Spacing"] < 0, report["restTypography"]
+            assert report["restTypography"]["pFam"] != "Eczar" and report["restTypography"]["pSpacing"] < 0, report["restTypography"]
     finally:
         page.close()
 
@@ -352,7 +395,7 @@ def test_search_highlighted_bifrost_is_styled_without_matching_identifiers(brows
             """() => {
               const p = document.createElement('p');
               p.id = 'bf-mark-probe';
-              p.innerHTML = '<span id="bf-probe-hit">Try <mark>bi</mark>frost</span>, not '
+              p.innerHTML = '<span id="bf-probe-hit">Try <mark>bi</mark>frost, <mark>bifr</mark>ost, <mark>bifro</mark>st, or <mark>Bifr</mark>ost</span>, not '
                 + '<span id="bf-probe-skip"><mark>bifrost</mark>.stack or <mark>bifrost</mark>-photonics</span>.';
               document.querySelector('[data-md-component="content"]').append(p);
             }"""
@@ -363,11 +406,14 @@ def test_search_highlighted_bifrost_is_styled_without_matching_identifiers(brows
               text: e.textContent,
               fam: getComputedStyle(e).fontFamily.replace(/"/g, '').split(',')[0].trim(),
               weight: getComputedStyle(e).fontWeight,
+              spacing: getComputedStyle(e).letterSpacing,
             }))"""
         )
-        assert "".join(h["text"] for h in hits) == "bifrost", hits
-        assert all(h["fam"] == "Eczar" and h["weight"] == "400" for h in hits), hits
+        assert page.locator("#bf-probe-hit").inner_text() == "Try bifröst, bifröst, bifröst, or Bifröst"
+        assert "".join(h["text"] for h in hits) == "bifröstbifröstbifröstBifröst", hits
+        assert all(h["fam"] == "Eczar" and h["weight"] == "400" and h["spacing"] == "normal" for h in hits), hits
         assert page.locator("#bf-probe-skip .bf-word").count() == 0
+        assert page.locator("#bf-probe-skip").inner_text() == "bifrost.stack or bifrost-photonics"
     finally:
         page.close()
 

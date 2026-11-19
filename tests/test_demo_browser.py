@@ -455,12 +455,13 @@ def test_the_notebook_is_dark_even_in_a_light_browser_and_holds_all_the_page_tex
         assert all(page.evaluate("() => [...document.querySelectorAll('.gfx-spec')].map(c => c.classList.contains('gfx-collapsed'))"))
         bf_words = page.locator(".bf-word")
         assert bf_words.count() == 1
-        assert bf_words.first.inner_text() == "bifrost"
+        assert bf_words.first.inner_text() == "bifröst"
         bf_style = bf_words.first.evaluate(
-            "(e) => ({ family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight })"
+            "(e) => ({ family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight, spacing: getComputedStyle(e).letterSpacing })"
         )
         assert bf_style["family"].replace('"', "").split(",")[0].strip() == "Eczar", bf_style
         assert bf_style["weight"] == "400", bf_style
+        assert bf_style["spacing"] == "normal", bf_style
         hrefs = page.evaluate("() => [...document.head.querySelectorAll('link[rel=stylesheet]')].map(l => l.href)")
         assert any("fonts.googleapis.com/css2?family=Eczar:wght@400" in href for href in hrefs), hrefs
     finally:
