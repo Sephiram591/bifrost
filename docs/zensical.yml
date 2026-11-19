@@ -19,6 +19,7 @@ nav:
   - User guide:
       - Layer stacks and materials: guide/layer-stacks.md
       - Simulation setup and ports: guide/simulation-setup.md
+      - Adaptive meshing: guide/adaptive-meshing.md
       - Results and field monitors: guide/results.md
       - Viewer: guide/viewer.md
       - Geometry options: guide/options.md

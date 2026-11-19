@@ -241,7 +241,7 @@ source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid
   core and 80 nm in the air and the silica, `bf.mesh` gives the uniform 40 nm grid's transmission within 2e-5 with 65 %
   of its cells (the hand-set graded grid above: 4.4e-4); with `ppw=20` alone, within 1.4e-4 with 81 %. `ppw=14` (within
   2.6e-3 with 28 % of the cells) is twice as close as a uniform grid of half again the core's cells, for fast
-  optimizations.
+  optimizations. See [Adaptive meshing](adaptive-meshing.md) for accuracy-per-cell benchmarks across six simulations.
 
 ## Precision
 

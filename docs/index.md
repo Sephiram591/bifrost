@@ -33,6 +33,6 @@ simulation. It also ships a 3D viewer for setting up the run and inspecting its 
 
 - **[Read the user guide](guide/layer-stacks.md)**
 
-    Layer stacks, simulation setup, results, the viewer, gradients, inverse design and diagnostics.
+    Layer stacks, simulation setup, adaptive meshing, results, the viewer, gradients, inverse design and diagnostics.
 
 </div>

@@ -40,3 +40,9 @@ defaults), `write` takes 0.095 s forward (2.3x the old 0.041 s) and 0.59 s for i
 260 x 180 x 90 the gradient takes 7.0 s (3.8x the old 1.9 s). `StackOptions.fast()` brings `material_weights` back to
 the old cost (12.5 ms forward, 32.6 ms gradient, against 13.2 ms and 32.2 ms).
 
+## Adaptive meshing benchmarks
+
+Accuracy-per-cell and memory convergence sweeps comparing `bf.mesh` against `UniformGrid` across six photonic simulations
+live in `benchmarks/meshing/` (`accuracy_per_cell.py`, `plot_accuracy_per_cell.py`, results in
+`benchmarks/meshing/results/accuracy_per_cell.json`) and are summarized in [Adaptive meshing](guide/adaptive-meshing.md).
+

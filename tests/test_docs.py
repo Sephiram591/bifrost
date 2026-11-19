@@ -357,6 +357,55 @@ def test_automatic_mesh_recipe_in_simulation_setup() -> None:
     assert np.isfinite(np.asarray(arrays.inv_permittivities)).all()
 
 
+def test_adaptive_meshing_guide_recipe() -> None:
+    """Exercise the substrate-coarsening + dilation bf.mesh recipe in docs/guide/adaptive-meshing.md."""
+    import fdtdx
+    import gdsfactory as gf
+    import jax
+    import numpy as np
+    from gdsfactory.technology import LayerLevel, LayerStack
+
+    import bifrost as bf
+
+    gf.gpdk.PDK.activate()
+    component = gf.components.bend_circular(radius=5, width=0.5)
+    layer_stack = LayerStack(
+        layers={
+            "box": LayerLevel(layer="WAFER", zmin=-3.0, thickness=3.0, material="silica", mesh_order=9),
+            "core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
+        }
+    )
+    materials = {
+        "si": fdtdx.Material(permittivity=3.48**2),
+        "silica": fdtdx.Material(permittivity=1.444**2),
+        "air": fdtdx.Material(permittivity=1.0),
+    }
+    stack = bf.StackDevice.from_layer_stack(
+        component, layer_stack, materials, background="air", zrange_layers=["core"],
+        extend_ports=(("o1", 2.0), ("o2", 2.0)), boundary_offset=(1.5, 0.0, 0.0, -1.5, 1.4, -1.4), name="stack",
+    )
+    mesh = bf.mesh(
+        stack, (1.50, 1.60), ppw=18,
+        refine=bf.Refine(dilation={"WG": 0.35}, material_cells={"silica": 0.08}),
+    )
+    config = stack.get_simulation_config(time=300e-15, grid=mesh.grid)
+    volume, constraints = stack.get_simulation_volume()
+    boundaries, b_placing = fdtdx.boundary_objects_from_config(mesh.boundary, volume)
+    source, src_placing = stack.create_mode_plane_source_at(
+        "o1", (0.5, 0.5), wave_character=fdtdx.WaveCharacter(wavelength=1.55e-6), grid=config,
+    )
+    objects = [volume, stack, source, *boundaries.values()]
+    placed, arrays, params, _, _ = fdtdx.place_objects(
+        objects, config, [*constraints, *b_placing, *src_placing], jax.random.PRNGKey(0)
+    )
+    arrays, placed, _ = bf.apply_stack(
+        arrays, placed, {**params, **bf.init_stack_params(placed)}, jax.random.PRNGKey(0)
+    )
+    assert placed.volume.grid_shape == mesh.shape
+    assert placed[source.name].grid_shape[0] == 1
+    assert np.isfinite(np.asarray(arrays.inv_permittivities)).all()
+
+
 # ------------------------------------------------------------------ the build
 
 
