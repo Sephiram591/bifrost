@@ -42,7 +42,8 @@ the old cost (12.5 ms forward, 32.6 ms gradient, against 13.2 ms and 32.2 ms).
 
 ## Adaptive meshing benchmarks
 
-Accuracy-per-cell and memory convergence sweeps comparing `bf.mesh` against `UniformGrid` across six photonic simulations
+Accuracy-per-cell and memory convergence sweeps comparing `bf.mesh` against `UniformGrid` across six photonic simulations,
+under both `averaging="subpixel"` and `averaging="subpixel_full"`,
 live in `benchmarks/meshing/` (`accuracy_per_cell.py`, `plot_accuracy_per_cell.py`, results in
 `benchmarks/meshing/results/accuracy_per_cell.json`) and are summarized in [Adaptive meshing](guide/adaptive-meshing.md).
 

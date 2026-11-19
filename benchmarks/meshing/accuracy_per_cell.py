@@ -1,8 +1,9 @@
 """Accuracy per grid cell across six photonic simulations: UniformGrid vs bf.mesh.
 
 All simulations use bifrost's default Green's-theorem voxelizer (``voxelizer="greens"``)
-and Kottke subpixel homogenization (``averaging="subpixel"``, or ``"subpixel_full"`` on
-the rotated anisotropic crystal slab). Each configuration runs in an isolated worker
+and run under both Kottke subpixel homogenization modes, selected with ``--averaging``:
+``"subpixel"`` (the diagonal of the averaged tensor, bifrost's default) and
+``"subpixel_full"`` (with its off-diagonal entries). Each configuration runs in an isolated worker
 subprocess so XLA compilation caches do not accumulate VRAM and GPU peak memory stats
 are clean.
 
@@ -34,6 +35,18 @@ sys.path.insert(0, str(WT_ROOT))
 sys.path.insert(0, str(WT_ROOT / "examples"))
 sys.path.insert(0, str(WT_ROOT / "examples" / "guide"))
 sys.path.insert(0, str(WT_ROOT / "benchmarks" / "subpixel"))
+sys.path.insert(0, str(WT_ROOT / "benchmarks" / "greens"))
+
+AVERAGINGS = ("subpixel", "subpixel_full")
+
+
+def _apply_stack(arrays: Any, objects: Any, params: Any, key: Any) -> Any:
+    """``bf.apply_stack``, except that under ``"subpixel_full"`` without ``tidy3d_extras`` the
+    mode sources and detectors are solved on the diagonal of the averaged tensor (tidy3d's mode
+    solver needs ``tidy3d_extras`` for fully anisotropic media) while the FDTD run keeps it whole."""
+    from dc_convergence_compare import _apply_stack_safe
+
+    return _apply_stack_safe(arrays, objects, params, key)
 
 
 # ---------------------------------------------------------------- helpers
@@ -67,7 +80,8 @@ def _aniso_slab_tensor() -> np.ndarray:
 
 
 def _run_aniso_slab_one(
-    z_edges_um: np.ndarray, pml_min: int, pml_max: int, eps_tensor: np.ndarray, with_slab: bool, pol: int
+    z_edges_um: np.ndarray, pml_min: int, pml_max: int, eps_tensor: np.ndarray, with_slab: bool, pol: int,
+    averaging: str,
 ) -> tuple[np.ndarray, int, float, float | None]:
     import fdtdx
     import gdsfactory as gf
@@ -111,7 +125,7 @@ def _run_aniso_slab_one(
         zrange_layers=["slab"],
         boundary_offset=(0.0, 0.0, 0.0, 0.0, half - slab_z - thickness, -half - slab_z),
         diagnostics=False,
-        averaging="subpixel_full",
+        averaging=averaging,
         voxelizer="greens",
     )
     grid = device.rectilinear_grid(0.04, z_um=z_edges_um)
@@ -165,7 +179,7 @@ def _run_aniso_slab_one(
         key=key,
     )
     params = {**params, **bf.init_stack_params(objects)}
-    arrays, objects, _ = bf.apply_stack(arrays, objects, params, key)
+    arrays, objects, _ = _apply_stack(arrays, objects, params, key)
     jax.block_until_ready(arrays.inv_permittivities)
 
     t0 = time.perf_counter()
@@ -177,7 +191,7 @@ def _run_aniso_slab_one(
     return np.stack(rows), int(config.time_steps_total), run_s, _peak_gb(jax)
 
 
-def run_aniso_slab(kind: str) -> dict[str, Any]:
+def run_aniso_slab(kind: str, averaging: str) -> dict[str, Any]:
     import fdtdx
     import gdsfactory as gf
     from gdsfactory.technology import LayerLevel, LayerStack
@@ -224,7 +238,7 @@ def run_aniso_slab(kind: str) -> dict[str, Any]:
             zrange_layers=["slab"],
             boundary_offset=(0.0, 0.0, 0.0, 0.0, half - slab_z - thickness, -half - slab_z),
             diagnostics=False,
-            averaging="subpixel_full",
+            averaging=averaging,
             voxelizer="greens",
         )
         m = bf.mesh(
@@ -246,8 +260,8 @@ def run_aniso_slab(kind: str) -> dict[str, Any]:
     steps = 0
     peak_gb = None
     for pol in (0, 1):
-        with_slab, steps, rs1, pk1 = _run_aniso_slab_one(z, pml_min, pml_max, eps_tensor, True, pol)
-        without, _, rs2, pk2 = _run_aniso_slab_one(z, pml_min, pml_max, eps_tensor, False, pol)
+        with_slab, steps, rs1, pk1 = _run_aniso_slab_one(z, pml_min, pml_max, eps_tensor, True, pol, averaging)
+        without, _, rs2, pk2 = _run_aniso_slab_one(z, pml_min, pml_max, eps_tensor, False, pol, averaging)
         run_s_total += rs1 + rs2
         if pk1 is not None or pk2 is not None:
             peak_gb = max(pk1 or 0.0, pk2 or 0.0, peak_gb or 0.0)
@@ -261,7 +275,7 @@ def run_aniso_slab(kind: str) -> dict[str, Any]:
         "bench": "aniso_slab",
         "kind": kind,
         "voxelizer": "greens",
-        "averaging": "subpixel_full",
+        "averaging": averaging,
         "cells": [4, 4, cells_z],
         "cells_z": cells_z,
         "total_cells": 16 * cells_z,
@@ -281,7 +295,7 @@ def run_aniso_slab(kind: str) -> dict[str, Any]:
 # ---------------------------------------------------------------- 2. sloped_guide
 
 
-def run_sloped_guide(kind: str) -> dict[str, Any]:
+def run_sloped_guide(kind: str, averaging: str) -> dict[str, Any]:
     import fdtdx
     import gdsfactory as gf
     import jax
@@ -331,7 +345,7 @@ def run_sloped_guide(kind: str) -> dict[str, Any]:
         diagnostics=False,
         boundary_offset=(0.0, 0.0, y1 - h, y0 + h, z1 - thickness, z0),
         voxelizer="greens",
-        averaging="subpixel",
+        averaging=averaging,
     )
 
     summary = None
@@ -389,7 +403,7 @@ def run_sloped_guide(kind: str) -> dict[str, Any]:
         [volume, stack, source, line, *boundaries.values()], config, constraints, key
     )
     all_params = {**params, **bf.init_stack_params(objects)}
-    arrays, objects, _ = bf.apply_stack(arrays, objects, all_params, key)
+    arrays, objects, _ = _apply_stack(arrays, objects, all_params, key)
     jax.block_until_ready(arrays.inv_permittivities)
     t_setup = time.perf_counter() - t0
     neff_mode = complex(np.asarray(objects["source"]._neff).reshape(-1)[0]).real
@@ -414,7 +428,7 @@ def run_sloped_guide(kind: str) -> dict[str, Any]:
         "bench": "sloped_guide",
         "kind": kind,
         "voxelizer": "greens",
-        "averaging": "subpixel",
+        "averaging": averaging,
         "cells": shape,
         "total_cells": total_cells,
         "min_cell_nm": min_nm,
@@ -462,7 +476,7 @@ def _bragg_component():
     return c
 
 
-def run_soi_bragg(kind: str) -> dict[str, Any]:
+def run_soi_bragg(kind: str, averaging: str) -> dict[str, Any]:
     import fdtdx
     import gdsfactory as gf
     import jax
@@ -496,7 +510,7 @@ def run_soi_bragg(kind: str) -> dict[str, Any]:
         name="stack",
         diagnostics=False,
         voxelizer="greens",
-        averaging="subpixel",
+        averaging=averaging,
     )
 
     pml = 0.80
@@ -549,7 +563,7 @@ def run_soi_bragg(kind: str) -> dict[str, Any]:
     t0 = time.perf_counter()
     objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
     all_params = {**params, **bf.init_stack_params(objects)}
-    arrays, objects, _ = bf.apply_stack(arrays, objects, all_params, key)
+    arrays, objects, _ = _apply_stack(arrays, objects, all_params, key)
     jax.block_until_ready(arrays.inv_permittivities)
     t_setup = time.perf_counter() - t0
 
@@ -567,7 +581,7 @@ def run_soi_bragg(kind: str) -> dict[str, Any]:
         "bench": "soi_bragg",
         "kind": kind,
         "voxelizer": "greens",
-        "averaging": "subpixel",
+        "averaging": averaging,
         "cells": shape,
         "total_cells": total_cells,
         "min_cell_nm": min_nm,
@@ -586,7 +600,7 @@ def run_soi_bragg(kind: str) -> dict[str, Any]:
 # ---------------------------------------------------------------- 4. elevator_coupler
 
 
-def run_elevator_coupler(kind: str) -> dict[str, Any]:
+def run_elevator_coupler(kind: str, averaging: str) -> dict[str, Any]:
     import fdtdx
     import fdtdx_elevator_coupler as ec
     import jax
@@ -605,7 +619,7 @@ def run_elevator_coupler(kind: str) -> dict[str, Any]:
         extend_ports=(("o1", ec.EXTENSION), ("o2", ec.EXTENSION)),
         boundary_offset=(0.0, 0.0, 2.0 - ec.W_MAX / 2, -2.0 + ec.W_MAX / 2, 1.60 - 0.19, -1.60 + 0.21),
         voxelizer="greens",
-        averaging="subpixel",
+        averaging=averaging,
     )
 
     pml = ec.PML
@@ -655,7 +669,7 @@ def run_elevator_coupler(kind: str) -> dict[str, Any]:
     t0 = time.perf_counter()
     objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
     all_params = {**params, **bf.init_stack_params(objects)}
-    arrays, objects, _ = bf.apply_stack(arrays, objects, all_params, key)
+    arrays, objects, _ = _apply_stack(arrays, objects, all_params, key)
     jax.block_until_ready(arrays.inv_permittivities)
     t_setup = time.perf_counter() - t0
 
@@ -673,7 +687,7 @@ def run_elevator_coupler(kind: str) -> dict[str, Any]:
         "bench": "elevator_coupler",
         "kind": kind,
         "voxelizer": "greens",
-        "averaging": "subpixel",
+        "averaging": averaging,
         "cells": shape,
         "total_cells": total_cells,
         "min_cell_nm": min_nm,
@@ -690,11 +704,11 @@ def run_elevator_coupler(kind: str) -> dict[str, Any]:
 # ---------------------------------------------------------------- 5. directional_coupler
 
 
-def run_directional_coupler(kind: str) -> dict[str, Any]:
+def run_directional_coupler(kind: str, averaging: str) -> dict[str, Any]:
     sys.path.insert(0, str(WT_ROOT / "benchmarks" / "greens"))
     import dc_convergence_compare as dcc
 
-    row = dcc._run_one(kind, "subpixel", "greens")
+    row = dcc._run_one(kind, averaging, "greens")
     row["bench"] = "directional_coupler"
     return row
 
@@ -702,7 +716,7 @@ def run_directional_coupler(kind: str) -> dict[str, Any]:
 # ---------------------------------------------------------------- 6. sin_bend
 
 
-def run_sin_bend(kind: str) -> dict[str, Any]:
+def run_sin_bend(kind: str, averaging: str) -> dict[str, Any]:
     import fdtdx
     import inverse_design as invd
     import jax
@@ -721,7 +735,7 @@ def run_sin_bend(kind: str) -> dict[str, Any]:
         extend_ports=(("o1", invd.EXTENSION), ("o2", invd.EXTENSION)),
         boundary_offset=(invd.MARGIN, 0, 0, -invd.MARGIN, z_margin, -z_margin),
         name="stack",
-        averaging="subpixel",
+        averaging=averaging,
         voxelizer="greens",
         dtype=jnp.float32,
     )
@@ -809,7 +823,7 @@ def run_sin_bend(kind: str) -> dict[str, Any]:
     t0 = time.perf_counter()
     objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, invd.KEY)
     all_params = {**params, **bf.init_stack_params(objects)}
-    arrays, objects, _ = bf.apply_stack(arrays, objects, all_params, invd.KEY)
+    arrays, objects, _ = _apply_stack(arrays, objects, all_params, invd.KEY)
     jax.block_until_ready(arrays.inv_permittivities)
     t_setup = time.perf_counter() - t0
 
@@ -827,7 +841,7 @@ def run_sin_bend(kind: str) -> dict[str, Any]:
         "bench": "sin_bend",
         "kind": kind,
         "voxelizer": "greens",
-        "averaging": "subpixel",
+        "averaging": averaging,
         "cells": shape,
         "total_cells": total_cells,
         "min_cell_nm": min_nm,
@@ -852,28 +866,36 @@ RUNNERS = {
 }
 
 
+DC_KINDS = (
+    "uniform-100", "uniform-50", "uniform-40", "uniform-25", "uniform-20",
+    "mesh-6", "mesh-8", "mesh-10", "mesh-12", "mesh-14", "mesh-16",
+)
+BEND_IMPORT_KINDS = (
+    "uniform-120", "uniform-60", "uniform-40", "uniform-30", "uniform-24",
+    "mesh-12", "mesh-16", "mesh-20", "mesh-24",
+)
+
+
 def _import_existing(results: list[dict[str, Any]]) -> None:
-    seen = {(r["bench"], r["kind"]) for r in results}
+    seen = {(r["bench"], r["kind"], r["averaging"]) for r in results}
 
     dc_path = WT_ROOT / "benchmarks" / "greens" / "results" / "dc_convergence.json"
     if dc_path.exists():
         for r in json.loads(dc_path.read_text()):
-            if r.get("voxelizer") == "greens" and r.get("averaging") == "subpixel":
-                k = r["kind"]
-                if k in {"uniform-100", "uniform-50", "uniform-40", "uniform-25", "uniform-20", "mesh-8", "mesh-10", "mesh-12", "mesh-14", "mesh-16"}:
-                    if ("directional_coupler", k) not in seen:
-                        results.append({**r, "bench": "directional_coupler", "source": "benchmarks/greens/results/dc_convergence.json"})
-                        seen.add(("directional_coupler", k))
+            if r.get("voxelizer") == "greens" and r.get("averaging") in AVERAGINGS:
+                k, avg = r["kind"], r["averaging"]
+                if k in DC_KINDS and ("directional_coupler", k, avg) not in seen:
+                    results.append({**r, "bench": "directional_coupler", "source": "benchmarks/greens/results/dc_convergence.json"})
+                    seen.add(("directional_coupler", k, avg))
 
     bend_path = WT_ROOT / "benchmarks" / "greens" / "results" / "bend_convergence.json"
     if bend_path.exists():
         for r in json.loads(bend_path.read_text()):
-            if r.get("bench") == "sin_bend" and r.get("voxelizer") == "greens" and r.get("averaging") == "subpixel":
-                k = r["kind"]
-                if k in {"uniform-120", "uniform-60", "uniform-40", "uniform-30", "mesh-12", "mesh-16", "mesh-20", "mesh-24"}:
-                    if ("sin_bend", k) not in seen:
-                        results.append({**r, "bench": "sin_bend", "source": "benchmarks/greens/results/bend_convergence.json"})
-                        seen.add(("sin_bend", k))
+            if r.get("bench") == "sin_bend" and r.get("voxelizer") == "greens" and r.get("averaging") in AVERAGINGS:
+                k, avg = r["kind"], r["averaging"]
+                if k in BEND_IMPORT_KINDS and ("sin_bend", k, avg) not in seen:
+                    results.append({**r, "bench": "sin_bend", "source": "benchmarks/greens/results/bend_convergence.json"})
+                    seen.add(("sin_bend", k, avg))
 
 
 def _job_list() -> list[tuple[str, str, bool]]:
@@ -904,14 +926,15 @@ def _job_list() -> list[tuple[str, str, bool]]:
     ):
         jobs.append(("elevator_coupler", k, k in ("uniform-20", "uniform-16", "mesh-18")))
 
-    jobs.append(("directional_coupler", "mesh-6", False))
+    for k in DC_KINDS:
+        jobs.append(("directional_coupler", k, k in ("uniform-25", "uniform-20", "mesh-10", "mesh-12", "mesh-14", "mesh-16")))
 
     for k in (
-        "uniform-24",
+        *BEND_IMPORT_KINDS,
         "meshsub-12", "meshsub-16", "meshsub-20", "meshsub-24",
         "meshclad-14", "meshclad-17", "meshclad-20", "meshclad-24", "meshclad-40-80",
     ):
-        jobs.append(("sin_bend", k, k == "uniform-24"))
+        jobs.append(("sin_bend", k, k in ("uniform-30", "uniform-24")))
     return jobs
 
 
@@ -920,13 +943,17 @@ def main() -> None:
     parser.add_argument("--out", default=str(WT_ROOT / "benchmarks/meshing/results/accuracy_per_cell.json"))
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--bench", default="all")
-    parser.add_argument("--kind", default=None)
+    parser.add_argument("--kind", default=None, help="one kind (worker), or a comma-separated subset to run")
+    parser.add_argument("--averaging", default="subpixel", choices=AVERAGINGS)
     args = parser.parse_args()
 
     if args.worker:
         if args.bench not in RUNNERS or not args.kind:
             raise SystemExit("--worker requires valid --bench and --kind")
-        row = RUNNERS[args.bench](args.kind)
+        import jax
+
+        row = RUNNERS[args.bench](args.kind, args.averaging)
+        row.setdefault("gpu", jax.devices()[0].device_kind)
         print("RESULT_JSON:" + json.dumps(row), flush=True)
         return
 
@@ -941,12 +968,14 @@ def main() -> None:
     _import_existing(results)
     out_path.write_text(json.dumps(results, indent=2))
 
-    done = {(r["bench"], r["kind"]) for r in results}
+    done = {(r["bench"], r["kind"], r["averaging"]) for r in results}
     for bench, kind, use_platform in _job_list():
         if args.bench != "all" and bench != args.bench:
             continue
-        if (bench, kind) in done:
-            print(f"Skipping ({bench}, {kind})", flush=True)
+        if args.kind and kind not in args.kind.split(","):
+            continue
+        if (bench, kind, args.averaging) in done:
+            print(f"Skipping ({bench}, {kind}, {args.averaging})", flush=True)
             continue
         env = os.environ.copy()
         if use_platform:
@@ -955,26 +984,26 @@ def main() -> None:
         else:
             env["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
         proc = subprocess.run(
-            [sys.executable, __file__, "--worker", "--bench", bench, "--kind", kind],
+            [sys.executable, __file__, "--worker", "--bench", bench, "--kind", kind, "--averaging", args.averaging],
             capture_output=True,
             text=True,
             check=False,
             env=env,
         )
         if proc.returncode != 0:
-            print(f"FAILED ({bench}, {kind}):\n{proc.stderr[-1500:]}", flush=True)
+            print(f"FAILED ({bench}, {kind}, {args.averaging}):\n{proc.stderr[-1500:]}", flush=True)
             continue
         line = next((l for l in proc.stdout.splitlines() if l.startswith("RESULT_JSON:")), None)
         if line is None:
-            print(f"NO RESULT ({bench}, {kind}):\n{proc.stdout[-800:]}\n{proc.stderr[-800:]}", flush=True)
+            print(f"NO RESULT ({bench}, {kind}, {args.averaging}):\n{proc.stdout[-800:]}\n{proc.stderr[-800:]}", flush=True)
             continue
         row = json.loads(line.split("RESULT_JSON:", 1)[1])
         results.append(row)
-        done.add((bench, kind))
+        done.add((bench, kind, args.averaging))
         out_path.write_text(json.dumps(results, indent=2))
         pk = f"{row['peak_gb']:.2f}GB" if row.get("peak_gb") is not None else "n/a"
         print(
-            f"{bench:20s} {kind:14s} | cells={row['total_cells']:>10,d} steps={row['steps']:>6d} "
+            f"{bench:20s} {kind:14s} {args.averaging:13s} | cells={row['total_cells']:>10,d} steps={row['steps']:>6d} "
             f"run={row['run_s']:.2f}s peak={pk}",
             flush=True,
         )
