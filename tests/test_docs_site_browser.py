@@ -256,7 +256,9 @@ def test_the_site_name_in_the_header_is_set_in_eczar(browser, base_url, path):
         )
         assert abs(header_word["fontSize"] / ellipsis["fontSize"] - 1.1655) < 0.02, (header_word, ellipsis)
         if path == "":
-            assert page.locator(".md-header__topic").nth(1).inner_text().strip() == "bifröst"
+            # the second topic is the page title, which the theme takes from the nav label (`Home: index.md`),
+            # not from the page's "bifrost" heading
+            assert page.locator(".md-header__topic").nth(1).inner_text().strip() == "Home"
         # the page asks Google Fonts for regular Eczar, as it does for the theme's own fonts
         hrefs = page.evaluate("() => [...document.querySelectorAll('link[rel=stylesheet]')].map(l => l.href)")
         assert any("fonts.googleapis.com/css2?family=Eczar:wght@400" in href for href in hrefs), hrefs
