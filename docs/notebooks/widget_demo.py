@@ -160,7 +160,7 @@ def _(PROSE, mo):
 
         The page around the viewer is this notebook,
         <a href="https://github.com/Sephiram591/bifrost/blob/main/docs/notebooks/widget_demo.py" target="_blank"><code>docs/notebooks/widget_demo.py</code></a>,
-        exported with `marimo export html-wasm` when the docs are built. It does not import <span class="bf-word" style="font-family: 'Eczar', serif; font-weight: 400; letter-spacing: normal;">bifröst</span> (jax, fdtdx and
+        exported with `marimo export html-wasm` when the docs are built. It does not import <span class="bf-word" style="font-family: 'Eczar', serif; font-weight: 400; font-size: 1.1655em; line-height: 1; letter-spacing: normal;">bifröst</span> (jax, fdtdx and
         gdsfactory do not run in a browser): its widget loads the same viewer bundle on the exported files, and one of its
         cells reads the run's `manifest.json` for the summary under the viewer.
 

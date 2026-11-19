@@ -246,11 +246,15 @@ def test_the_site_name_in_the_header_is_set_in_eczar(browser, base_url, path):
         assert style["weight"] == "400", style
         assert style["spacing"] == "normal", style
         ellipsis = page.locator(".md-header__topic .md-ellipsis").first.evaluate(
-            "(e) => ({ family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight, spacing: getComputedStyle(e).letterSpacing })"
+            "(e) => ({ family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight, spacing: getComputedStyle(e).letterSpacing, fontSize: parseFloat(getComputedStyle(e).fontSize) })"
         )
         assert ellipsis["family"].replace('"', "").split(",")[0].strip() == "Eczar", ellipsis
         assert ellipsis["weight"] == "400", ellipsis
         assert ellipsis["spacing"] == "normal", ellipsis
+        header_word = page.locator(".md-header__topic .bf-word").first.evaluate(
+            "(e) => ({ fontSize: parseFloat(getComputedStyle(e).fontSize) })"
+        )
+        assert abs(header_word["fontSize"] / ellipsis["fontSize"] - 1.1655) < 0.02, (header_word, ellipsis)
         if path == "":
             assert page.locator(".md-header__topic").nth(1).inner_text().strip() == "bifröst"
         # the page asks Google Fonts for regular Eczar, as it does for the theme's own fonts
@@ -259,12 +263,17 @@ def test_the_site_name_in_the_header_is_set_in_eczar(browser, base_url, path):
         assert not any("Eczar:wght@700" in href for href in hrefs), hrefs
         page.set_viewport_size({"width": 390, "height": 844})
         drawer = page.locator('.md-nav .md-nav__title[for="__drawer"]').first.evaluate(
-            "(e) => ({ text: e.innerText.trim(), family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight, spacing: getComputedStyle(e).letterSpacing })"
+            "(e) => ({ text: e.innerText.trim(), family: getComputedStyle(e).fontFamily, weight: getComputedStyle(e).fontWeight, spacing: getComputedStyle(e).letterSpacing, fontSize: parseFloat(getComputedStyle(e).fontSize) })"
         )
         assert drawer["text"] == "bifröst", drawer
         assert drawer["family"].replace('"', "").split(",")[0].strip() == "Eczar", drawer
         assert drawer["weight"] == "400", drawer
         assert drawer["spacing"] == "normal", drawer
+        drawer_word_loc = page.locator('.md-nav .md-nav__title[for="__drawer"] .bf-word').first
+        drawer_word = drawer_word_loc.evaluate("(e) => ({ fontSize: parseFloat(getComputedStyle(e).fontSize) })")
+        assert abs(drawer_word["fontSize"] / drawer["fontSize"] - 1.1655) < 0.02, (drawer_word, drawer)
+        drawer_box = drawer_word_loc.bounding_box()
+        assert drawer_box is not None and drawer_box["height"] > 10, drawer_box
     finally:
         page.close()
 
@@ -282,9 +291,20 @@ def test_every_non_code_bifrost_is_set_in_regular_eczar_and_code_is_not(browser,
               const badStyles = [];
               for (const el of document.querySelectorAll('.bf-word')) {
                 const cs = getComputedStyle(el);
+                const pcs = getComputedStyle(el.parentElement);
                 const fam = cs.fontFamily.replace(/"/g, '').split(',')[0].trim();
-                if (fam !== 'Eczar' || cs.fontWeight !== '400' || cs.letterSpacing !== 'normal' || /[oO]/.test(el.textContent)) {
-                  badStyles.push({ text: el.textContent, fam: cs.fontFamily, weight: cs.fontWeight, spacing: cs.letterSpacing });
+                const sizeRatio = parseFloat(cs.fontSize) / parseFloat(pcs.fontSize);
+                const lhRatio = parseFloat(cs.lineHeight) / parseFloat(cs.fontSize);
+                if (
+                  fam !== 'Eczar' || cs.fontWeight !== '400' || cs.letterSpacing !== 'normal'
+                  || /[oO]/.test(el.textContent)
+                  || Math.abs(sizeRatio - 1.1655) >= 0.02
+                  || Math.abs(lhRatio - 1.0) >= 0.02
+                ) {
+                  badStyles.push({
+                    text: el.textContent, fam: cs.fontFamily, weight: cs.fontWeight,
+                    spacing: cs.letterSpacing, sizeRatio, lhRatio,
+                  });
                 }
               }
               const skipSel = [
@@ -393,27 +413,69 @@ def test_search_highlighted_bifrost_is_styled_without_matching_identifiers(brows
         page.goto(f"{base_url}/")
         page.evaluate(
             """() => {
+              const content = document.querySelector('.md-content__inner.md-typeset');
               const p = document.createElement('p');
               p.id = 'bf-mark-probe';
-              p.innerHTML = '<span id="bf-probe-hit">Try <mark>bi</mark>frost, <mark>bifr</mark>ost, <mark>bifro</mark>st, or <mark>Bifr</mark>ost</span>, not '
+              p.innerHTML = '<span id="bf-probe-hit">Try <mark>bi</mark>frost, <mark>bifr</mark>ost, <mark>bifro</mark>st, or <mark>Bifr</mark>ost, and <strong>bifrost</strong></span>, not '
                 + '<span id="bf-probe-skip"><mark>bifrost</mark>.stack or <mark>bifrost</mark>-photonics</span>.';
-              document.querySelector('[data-md-component="content"]').append(p);
+              const withBf = document.createElement('p');
+              withBf.id = 'bf-line-with';
+              withBf.innerHTML = 'Compare bifrost <span class="bf-ref">x</span>';
+              const plain = document.createElement('p');
+              plain.id = 'bf-line-plain';
+              plain.innerHTML = 'Compare example <span class="bf-ref">x</span>';
+              const h1Bf = document.createElement('h1');
+              h1Bf.id = 'bf-h1-with';
+              h1Bf.innerHTML = 'Compare bifrost <span class="bf-ref">x</span>';
+              const h1Plain = document.createElement('h1');
+              h1Plain.id = 'bf-h1-plain';
+              h1Plain.innerHTML = 'Compare example <span class="bf-ref">x</span>';
+              content.append(p, withBf, plain, h1Bf, h1Plain);
             }"""
         )
         page.locator("#bf-probe-hit .bf-word").first.wait_for(timeout=5000)
+        p_size = page.locator("#bf-mark-probe").evaluate("(e) => parseFloat(getComputedStyle(e).fontSize)")
         hits = page.locator("#bf-probe-hit .bf-word").evaluate_all(
             """(els) => els.map((e) => ({
               text: e.textContent,
               fam: getComputedStyle(e).fontFamily.replace(/"/g, '').split(',')[0].trim(),
               weight: getComputedStyle(e).fontWeight,
               spacing: getComputedStyle(e).letterSpacing,
+              fontSize: parseFloat(getComputedStyle(e).fontSize),
             }))"""
         )
-        assert page.locator("#bf-probe-hit").inner_text() == "Try bifröst, bifröst, bifröst, or Bifröst"
-        assert "".join(h["text"] for h in hits) == "bifröstbifröstbifröstBifröst", hits
-        assert all(h["fam"] == "Eczar" and h["weight"] == "400" and h["spacing"] == "normal" for h in hits), hits
+        assert page.locator("#bf-probe-hit").inner_text() == "Try bifröst, bifröst, bifröst, or Bifröst, and bifröst"
+        assert "".join(h["text"] for h in hits) == "bifröstbifröstbifröstBifröstbifröst", hits
+        assert all(
+            h["fam"] == "Eczar"
+            and h["weight"] == "400"
+            and h["spacing"] == "normal"
+            and abs(h["fontSize"] / p_size - 1.1655) < 0.02
+            for h in hits
+        ), (hits, p_size)
         assert page.locator("#bf-probe-skip .bf-word").count() == 0
         assert page.locator("#bf-probe-skip").inner_text() == "bifrost.stack or bifrost-photonics"
+        line_check = page.evaluate(
+            """() => {
+              const measure = (id) => {
+                const el = document.getElementById(id);
+                const ref = el.querySelector('.bf-ref');
+                const rect = el.getBoundingClientRect();
+                const refRect = ref.getBoundingClientRect();
+                return { height: rect.height, refTopOffset: refRect.top - rect.top };
+              };
+              return {
+                pWith: measure('bf-line-with'),
+                pPlain: measure('bf-line-plain'),
+                h1With: measure('bf-h1-with'),
+                h1Plain: measure('bf-h1-plain'),
+              };
+            }"""
+        )
+        assert abs(line_check["pWith"]["height"] - line_check["pPlain"]["height"]) < 0.5, line_check
+        assert abs(line_check["pWith"]["refTopOffset"] - line_check["pPlain"]["refTopOffset"]) < 0.5, line_check
+        assert abs(line_check["h1With"]["height"] - line_check["h1Plain"]["height"]) < 0.5, line_check
+        assert abs(line_check["h1With"]["refTopOffset"] - line_check["h1Plain"]["refTopOffset"]) < 0.5, line_check
     finally:
         page.close()
 

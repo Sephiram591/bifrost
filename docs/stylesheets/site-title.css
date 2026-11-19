@@ -26,3 +26,12 @@ b .bf-word {
   font-weight: 400;
   letter-spacing: normal;
 }
+
+/* Eczar's x-height is 0.468em vs Inter's 1536/2816 ≈ 0.5455em; scale by 0.54545 / 0.468 ≈ 1.1655em
+   so lowercase letters match in height on the same baseline, with line-height: 1 so the larger span
+   never expands surrounding line boxes. */
+.bf-word,
+.md-typeset .bf-word {
+  font-size: 1.1655em;
+  line-height: 1;
+}
