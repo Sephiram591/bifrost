@@ -36,7 +36,7 @@ def _coarse(viewer: Any) -> None:
     """A cheap grid, so a real run fits in memory (100 nm, 4-cell PML)."""
     viewer._on_msg(
         None,
-        {"event": "set_settings", "settings": {"resolution_um": 0.1, "pml_thickness": 4}},
+        {"event": "set_settings", "settings": {"meshing": "uniform", "resolution_um": 0.1, "pml_thickness": 4}},
         [],
     )
 

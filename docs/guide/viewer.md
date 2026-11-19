@@ -42,9 +42,10 @@ In addition to component ports, the **port** dropdown in **Sources / Detectors**
 ## Run a simulation from the viewer
 
 Add a source and a monitor in the **Sources / Detectors** tab, choose the grid and time in **Simulation**, and press
-**Run**. The **Meshing** card switches between `uniform` (`resolution`, `PML (cells)`) and `adaptive` (`ppw`,
-`PML (µm)`, `global dilation`, `global z pad`, `max cell growth`, and per-layer **Dilation layers** sub-cards backed
-by [Automatic meshing](simulation-setup.md#automatic-meshing)). The run happens in the Python session on a background
+**Run**. The **Meshing** card defaults to `adaptive` (`ppw` = 15, `PML (µm)`, `global dilation`, `global z pad`,
+`max cell growth`, and per-layer **Dilation layers** sub-cards backed by
+[Automatic meshing](simulation-setup.md#automatic-meshing)) and can switch to `uniform` (`resolution`,
+`PML (cells)`). The run happens in the Python session on a background
 thread, with the setup locked while it goes, and its field appears in the **Result** tab. To place and run the objects
 yourself, they are in `viewer.objects`, `viewer.config` and `viewer.constraints`; the **copy launch code** button copies
 a script that reproduces the setup.

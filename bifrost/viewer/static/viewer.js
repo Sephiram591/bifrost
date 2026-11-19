@@ -30269,7 +30269,7 @@ var Explorer = class {
       pml_thickness: 10,
       pml_um: 1,
       resolution_um: 0.02,
-      ppw: 20,
+      ppw: 15,
       global_dilation: 3,
       global_z_padding: 3,
       mesh_growth: 1.25,
@@ -30315,6 +30315,7 @@ var Explorer = class {
       1,
       reset("pml_thickness")
     ), "perfectly-matched-layer thickness, in grid cells");
+    this.pmlCellsRow.hidden = true;
     const pmlUmControl = this.numberControl(
       1,
       0.1,
@@ -30330,7 +30331,6 @@ var Explorer = class {
       pmlUmControl,
       "perfectly-matched-layer thickness, in \xB5m (uniform cells cover this thickness at each PML face)"
     );
-    this.pmlUmRow.hidden = true;
     add("averaging", "averaging", this.selectControl(
       ["subpixel", "subpixel_full", "inverse"],
       "subpixel",
@@ -30394,11 +30394,11 @@ var Explorer = class {
       return row2;
     };
     addMeshField("meshing", "type", this.selectControl(
-      ["uniform", "adaptive"],
-      "uniform",
+      ["adaptive", "uniform"],
+      "adaptive",
       (value) => this.callbacks.onSettings({ meshing: value }),
       (name) => name === "uniform" ? "fixed uniform cell spacing across the box (fdtdx.UniformGrid)" : "automatic graded rectilinear mesh (bf.mesh + bf.Refine)"
-    ), "grid discretization mode: uniform or adaptive");
+    ), "grid discretization mode: adaptive or uniform");
     const resolutionControl = this.numberControl(
       0.02,
       1e-3,
@@ -30414,11 +30414,11 @@ var Explorer = class {
       resolutionControl,
       "uniform grid resolution, in \xB5m"
     );
+    this.meshResolutionRow.hidden = true;
     this.meshAdaptive = document.createElement("div");
     this.meshAdaptive.className = "gfx-mesh-adaptive";
-    this.meshAdaptive.hidden = true;
     const ppwControl = this.numberControl(
-      20,
+      15,
       1,
       (value) => this.callbacks.onSettings({ ppw: value }),
       true,
@@ -30430,7 +30430,7 @@ var Explorer = class {
       "ppw",
       "ppw",
       ppwControl,
-      "target cells per wavelength in each material (bf.mesh ppw; default 20)",
+      "target cells per wavelength in each material (bf.mesh ppw; default 15)",
       this.meshAdaptive
     );
     const globalDilControl = this.numberControl(
@@ -30692,7 +30692,7 @@ var Explorer = class {
       averaging: settings.averaging,
       keep_partial: settings.keep_partial,
       meshing,
-      ppw: settings.ppw ?? 20,
+      ppw: settings.ppw ?? 15,
       global_dilation: settings.global_dilation ?? 3,
       global_z_padding: settings.global_z_padding ?? 3,
       mesh_growth: settings.mesh_growth ?? 1.25

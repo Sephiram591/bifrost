@@ -43,7 +43,7 @@ def _coarse(viewer: Any) -> None:
     """
     viewer._on_msg(
         None,
-        {"event": "set_settings", "settings": {"resolution_um": 0.1, "pml_thickness": 4}},
+        {"event": "set_settings", "settings": {"meshing": "uniform", "resolution_um": 0.1, "pml_thickness": 4}},
         [],
     )
 
@@ -1157,9 +1157,9 @@ def test_plane_port_vs_absolute_direction_and_offset() -> None:
 def test_meshing_settings_round_trip_and_validation() -> None:
     """Meshing settings and per-layer dilations round-trip and reject bad inputs."""
     defaults = bf.viewer.sim.SimSettings()
-    assert defaults.meshing == "uniform"
+    assert defaults.meshing == "adaptive"
     assert defaults.pml_um == 1.0
-    assert defaults.ppw == 20.0
+    assert defaults.ppw == 15.0
     assert defaults.global_dilation == 3.0
     assert defaults.global_z_padding == 3.0
     assert defaults.mesh_growth == 1.25
@@ -1169,7 +1169,12 @@ def test_meshing_settings_round_trip_and_validation() -> None:
     expected_layers = [str(k).split("/", 1)[-1] for k, _ in stack.source_layers]
     viewer = bf.viewer.widget.view(stack)
     assert viewer.meta["source_layers"] == expected_layers
-    assert viewer.meta["settings_defaults"]["meshing"] == "uniform"
+    assert viewer.meta["settings_defaults"]["meshing"] == "adaptive"
+    assert viewer.meta["settings_defaults"]["ppw"] == 15.0
+
+    viewer._on_msg(None, {"event": "set_settings", "settings": {"meshing": "uniform"}}, [])
+    assert viewer.settings.meshing == "uniform"
+    assert viewer.settings.to_wire()["meshing"] == "uniform"
 
     patch = {
         "meshing": "adaptive",

@@ -959,7 +959,7 @@ export class Explorer {
       pml_thickness: 10,
       pml_um: 1,
       resolution_um: 0.02,
-      ppw: 20,
+      ppw: 15,
       global_dilation: 3,
       global_z_padding: 3,
       mesh_growth: 1.25,
@@ -996,6 +996,7 @@ export class Explorer {
       10, 1, (value) => this.callbacks.onSettings({ pml_thickness: Math.round(value) }), true, 1,
       reset("pml_thickness"),
     ), "perfectly-matched-layer thickness, in grid cells");
+    this.pmlCellsRow.hidden = true;
     const pmlUmControl = this.numberControl(
       1, 0.1, (value) => this.callbacks.onSettings({ pml_um: value }), true, 1,
       reset("pml_um"),
@@ -1005,7 +1006,6 @@ export class Explorer {
       "pml_um", "PML (µm)", pmlUmControl,
       "perfectly-matched-layer thickness, in µm (uniform cells cover this thickness at each PML face)",
     );
-    this.pmlUmRow.hidden = true;
     // how the device paints the grid at material interfaces (spec R13): the
     // names are StackDevice's own `averaging` values, so the export reads alike
     add("averaging", "averaging", this.selectControl(
@@ -1077,12 +1077,12 @@ export class Explorer {
       return row;
     };
     addMeshField("meshing", "type", this.selectControl(
-      ["uniform", "adaptive"], "uniform",
+      ["adaptive", "uniform"], "adaptive",
       (value) => this.callbacks.onSettings({ meshing: value as MeshingType }),
       (name) => name === "uniform"
         ? "fixed uniform cell spacing across the box (fdtdx.UniformGrid)"
         : "automatic graded rectilinear mesh (bf.mesh + bf.Refine)",
-    ), "grid discretization mode: uniform or adaptive");
+    ), "grid discretization mode: adaptive or uniform");
     const resolutionControl = this.numberControl(
       0.02, 0.001, (value) => this.callbacks.onSettings({ resolution_um: value }), true, 1,
       reset("resolution_um"),
@@ -1091,17 +1091,17 @@ export class Explorer {
     this.meshResolutionRow = addMeshField(
       "resolution_um", "resolution", resolutionControl, "uniform grid resolution, in µm",
     );
+    this.meshResolutionRow.hidden = true;
 
     this.meshAdaptive = document.createElement("div");
     this.meshAdaptive.className = "gfx-mesh-adaptive";
-    this.meshAdaptive.hidden = true;
     const ppwControl = this.numberControl(
-      20, 1, (value) => this.callbacks.onSettings({ ppw: value }), true, 1, reset("ppw"),
+      15, 1, (value) => this.callbacks.onSettings({ ppw: value }), true, 1, reset("ppw"),
     );
     (ppwControl.element as HTMLInputElement).min = "0.1";
     addMeshField(
       "ppw", "ppw", ppwControl,
-      "target cells per wavelength in each material (bf.mesh ppw; default 20)",
+      "target cells per wavelength in each material (bf.mesh ppw; default 15)",
       this.meshAdaptive,
     );
     const globalDilControl = this.numberControl(
@@ -1364,7 +1364,7 @@ export class Explorer {
       averaging: settings.averaging,
       keep_partial: settings.keep_partial,
       meshing,
-      ppw: settings.ppw ?? 20.0,
+      ppw: settings.ppw ?? 15.0,
       global_dilation: settings.global_dilation ?? 3.0,
       global_z_padding: settings.global_z_padding ?? 3.0,
       mesh_growth: settings.mesh_growth ?? 1.25,

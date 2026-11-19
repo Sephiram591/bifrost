@@ -29,7 +29,7 @@ from test_viewer_geometry import f1_stack  # noqa: E402
 import bifrost as bf  # noqa: E402
 
 
-COARSE = {"resolution_um": 0.1, "pml_thickness": 4}
+COARSE = {"meshing": "uniform", "resolution_um": 0.1, "pml_thickness": 4}
 
 
 def _coarse(viewer: Any) -> None:

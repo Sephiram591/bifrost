@@ -275,9 +275,9 @@ function baseMeta(overrides = {}) {
       log_range: 6,
       averaging: "subpixel",
       keep_partial: false,
-      meshing: "uniform",
+      meshing: "adaptive",
       pml_um: 1.0,
-      ppw: 20.0,
+      ppw: 15.0,
       global_dilation: 3.0,
       global_z_padding: 3.0,
       mesh_growth: 1.25,
@@ -347,7 +347,7 @@ function findFieldRow(container, labelText) {
   return null;
 }
 
-test("Meshing card defaults to uniform and toggles adaptive controls", () => {
+test("Meshing card defaults to adaptive at 15 ppw and toggles uniform controls", () => {
   const { explorer, settingsEvents } = makeExplorer();
   explorer.render(baseState());
 
@@ -361,28 +361,28 @@ test("Meshing card defaults to uniform and toggles adaptive controls", () => {
   const resRow = findFieldRow(meshCard, "resolution");
   const adaptiveBox = meshCard.querySelector(".gfx-mesh-adaptive");
 
-  assert.equal(pmlCellsRow.hidden, false);
-  assert.equal(pmlUmRow.hidden, true);
-  assert.equal(resRow.hidden, false);
-  assert.equal(adaptiveBox.hidden, true);
-
-  // Switch meshing select to adaptive
-  const typeSelect = findFieldRow(meshCard, "type").querySelector("select");
-  typeSelect.value = "adaptive";
-  typeSelect.dispatchEvent({ type: "change" });
-  assert.deepEqual(settingsEvents.at(-1), { meshing: "adaptive" });
-
-  // Render adaptive state
-  explorer.render(baseState({ meshing: "adaptive" }));
   assert.equal(pmlCellsRow.hidden, true);
   assert.equal(pmlUmRow.hidden, false);
   assert.equal(resRow.hidden, true);
   assert.equal(adaptiveBox.hidden, false);
 
-  assert.ok(findFieldRow(adaptiveBox, "ppw"));
+  assert.equal(findFieldRow(adaptiveBox, "ppw").querySelector("input").value, "15");
   assert.ok(findFieldRow(adaptiveBox, "global dilation"));
   assert.ok(findFieldRow(adaptiveBox, "global z pad"));
   assert.ok(findFieldRow(adaptiveBox, "max cell growth"));
+
+  // Switch meshing select to uniform
+  const typeSelect = findFieldRow(meshCard, "type").querySelector("select");
+  typeSelect.value = "uniform";
+  typeSelect.dispatchEvent({ type: "change" });
+  assert.deepEqual(settingsEvents.at(-1), { meshing: "uniform" });
+
+  // Render uniform state
+  explorer.render(baseState({ meshing: "uniform" }));
+  assert.equal(pmlCellsRow.hidden, false);
+  assert.equal(pmlUmRow.hidden, true);
+  assert.equal(resRow.hidden, false);
+  assert.equal(adaptiveBox.hidden, true);
 });
 
 test("Dilation layer sub-cards add, update in place, disable duplicates, and remove", () => {
@@ -490,7 +490,7 @@ test("legacy payloads without meshing fields or source_layers render cleanly", (
     averaging: "subpixel",
     keep_partial: false,
   };
-  explorer.render(baseState(legacySim));
+  explorer.render(baseState({}, { simulation: legacySim }));
   const simPanel = explorer.root.querySelectorAll(".gfx-tabpanel")[2];
   const meshCard = simPanel.querySelector(".gfx-mesh-card");
   assert.equal(findFieldRow(meshCard, "type").querySelector("select").value, "uniform");

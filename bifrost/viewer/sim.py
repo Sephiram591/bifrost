@@ -310,7 +310,7 @@ class ObjectSpec:
 AVERAGINGS: tuple[str, ...] = ("inverse", "subpixel", "subpixel_full")
 
 #: the meshing modes a :class:`SimSettings` accepts
-MESHING_TYPES: tuple[str, ...] = ("uniform", "adaptive")
+MESHING_TYPES: tuple[str, ...] = ("adaptive", "uniform")
 
 
 def _finite_float(name: str, raw: Any) -> float:
@@ -344,10 +344,11 @@ class SimSettings:
             axis, positive towards +x, +y or +z, so ``(1, -1, 0, 0, 0, 0)``
             grows the box by 1 µm on each x side; the geometry itself does not
             change.
-        meshing: ``"uniform"`` (``fdtdx.core.grid.UniformGrid``) or
-            ``"adaptive"`` (``bf.mesh`` + ``bf.Refine``).
+        meshing: ``"adaptive"`` (``bf.mesh`` + ``bf.Refine``, default) or
+            ``"uniform"`` (``fdtdx.core.grid.UniformGrid``).
         pml_um: the PML thickness, in µm (adaptive meshing).
-        ppw: target grid cells per wavelength in each material (adaptive meshing).
+        ppw: target grid cells per wavelength in each material (adaptive meshing,
+            default ``15.0``).
         global_dilation: lateral evanescent tail past boundaries in decay
             lengths (``bf.Refine.global_dilation``, adaptive meshing).
         global_z_padding: vertical evanescent tail above and below level faces
@@ -383,12 +384,12 @@ class SimSettings:
     #: False (the default) a stopped run is discarded and the previous result
     #: stays on screen; when True its detectors' partial fields are shown.
     keep_partial: bool = False
-    #: meshing mode: ``"uniform"`` or ``"adaptive"`` (``bf.mesh``)
-    meshing: str = "uniform"
+    #: meshing mode: ``"adaptive"`` (``bf.mesh``) or ``"uniform"``
+    meshing: str = "adaptive"
     #: PML thickness in µm when ``meshing == "adaptive"``
     pml_um: float = 1.0
     #: cells per wavelength when ``meshing == "adaptive"``
-    ppw: float = 20.0
+    ppw: float = 15.0
     #: lateral evanescent tail in decay lengths (``Refine.global_dilation``)
     global_dilation: float = 3.0
     #: vertical evanescent tail in decay lengths (``Refine.global_z_padding``)

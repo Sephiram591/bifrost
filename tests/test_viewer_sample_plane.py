@@ -75,7 +75,9 @@ def test_an_editor_glyph_sits_where_the_run_samples_the_plane(plane: str, axis: 
     """The glyph drawn before a run is the placed cell's lower edge, near the request."""
     viewer = bf.viewer.widget.view(f1_stack())
     viewer._on_msg(
-        None, {"event": "set_settings", "settings": {"resolution_um": 0.1, "pml_thickness": 4}}, []
+        None,
+        {"event": "set_settings", "settings": {"meshing": "uniform", "resolution_um": 0.1, "pml_thickness": 4}},
+        [],
     )
     viewer._on_msg(None, {"event": "add_source", "port": "o1"}, [])
     viewer._on_msg(None, {"event": "add_detector", "port": plane}, [])
