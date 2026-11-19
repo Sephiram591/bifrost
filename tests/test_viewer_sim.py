@@ -1149,3 +1149,306 @@ def test_plane_port_vs_absolute_direction_and_offset() -> None:
     by_name = {getattr(o, "name", None): o for o in objects}
     assert by_name[port_spec.name].direction == "-"
     assert by_name["abs_z"].direction == "+"
+
+
+# ------------------------------------------------------------ adaptive meshing
+
+
+def test_meshing_settings_round_trip_and_validation() -> None:
+    """Meshing settings and per-layer dilations round-trip and reject bad inputs."""
+    defaults = bf.viewer.sim.SimSettings()
+    assert defaults.meshing == "uniform"
+    assert defaults.pml_um == 1.0
+    assert defaults.ppw == 20.0
+    assert defaults.global_dilation == 3.0
+    assert defaults.global_z_padding == 3.0
+    assert defaults.mesh_growth == 1.25
+    assert defaults.dilation_layers == ()
+
+    stack = f1_stack()
+    expected_layers = [str(k).split("/", 1)[-1] for k, _ in stack.source_layers]
+    viewer = bf.viewer.widget.view(stack)
+    assert viewer.meta["source_layers"] == expected_layers
+    assert viewer.meta["settings_defaults"]["meshing"] == "uniform"
+
+    patch = {
+        "meshing": "adaptive",
+        "pml_um": 0.4,
+        "ppw": 12.0,
+        "global_dilation": 2.0,
+        "global_z_padding": 1.5,
+        "mesh_growth": 1.3,
+        "dilation_layers": [{"layer": f"vertices/{expected_layers[0]}", "dilation": 0.15}],
+    }
+    viewer._on_msg(None, {"event": "set_settings", "settings": patch}, [])
+    wire = viewer.settings.to_wire()
+    assert wire["meshing"] == "adaptive"
+    assert wire["pml_um"] == 0.4
+    assert wire["ppw"] == 12.0
+    assert wire["global_dilation"] == 2.0
+    assert wire["global_z_padding"] == 1.5
+    assert wire["mesh_growth"] == 1.3
+    assert wire["dilation_layers"] == [{"layer": expected_layers[0], "dilation": 0.15}]
+    assert bf.viewer.sim.SimSettings.from_wire(wire) == viewer.settings
+
+    for bad in (
+        {"meshing": "octree"},
+        {"pml_um": -0.1},
+        {"pml_um": float("nan")},
+        {"pml_um": True},
+        {"ppw": 0.0},
+        {"ppw": False},
+        {"global_dilation": -1.0},
+        {"global_z_padding": float("inf")},
+        {"mesh_growth": 1.0},
+        {"mesh_growth": 0.9},
+        {"dilation_layers": "WG"},
+        {"dilation_layers": [{"layer": expected_layers[0]}]},
+        {"dilation_layers": [{"layer": "", "dilation": 0.1}]},
+        {"dilation_layers": [{"layer": expected_layers[0], "dilation": -0.1}]},
+        {"dilation_layers": [{"layer": expected_layers[0], "dilation": True}]},
+        {
+            "dilation_layers": [
+                {"layer": expected_layers[0], "dilation": 0.1},
+                {"layer": expected_layers[0], "dilation": 0.2},
+            ]
+        },
+    ):
+        with pytest.raises(ValueError):
+            bf.viewer.sim.SimSettings.from_wire(bad)
+
+    before = viewer.settings
+    viewer._on_msg(
+        None,
+        {"event": "set_settings", "settings": {"dilation_layers": [{"layer": "NO_SUCH_LAYER", "dilation": 0.1}]}},
+        [],
+    )
+    assert viewer.settings == before
+
+
+def test_adaptive_mesh_wavelength_band() -> None:
+    """_mesh_wavelength spans configured sources, detectors, and pulse bandwidth."""
+    state = bf.viewer.state.ViewerState(f1_stack())
+    assert bf.viewer.sim._mesh_wavelength(state) == pytest.approx(1.55)
+
+    src = bf.viewer.sim.ObjectSpec("ModePlaneSource", "o1", {"wavelengths": [1.55]})
+    state.add_spec(src)
+    assert bf.viewer.sim._mesh_wavelength(state) == pytest.approx(1.55)
+
+    det = bf.viewer.sim.ObjectSpec("ModeOverlapDetector", "o2", {"wavelengths": [1.50, 1.60]})
+    state.add_spec(det)
+    lo, hi = bf.viewer.sim._mesh_wavelength(state)  # type: ignore[misc]
+    assert lo == pytest.approx(1.50) and hi == pytest.approx(1.60)
+
+    state.apply_patch({"simulation": {"pulse_width_frac": 0.1}})
+    lo_p, hi_p = bf.viewer.sim._mesh_wavelength(state)  # type: ignore[misc]
+    assert lo_p == pytest.approx(1.55 / 1.1)
+    assert hi_p == pytest.approx(1.55 / 0.9)
+
+
+def test_adaptive_meshing_places_rectilinear_grid_and_dilation_layers() -> None:
+    """Adaptive meshing wires ppw, pml_um, growth, tails, and dilation layers into bf.mesh and place_objects."""
+    import jax
+    import numpy as np
+
+    stack = f1_stack()
+    layer0 = str(stack.source_layers[0][0]).split("/", 1)[-1]
+    viewer = bf.viewer.widget.view(stack)
+    viewer._on_msg(None, {"event": "add_source", "port": "o1"}, [])
+    viewer._on_msg(None, {"event": "add_detector", "port": "o2"}, [])
+    center = [float(stack.center[0]), float(stack.center[1]), float(stack.z_center)]
+    viewer._on_msg(
+        None,
+        {
+            "event": "add_detector",
+            "port": "None",
+            "spec": {
+                "type": "PhasorDetector",
+                "port": "None",
+                "params": {"axis": 2, "center": center, "size": [4.0, 2.0], "components": ["Ex"]},
+            },
+        },
+        [],
+    )
+    viewer._on_msg(
+        None,
+        {
+            "event": "set_settings",
+            "settings": {
+                "meshing": "adaptive",
+                "wavelength_um": 0.619,
+                "ppw": 12.0,
+                "pml_um": 0.4,
+                "global_dilation": 2.0,
+                "global_z_padding": 1.5,
+                "mesh_growth": 1.3,
+                "dilation_layers": [],
+            },
+        },
+        [],
+    )
+    objects, config, constraints = viewer.objects, viewer.config, viewer.constraints
+    grid = config.resolved_grid
+    assert grid is not None and not grid.is_uniform
+    y_no_dil = np.asarray(grid.y_edges, dtype=np.float64)
+
+    placed, _, _, _, _ = fdtdx.place_objects(objects, config, constraints, jax.random.PRNGKey(0))
+    assert type(placed).__name__ == "ObjectContainer"
+
+    # Adding a dilation layer changes the adaptive grid edges
+    viewer._on_msg(
+        None,
+        {"event": "set_settings", "settings": {"dilation_layers": [{"layer": layer0, "dilation": 0.2}]}},
+        [],
+    )
+    y_with_dil = np.asarray(viewer.config.resolved_grid.y_edges, dtype=np.float64)
+    z_with_dil = np.asarray(viewer.config.resolved_grid.z_edges, dtype=np.float64)
+    assert y_with_dil.shape != y_no_dil.shape or not np.allclose(y_with_dil, y_no_dil)
+
+    # Changing growth to a gentle ratio (1.03) adds graded transition cells in y and z
+    viewer._on_msg(None, {"event": "set_settings", "settings": {"mesh_growth": 1.03}}, [])
+    y_gentle_growth = np.asarray(viewer.config.resolved_grid.y_edges, dtype=np.float64)
+    z_gentle_growth = np.asarray(viewer.config.resolved_grid.z_edges, dtype=np.float64)
+    assert y_gentle_growth.shape != y_with_dil.shape or not np.allclose(y_gentle_growth, y_with_dil)
+    assert z_gentle_growth.shape != z_with_dil.shape or not np.allclose(z_gentle_growth, z_with_dil)
+
+
+def test_adaptive_launch_code_matches_mode_2_objects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Adaptive launch_code is a pure string build and reproduces mode-2 objects and RectilinearGrid edges."""
+    import numpy as np
+
+    stack = f1_stack()
+    layer0 = str(stack.source_layers[0][0]).split("/", 1)[-1]
+    viewer = bf.viewer.widget.view(stack)
+    viewer._on_msg(None, {"event": "add_source", "port": "o1"}, [])
+    src = viewer.specs[-1]
+    viewer._on_msg(
+        None,
+        {"event": "update_spec", "kind": "source", "spec": {"id": src.id, "params": {"name": "mesh"}}},
+        [],
+    )
+    viewer._on_msg(None, {"event": "add_detector", "port": "o2"}, [])
+    viewer._on_msg(
+        None,
+        {
+            "event": "add_source",
+            "port": "o1",
+            "spec": {"type": "PointDipoleSource", "port": "o1", "params": {"name": "dip"}},
+        },
+        [],
+    )
+    center = [float(stack.center[0]), float(stack.center[1]), float(stack.z_center)]
+    viewer._on_msg(
+        None,
+        {
+            "event": "add_detector",
+            "port": "None",
+            "spec": {
+                "type": "PhasorDetector",
+                "port": "None",
+                "params": {"name": "abs_det", "axis": 1, "center": center, "size": [4.0, 1.5]},
+            },
+        },
+        [],
+    )
+
+    create_calls = _spy_create(monkeypatch)
+    mesh_calls: list[Any] = []
+    real_mesh = bf.meshing.mesh
+
+    def spy_mesh(*args: Any, **kwargs: Any) -> Any:
+        mesh_calls.append((args, kwargs))
+        return real_mesh(*args, **kwargs)
+
+    monkeypatch.setattr(bf.meshing, "mesh", spy_mesh)
+
+    viewer._on_msg(
+        None,
+        {
+            "event": "set_settings",
+            "settings": {
+                "meshing": "adaptive",
+                "wavelength_um": 0.619,
+                "pulse_width_frac": 0.05,
+                "ppw": 12.0,
+                "pml_um": 0.4,
+                "global_dilation": 2.0,
+                "global_z_padding": 1.5,
+                "mesh_growth": 1.3,
+                "dilation_layers": [{"layer": layer0, "dilation": 0.15}],
+            },
+        },
+        [],
+    )
+    assert create_calls == []
+    assert mesh_calls == []
+
+    code = viewer.launch_code
+    assert create_calls == []
+    assert mesh_calls == []
+    assert "bf.Refine(" in code
+    assert "bf.mesh(" in code
+    assert "grid=mesh.grid" in code
+    assert "mesh.boundary" in code
+    ast.parse(code)
+
+    build_only = code.split("# --- run:")[0]
+    namespace: dict[str, Any] = {"stack": viewer.stack}
+    exec(compile(build_only, "<adaptive_launch_code>", "exec"), namespace)
+
+    built = namespace["objects"]
+    expected, config, _ = viewer._prepare()
+    assert namespace["config"].time == config.time
+    for a, b in zip(namespace["config"].resolved_grid.edges(0), config.resolved_grid.edges(0), strict=True):
+        assert float(a) == pytest.approx(float(b))
+    for axis in range(3):
+        np.testing.assert_allclose(
+            np.asarray(namespace["config"].resolved_grid.edges(axis)),
+            np.asarray(config.resolved_grid.edges(axis)),
+        )
+    assert len(built) == len(expected)
+    for got, want in zip(built, expected, strict=True):
+        assert type(got) is type(want)
+        if type(got).__name__ != "PerfectlyMatchedLayer":
+            assert got.name == want.name
+
+
+def test_show_result_validates_adaptive_mesh() -> None:
+    """validate_result accepts matching adaptive-mesh results and rejects mismatched meshing settings."""
+    from types import SimpleNamespace
+    import jax
+    import numpy as np
+
+    stack = f1_stack()
+    viewer = bf.viewer.widget.view(stack)
+    viewer._on_msg(None, {"event": "add_source", "port": "o1"}, [])
+    viewer._on_msg(None, {"event": "add_detector", "port": "o2"}, [])
+    viewer._on_msg(
+        None,
+        {
+            "event": "set_settings",
+            "settings": {
+                "meshing": "adaptive",
+                "wavelength_um": 0.619,
+                "ppw": 12.0,
+                "pml_um": 0.4,
+                "global_dilation": 2.0,
+                "global_z_padding": 1.5,
+                "mesh_growth": 1.3,
+            },
+        },
+        [],
+    )
+    objects, config, constraints = viewer._prepare()
+    placed, _, _, placed_config, _ = fdtdx.place_objects(objects, config, constraints, jax.random.PRNGKey(0))
+    det = next(o for o in placed.detectors)
+    arrays = SimpleNamespace(
+        detector_states={det.name: {"phasor": np.zeros((1, 1, 6, *det.grid_shape), dtype=np.complex64)}}
+    )
+    result = bf.viewer.sim.RunResult(objects=placed, arrays=arrays, config=placed_config)
+
+    bf.viewer.fields.validate_result(viewer._viewer_state, result)
+
+    viewer._on_msg(None, {"event": "set_settings", "settings": {"ppw": 14.0}}, [])
+    with pytest.raises(ValueError, match="adaptive grid"):
+        bf.viewer.fields.validate_result(viewer._viewer_state, result)

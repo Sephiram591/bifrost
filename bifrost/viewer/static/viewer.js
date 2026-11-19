@@ -1,4 +1,4 @@
-// ../../../../js/node_modules/three/build/three.core.js
+// node_modules/three/build/three.core.js
 var REVISION = "186";
 var MOUSE = { LEFT: 0, MIDDLE: 1, RIGHT: 2, ROTATE: 0, DOLLY: 1, PAN: 2 };
 var TOUCH = { ROTATE: 0, PAN: 1, DOLLY_PAN: 2, DOLLY_ROTATE: 3 };
@@ -17918,7 +17918,7 @@ if (typeof window !== "undefined") {
   }
 }
 
-// ../../../../js/node_modules/three/build/three.module.js
+// node_modules/three/build/three.module.js
 function WebGLAnimation() {
   let context = null;
   let isAnimating = false;
@@ -29674,6 +29674,9 @@ var Explorer = class {
     this.sourceRows = /* @__PURE__ */ new Map();
     this.detectorRows = /* @__PURE__ */ new Map();
     this.simFields = /* @__PURE__ */ new Map();
+    this.dilationRows = [];
+    this.dilationCollapsed = /* @__PURE__ */ new Set();
+    this.dilationSeen = /* @__PURE__ */ new Set();
     this.resultSourceRows = /* @__PURE__ */ new Map();
     /** collapse state per detector section, kept across rebuilds (like the spec rows) */
     this.resultCollapsed = /* @__PURE__ */ new Set();
@@ -29820,6 +29823,7 @@ var Explorer = class {
   setMeta(meta) {
     this.meta = meta;
     this.buildLayout();
+    if (this.settings) this.renderSettings(this.settings);
   }
   /**
    * Records the last result's per-detector field payloads (spec R15, R17).
@@ -30253,10 +30257,28 @@ var Explorer = class {
     fields.className = "gfx-spec-fields";
     const add = (key, labelText, control, hint) => {
       this.simFields.set(key, control);
-      fields.appendChild(fieldRow(labelText, control.element, hint));
+      const row2 = fieldRow(labelText, control.element, hint);
+      if (!control.element.title) control.element.title = hint;
+      fields.appendChild(row2);
+      return row2;
+    };
+    const settingsFallbacks = {
+      wavelength_um: 1.55,
+      pulse_width_frac: 0,
+      port_padding: [3, 2],
+      pml_thickness: 10,
+      pml_um: 1,
+      resolution_um: 0.02,
+      ppw: 20,
+      global_dilation: 3,
+      global_z_padding: 3,
+      mesh_growth: 1.25,
+      time_s: 4e-13,
+      log_range: 6
     };
     const reset = (key) => () => {
-      const value = this.meta.settings_defaults[key];
+      const raw = this.meta.settings_defaults?.[key];
+      const value = typeof raw === "number" && Number.isFinite(raw) ? raw : settingsFallbacks[key];
       this.callbacks.onSettings({ [key]: value });
       return value;
     };
@@ -30280,12 +30302,12 @@ var Explorer = class {
       (value) => this.callbacks.onSettings({ port_padding: value }),
       true,
       () => {
-        const value = this.meta.settings_defaults.port_padding;
+        const value = this.meta.settings_defaults?.port_padding ?? settingsFallbacks.port_padding;
         this.callbacks.onSettings({ port_padding: value });
         return value;
       }
     ), "a new plane extends (a) past the port's width and (b) past the level's height on each side, in mean wavelengths of its source or detector");
-    add("pml_thickness", "PML", this.numberControl(
+    this.pmlCellsRow = add("pml_thickness", "PML (cells)", this.numberControl(
       10,
       1,
       (value) => this.callbacks.onSettings({ pml_thickness: Math.round(value) }),
@@ -30293,14 +30315,22 @@ var Explorer = class {
       1,
       reset("pml_thickness")
     ), "perfectly-matched-layer thickness, in grid cells");
-    add("resolution_um", "resolution", this.numberControl(
-      0.02,
-      1e-3,
-      (value) => this.callbacks.onSettings({ resolution_um: value }),
+    const pmlUmControl = this.numberControl(
+      1,
+      0.1,
+      (value) => this.callbacks.onSettings({ pml_um: value }),
       true,
       1,
-      reset("resolution_um")
-    ), "grid resolution, in \xB5m");
+      reset("pml_um")
+    );
+    pmlUmControl.element.min = "0";
+    this.pmlUmRow = add(
+      "pml_um",
+      "PML (\xB5m)",
+      pmlUmControl,
+      "perfectly-matched-layer thickness, in \xB5m (uniform cells cover this thickness at each PML face)"
+    );
+    this.pmlUmRow.hidden = true;
     add("averaging", "averaging", this.selectControl(
       ["subpixel", "subpixel_full", "inverse"],
       "subpixel",
@@ -30329,19 +30359,343 @@ var Explorer = class {
       false,
       (value) => this.callbacks.onSettings({ keep_partial: value })
     ), "when a stopped run keeps the fields its detectors recorded so far, instead of discarding them (spec D17)");
-    return { rows: [fields, note], note };
+    const meshCard = document.createElement("div");
+    meshCard.className = "gfx-spec gfx-mesh-card";
+    const meshHeader = document.createElement("div");
+    meshHeader.className = "gfx-spec-header";
+    const meshTwisty = document.createElement("button");
+    meshTwisty.type = "button";
+    meshTwisty.className = "gfx-twisty";
+    const meshTitle = label("Meshing");
+    meshTitle.title = "grid discretization: uniform cell spacing or automatic adaptive rectilinear mesh (bf.mesh)";
+    meshHeader.append(meshTwisty, meshTitle);
+    let meshCollapsed = this.startCollapsed;
+    const applyMeshCollapsed = () => {
+      meshCard.classList.toggle("gfx-collapsed", meshCollapsed);
+      meshTwisty.textContent = meshCollapsed ? "\u25B6" : "\u25BC";
+      meshTwisty.title = meshCollapsed ? "expand" : "collapse";
+      meshTwisty.setAttribute("aria-expanded", String(!meshCollapsed));
+    };
+    const toggleMeshCollapsed = (event) => {
+      event.stopPropagation();
+      meshCollapsed = !meshCollapsed;
+      applyMeshCollapsed();
+    };
+    meshTwisty.addEventListener("click", toggleMeshCollapsed);
+    meshHeader.addEventListener("click", toggleMeshCollapsed);
+    applyMeshCollapsed();
+    const meshFields = document.createElement("div");
+    meshFields.className = "gfx-spec-fields";
+    const addMeshField = (key, labelText, control, hint, parent = meshFields) => {
+      this.simFields.set(key, control);
+      const row2 = fieldRow(labelText, control.element, hint);
+      if (!control.element.title) control.element.title = hint;
+      parent.appendChild(row2);
+      return row2;
+    };
+    addMeshField("meshing", "type", this.selectControl(
+      ["uniform", "adaptive"],
+      "uniform",
+      (value) => this.callbacks.onSettings({ meshing: value }),
+      (name) => name === "uniform" ? "fixed uniform cell spacing across the box (fdtdx.UniformGrid)" : "automatic graded rectilinear mesh (bf.mesh + bf.Refine)"
+    ), "grid discretization mode: uniform or adaptive");
+    const resolutionControl = this.numberControl(
+      0.02,
+      1e-3,
+      (value) => this.callbacks.onSettings({ resolution_um: value }),
+      true,
+      1,
+      reset("resolution_um")
+    );
+    resolutionControl.element.min = "0.0001";
+    this.meshResolutionRow = addMeshField(
+      "resolution_um",
+      "resolution",
+      resolutionControl,
+      "uniform grid resolution, in \xB5m"
+    );
+    this.meshAdaptive = document.createElement("div");
+    this.meshAdaptive.className = "gfx-mesh-adaptive";
+    this.meshAdaptive.hidden = true;
+    const ppwControl = this.numberControl(
+      20,
+      1,
+      (value) => this.callbacks.onSettings({ ppw: value }),
+      true,
+      1,
+      reset("ppw")
+    );
+    ppwControl.element.min = "0.1";
+    addMeshField(
+      "ppw",
+      "ppw",
+      ppwControl,
+      "target cells per wavelength in each material (bf.mesh ppw; default 20)",
+      this.meshAdaptive
+    );
+    const globalDilControl = this.numberControl(
+      3,
+      0.5,
+      (value) => this.callbacks.onSettings({ global_dilation: value }),
+      true,
+      1,
+      reset("global_dilation")
+    );
+    globalDilControl.element.min = "0";
+    addMeshField(
+      "global_dilation",
+      "global dilation",
+      globalDilControl,
+      "lateral evanescent tail past boundaries, in decay lengths (bf.Refine.global_dilation; default 3)",
+      this.meshAdaptive
+    );
+    const globalZControl = this.numberControl(
+      3,
+      0.5,
+      (value) => this.callbacks.onSettings({ global_z_padding: value }),
+      true,
+      1,
+      reset("global_z_padding")
+    );
+    globalZControl.element.min = "0";
+    addMeshField(
+      "global_z_padding",
+      "global z pad",
+      globalZControl,
+      "vertical evanescent tail above and below level faces, in decay lengths (bf.Refine.global_z_padding; default 3)",
+      this.meshAdaptive
+    );
+    const growthControl = this.numberControl(
+      1.25,
+      0.05,
+      (value) => this.callbacks.onSettings({ mesh_growth: value }),
+      true,
+      1,
+      reset("mesh_growth")
+    );
+    growthControl.element.min = "1.01";
+    addMeshField(
+      "mesh_growth",
+      "max cell growth",
+      growthControl,
+      "maximum cell-size ratio between neighbouring cells (> 1; bf.mesh growth, default 1.25)",
+      this.meshAdaptive
+    );
+    const dilations = document.createElement("div");
+    dilations.className = "gfx-mesh-dilations";
+    const dilHeader = document.createElement("div");
+    dilHeader.className = "gfx-subsection-header";
+    const dilTitle = document.createElement("span");
+    dilTitle.textContent = "Dilation layers";
+    dilTitle.title = "per-layer lateral boundary motion budget (bf.Refine.dilation, in \xB5m)";
+    this.dilationAdd = document.createElement("button");
+    this.dilationAdd.type = "button";
+    this.dilationAdd.className = "gfx-section-add";
+    this.dilationAdd.textContent = "+";
+    this.dilationAdd.addEventListener("click", () => {
+      if (this.locked) return;
+      const current = this.currentDilationLayers();
+      const used = new Set(current.map((entry) => entry.layer));
+      const nextLayer = (this.meta.source_layers ?? []).find((name) => !used.has(name));
+      if (!nextLayer) return;
+      this.callbacks.onSettings({ dilation_layers: [...current, { layer: nextLayer, dilation: 0.1 }] });
+    });
+    dilHeader.append(dilTitle, this.dilationAdd);
+    this.dilationEmpty = emptyNote("None yet. Use + to add a layer.");
+    this.dilationList = document.createElement("div");
+    this.dilationList.className = "gfx-subcard-list";
+    dilations.append(dilHeader, this.dilationEmpty, this.dilationList);
+    this.meshAdaptive.appendChild(dilations);
+    meshFields.appendChild(this.meshAdaptive);
+    meshCard.append(meshHeader, meshFields);
+    return { rows: [fields, meshCard, note], note };
+  }
+  currentDilationLayers() {
+    return (this.settings?.dilation_layers ?? []).map((entry) => ({ ...entry }));
+  }
+  hasUnusedDilationLayer() {
+    const used = new Set(this.currentDilationLayers().map((entry) => entry.layer));
+    return (this.meta.source_layers ?? []).some((name) => !used.has(name));
+  }
+  buildDilationSubcard(index) {
+    const root = document.createElement("div");
+    root.className = "gfx-subcard";
+    const header = document.createElement("div");
+    header.className = "gfx-spec-header";
+    const twisty = document.createElement("button");
+    twisty.type = "button";
+    twisty.className = "gfx-twisty";
+    const headerName = label("");
+    headerName.title = "source layer for per-layer dilation";
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "gfx-button gfx-remove";
+    remove.textContent = "\xD7";
+    remove.title = "remove this dilation layer";
+    header.append(twisty, headerName, remove);
+    const fields = document.createElement("div");
+    fields.className = "gfx-spec-fields";
+    const layerSelect = document.createElement("select");
+    layerSelect.className = "gfx-select";
+    layerSelect.title = "source layer name (from stack.source_layers) for bf.Refine.dilation";
+    const dilation = this.numberControl(
+      0.1,
+      0.05,
+      (value) => {
+        const current = this.currentDilationLayers();
+        if (index >= current.length) return;
+        current[index] = { ...current[index], dilation: value };
+        this.callbacks.onSettings({ dilation_layers: current });
+      },
+      true,
+      1,
+      () => {
+        const current = this.currentDilationLayers();
+        if (index < current.length) {
+          current[index] = { ...current[index], dilation: 0.1 };
+          this.callbacks.onSettings({ dilation_layers: current });
+        }
+        return 0.1;
+      }
+    );
+    dilation.element.min = "0";
+    dilation.element.title = "how far this layer's boundary may move, in \xB5m (bf.Refine.dilation)";
+    fields.append(
+      fieldRow("layer", layerSelect, "source layer name (bf.Refine.dilation key)"),
+      fieldRow("dilation", dilation.element, "lateral boundary dilation for this layer, in \xB5m")
+    );
+    const row2 = {
+      root,
+      twisty,
+      currentLayer: "",
+      headerName,
+      remove,
+      layerSelect,
+      dilation
+    };
+    const toggleCollapsed = (event) => {
+      event.stopPropagation();
+      const key = row2.currentLayer;
+      if (!key) return;
+      if (this.dilationCollapsed.has(key)) this.dilationCollapsed.delete(key);
+      else this.dilationCollapsed.add(key);
+      this.applyDilationCollapsed(row2);
+    };
+    twisty.addEventListener("click", toggleCollapsed);
+    header.addEventListener("click", (event) => {
+      if (event.target.closest("button")) return;
+      toggleCollapsed(event);
+    });
+    layerSelect.addEventListener("change", () => {
+      const current = this.currentDilationLayers();
+      if (index >= current.length) return;
+      const oldLayer = current[index].layer;
+      const nextLayer = layerSelect.value;
+      if (!nextLayer || nextLayer === oldLayer) return;
+      if (this.dilationCollapsed.has(oldLayer)) {
+        this.dilationCollapsed.delete(oldLayer);
+        this.dilationCollapsed.add(nextLayer);
+      }
+      this.dilationSeen.add(nextLayer);
+      current[index] = { ...current[index], layer: nextLayer };
+      this.callbacks.onSettings({ dilation_layers: current });
+    });
+    remove.addEventListener("click", () => {
+      if (this.locked) return;
+      const current = this.currentDilationLayers();
+      if (index >= current.length) return;
+      const [removed] = current.splice(index, 1);
+      if (removed) {
+        this.dilationCollapsed.delete(removed.layer);
+        this.dilationSeen.delete(removed.layer);
+      }
+      this.callbacks.onSettings({ dilation_layers: current });
+    });
+    root.append(header, fields);
+    return row2;
+  }
+  applyDilationCollapsed(row2) {
+    const collapsed = this.dilationCollapsed.has(row2.currentLayer);
+    row2.root.classList.toggle("gfx-collapsed", collapsed);
+    row2.twisty.textContent = collapsed ? "\u25B6" : "\u25BC";
+    row2.twisty.title = collapsed ? "expand" : "collapse";
+    row2.twisty.setAttribute("aria-expanded", String(!collapsed));
+  }
+  renderDilationSubcards(entries) {
+    while (this.dilationRows.length < entries.length) {
+      const row2 = this.buildDilationSubcard(this.dilationRows.length);
+      this.dilationRows.push(row2);
+      this.dilationList.appendChild(row2.root);
+    }
+    while (this.dilationRows.length > entries.length) {
+      const row2 = this.dilationRows.pop();
+      row2?.root.remove();
+    }
+    const available = this.meta.source_layers ?? [];
+    const used = new Set(entries.map((entry) => entry.layer));
+    entries.forEach((entry, index) => {
+      const row2 = this.dilationRows[index];
+      row2.currentLayer = entry.layer;
+      if (!this.dilationSeen.has(entry.layer)) {
+        this.dilationSeen.add(entry.layer);
+        if (this.startCollapsed) this.dilationCollapsed.add(entry.layer);
+      }
+      row2.headerName.textContent = entry.layer;
+      this.applyDilationCollapsed(row2);
+      const options = [...available];
+      if (entry.layer && !options.includes(entry.layer)) options.push(entry.layer);
+      const select = row2.layerSelect;
+      const optionsChanged = select.options.length !== options.length || options.some((name, i) => select.options[i]?.value !== name);
+      if (optionsChanged) {
+        select.replaceChildren(
+          ...options.map((name) => {
+            const opt = document.createElement("option");
+            opt.value = name;
+            opt.textContent = name;
+            return opt;
+          })
+        );
+      }
+      for (const opt of Array.from(select.options)) {
+        opt.disabled = opt.value !== entry.layer && used.has(opt.value);
+      }
+      if (document.activeElement !== select && select.value !== entry.layer) {
+        select.value = entry.layer;
+      }
+      row2.dilation.write(entry.dilation);
+      select.disabled = this.locked;
+      row2.dilation.setDisabled(this.locked);
+      row2.remove.disabled = this.locked;
+    });
+    this.dilationEmpty.hidden = entries.length > 0;
+    this.dilationEmpty.textContent = available.length === 0 ? "No polygon layers in this device." : "None yet. Use + to add a layer.";
+    const hasUnused = available.some((name) => !used.has(name));
+    this.dilationAdd.disabled = this.locked || !hasUnused;
+    this.dilationAdd.title = available.length === 0 ? "no polygon layers in this device" : hasUnused ? "add a per-layer lateral dilation (bf.Refine.dilation)" : "all source layers already have a dilation sub-card";
   }
   renderSettings(settings) {
+    const meshing = settings.meshing === "adaptive" ? "adaptive" : "uniform";
+    const isAdaptive = meshing === "adaptive";
+    this.pmlCellsRow.hidden = isAdaptive;
+    this.pmlUmRow.hidden = !isAdaptive;
+    this.meshResolutionRow.hidden = isAdaptive;
+    this.meshAdaptive.hidden = !isAdaptive;
     const values = {
       wavelength_um: settings.wavelength_um,
       pulse_width_frac: settings.pulse_width_frac,
       pml_thickness: settings.pml_thickness,
+      pml_um: settings.pml_um ?? 1,
       resolution_um: settings.resolution_um,
       // the control's write() divides by its scale, so pass kernel units here
       time_fs: settings.time_s,
       log_range: settings.log_range,
       averaging: settings.averaging,
-      keep_partial: settings.keep_partial
+      keep_partial: settings.keep_partial,
+      meshing,
+      ppw: settings.ppw ?? 20,
+      global_dilation: settings.global_dilation ?? 3,
+      global_z_padding: settings.global_z_padding ?? 3,
+      mesh_growth: settings.mesh_growth ?? 1.25
     };
     for (const [key, control] of this.simFields) {
       if (key === "port_padding" || key === "boundary_offset") continue;
@@ -30349,6 +30703,7 @@ var Explorer = class {
     }
     this.simFields.get("port_padding")?.write(settings.port_padding);
     this.simFields.get("boundary_offset")?.write(settings.boundary_offset);
+    this.renderDilationSubcards(settings.dilation_layers ?? []);
   }
   /** Enables or disables every setup control (spec D15). */
   setLocked(locked, readonlyReason) {
@@ -30361,6 +30716,12 @@ var Explorer = class {
       row2.remove.hidden = row2.adopted;
     }
     for (const control of this.simFields.values()) control.setDisabled(locked);
+    for (const row2 of this.dilationRows) {
+      row2.layerSelect.disabled = locked;
+      row2.dilation.setDisabled(locked);
+      row2.remove.disabled = locked;
+    }
+    this.dilationAdd.disabled = locked || !this.hasUnusedDilationLayer();
     this.sourceAdd.disabled = locked;
     this.detectorAdd.disabled = locked;
     this.simNote.hidden = !locked;
@@ -31590,7 +31951,7 @@ var LevelMeshes = class {
   }
 };
 
-// ../../../../js/node_modules/three/examples/jsm/controls/ArcballControls.js
+// node_modules/three/examples/jsm/controls/ArcballControls.js
 var STATE = {
   IDLE: /* @__PURE__ */ Symbol(),
   ROTATE: /* @__PURE__ */ Symbol(),
@@ -33561,7 +33922,7 @@ function onWheel(event) {
   }
 }
 
-// ../../../../js/node_modules/three/examples/jsm/controls/OrbitControls.js
+// node_modules/three/examples/jsm/controls/OrbitControls.js
 var _changeEvent2 = { type: "change" };
 var _startEvent2 = { type: "start" };
 var _endEvent2 = { type: "end" };
@@ -34477,7 +34838,7 @@ function interceptControlUp(event) {
   }
 }
 
-// ../../../../js/node_modules/three/examples/jsm/controls/TrackballControls.js
+// node_modules/three/examples/jsm/controls/TrackballControls.js
 var _changeEvent3 = { type: "change" };
 var _startEvent3 = { type: "start" };
 var _endEvent3 = { type: "end" };

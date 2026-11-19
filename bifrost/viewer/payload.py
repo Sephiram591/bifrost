@@ -129,6 +129,10 @@ def build_payload(viewer_state: ViewerState) -> tuple[dict[str, Any], dict[str, 
         "ports": [
             _port_meta(port) for port in (*viewer_state.ports, *viewer_state.plane_ports)
         ],
+        "source_layers": [
+            str(key).split("/", 1)[-1]
+            for key, _ in getattr(viewer_state.stack, "source_layers", ())
+        ],
         "background": viewer_state.stack.background,
         "types": _types_meta(),
         "settings_defaults": SimSettings().to_wire(),

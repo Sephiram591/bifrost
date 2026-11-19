@@ -362,12 +362,36 @@ def validate_result(state: Any, result: Any) -> None:
 
     objects = getattr(result, "objects", None)
     config = getattr(result, "config", None)
-    resolution = _result_resolution(result)
-    edges = config_edges_um(config) if resolution is None else None
-    if (resolution is None or not resolution > 0) and edges is None:
-        raise ValueError(
-            "the result has no grid resolution (.config.grid.spacing or .config.resolved_grid)"
+    if state.settings.meshing == "adaptive":
+        from .sim import build_adaptive_mesh
+
+        resolved = getattr(config, "resolved_grid", None)
+        if resolved is None:
+            raise ValueError("the result has no resolved rectilinear grid (.config.resolved_grid)")
+        axis_edges: list[np.ndarray] = []
+        for i in range(3):
+            e_um = np.asarray(resolved.edges(i), dtype=np.float64) * 1e6
+            axis_edges.append(e_um - e_um[0])
+        edges: tuple[np.ndarray, np.ndarray, np.ndarray] | None = (
+            axis_edges[0],
+            axis_edges[1],
+            axis_edges[2],
         )
+        expected_mesh = build_adaptive_mesh(state.stack, state)
+        for i in range(3):
+            exp_i = np.asarray(expected_mesh.edges[i], dtype=np.float64) - float(expected_mesh.edges[i][0])
+            if len(edges[i]) != len(exp_i) or not np.allclose(edges[i], exp_i, rtol=1e-4, atol=1e-4):
+                raise ValueError(
+                    f"the result's adaptive grid along axis {i} does not match the current meshing settings"
+                )
+        resolution = None
+    else:
+        resolution = _result_resolution(result)
+        edges = config_edges_um(config) if resolution is None else None
+        if (resolution is None or not resolution > 0) and edges is None:
+            raise ValueError(
+                "the result has no grid resolution (.config.grid.spacing or .config.resolved_grid)"
+            )
     _validate_box_extent(state, objects, resolution, edges)
 
     for name, spec in expected.items():

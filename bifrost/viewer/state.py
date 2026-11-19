@@ -531,6 +531,15 @@ class ViewerState:
         if "simulation" in patch:
             previous = self.settings.boundary_offset
             settings = SimSettings.from_wire({**self.settings.to_wire(), **patch["simulation"]})
+            known_layers = {
+                str(key).split("/", 1)[-1]
+                for key, _ in getattr(self.stack, "source_layers", ())
+            }
+            bad_layers = [layer for layer, _ in settings.dilation_layers if layer not in known_layers]
+            if bad_layers:
+                raise ValueError(
+                    f"Unknown dilation layer(s) {bad_layers}; device has source layers {sorted(known_layers)}"
+                )
             # re-box before committing the settings: a rejected offset (an empty
             # box) must leave both the settings and the geometry untouched
             if settings.boundary_offset != previous:

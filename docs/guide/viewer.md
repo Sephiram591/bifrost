@@ -21,7 +21,7 @@ The viewer has four tabs on its left:
 | --- | --- |
 | **Layout / Ports** | the layers (color, opacity, visibility) and ports of the device |
 | **Sources / Detectors** | add sources and monitors on component ports, simulation-box plane ports (`xy`, `xz`, `yz`), or absolute coordinates (`None`); double-click a port in 3D to add a monitor |
-| **Simulation** | the wavelength, grid, run time, absorbing boundary and the simulation box |
+| **Simulation** | the wavelength, **Meshing** card (`uniform` or `adaptive`), run time, absorbing boundary and the simulation box |
 | **Result** | the last result: a field per monitor on its plane, frame sliders, playback and MP4 recording |
 
 The **3D** and **2D** buttons switch the view. In 2D you pick a plane (`xy`, `xz` or `yz`) and move a slider through the
@@ -42,9 +42,12 @@ In addition to component ports, the **port** dropdown in **Sources / Detectors**
 ## Run a simulation from the viewer
 
 Add a source and a monitor in the **Sources / Detectors** tab, choose the grid and time in **Simulation**, and press
-**Run**. The run happens in the Python session on a background thread, with the setup locked while it goes, and its field
-appears in the **Result** tab. To place and run the objects yourself, they are in `viewer.objects`, `viewer.config` and
-`viewer.constraints`; the **copy launch code** button copies a script that reproduces the setup.
+**Run**. The **Meshing** card switches between `uniform` (`resolution`, `PML (cells)`) and `adaptive` (`ppw`,
+`PML (µm)`, `global dilation`, `global z pad`, `max cell growth`, and per-layer **Dilation layers** sub-cards backed
+by [Automatic meshing](simulation-setup.md#automatic-meshing)). The run happens in the Python session on a background
+thread, with the setup locked while it goes, and its field appears in the **Result** tab. To place and run the objects
+yourself, they are in `viewer.objects`, `viewer.config` and `viewer.constraints`; the **copy launch code** button copies
+a script that reproduces the setup.
 
 ## Load a finished simulation
 

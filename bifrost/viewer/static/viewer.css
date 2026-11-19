@@ -287,7 +287,7 @@
 .gfx-twisty:hover {
   opacity: 1;
 }
-.gfx-spec.gfx-collapsed .gfx-spec-fields {
+.gfx-spec.gfx-collapsed > .gfx-spec-fields {
   display: none;
 }
 .gfx-spec-header:hover {
@@ -307,6 +307,49 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.gfx-field[hidden] {
+  display: none;
+}
+.gfx-mesh-adaptive {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.gfx-mesh-adaptive[hidden] {
+  display: none;
+}
+.gfx-mesh-dilations {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #33333b;
+}
+.gfx-subsection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+.gfx-subcard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gfx-subcard {
+  border: 1px solid #3a3a42;
+  border-radius: 4px;
+  padding: 4px;
+  background: #1d1d23;
+}
+.gfx-subcard.gfx-collapsed > .gfx-spec-fields {
+  display: none;
 }
 .gfx-field-name {
   flex: 0 0 96px;

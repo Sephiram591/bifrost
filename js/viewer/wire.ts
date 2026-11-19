@@ -55,6 +55,8 @@ export interface PortMeta {
 export interface MetaPayload {
   levels: LevelMeta[];
   ports: PortMeta[];
+  //: polygon source layer names from `stack.source_layers`, for per-layer dilation sub-cards
+  source_layers?: string[];
   background: string;
   //: the source/detector types the explorer can add (spec R12)
   types: Record<string, TypeMeta>;
@@ -120,6 +122,15 @@ export interface GlyphPayload {
   error?: boolean;
 }
 
+//: The meshing modes the Simulation tab's Meshing card offers.
+export type MeshingType = "uniform" | "adaptive";
+
+//: One per-layer lateral dilation sub-card entry (`bf.Refine.dilation`).
+export interface DilationLayerPayload {
+  layer: string;
+  dilation: number;
+}
+
 //: The setup-wide simulation settings (spec R13).
 export interface SimSettingsPayload {
   wavelength_um: number;
@@ -141,6 +152,20 @@ export interface SimSettingsPayload {
   //: whether a stopped run keeps its partial detector fields instead of
   //: discarding them (spec D17)
   keep_partial: boolean;
+  //: meshing mode (`"uniform"` or `"adaptive"`)
+  meshing?: MeshingType;
+  //: PML thickness in µm when `meshing === "adaptive"`
+  pml_um?: number;
+  //: cells per wavelength when `meshing === "adaptive"`
+  ppw?: number;
+  //: lateral evanescent tail in decay lengths (`bf.Refine.global_dilation`)
+  global_dilation?: number;
+  //: vertical evanescent tail in decay lengths (`bf.Refine.global_z_padding`)
+  global_z_padding?: number;
+  //: max neighbouring cell-size ratio (`bf.mesh(..., growth=...)`)
+  mesh_growth?: number;
+  //: per-layer dilation sub-cards (`bf.Refine.dilation`)
+  dilation_layers?: DilationLayerPayload[];
 }
 
 //: The permittivity averagings the Simulation tab offers (spec R13).

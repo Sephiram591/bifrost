@@ -21,22 +21,26 @@ import functools
 import keyword
 import math
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 __all__ = [
     "AVERAGINGS",
+    "MESHING_TYPES",
     "TYPES",
     "ObjectSpec",
     "RunResult",
     "RunStopped",
     "SimSettings",
+    "build_adaptive_mesh",
     "build_objects",
     "default_detector_spec",
     "default_source_spec",
     "export",
     "launch_code",
     "run",
+    "snap_absolute_plane",
     "spec_glyph",
     "validate_sampling",
 ]
@@ -305,6 +309,19 @@ class ObjectSpec:
 #: importing this module does not import the simulation stack (spec C3)
 AVERAGINGS: tuple[str, ...] = ("inverse", "subpixel", "subpixel_full")
 
+#: the meshing modes a :class:`SimSettings` accepts
+MESHING_TYPES: tuple[str, ...] = ("uniform", "adaptive")
+
+
+def _finite_float(name: str, raw: Any) -> float:
+    """Converts ``raw`` to a finite float, rejecting booleans."""
+    if isinstance(raw, bool):
+        raise ValueError(f"{name} must be a number, got {raw!r}")
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {raw!r}")
+    return value
+
 
 @dataclass
 class SimSettings:
@@ -318,8 +335,8 @@ class SimSettings:
             the port's width and the level's height on each side, in units of the
             mean wavelength of the source or detector (the settings' wavelength
             for one with none of its own); negative values shrink the plane.
-        pml_thickness: the PML thickness, in grid cells.
-        resolution_um: the grid resolution, in µm.
+        pml_thickness: the PML thickness, in grid cells (uniform meshing).
+        resolution_um: the grid resolution, in µm (uniform meshing).
         time_s: the simulation time, in seconds.
         boundary_offset: ``(x+, x-, y+, y-, z+, z-)`` in µm — how far the
             simulation box's faces move off the geometry's bounding box (the
@@ -327,6 +344,18 @@ class SimSettings:
             axis, positive towards +x, +y or +z, so ``(1, -1, 0, 0, 0, 0)``
             grows the box by 1 µm on each x side; the geometry itself does not
             change.
+        meshing: ``"uniform"`` (``fdtdx.core.grid.UniformGrid``) or
+            ``"adaptive"`` (``bf.mesh`` + ``bf.Refine``).
+        pml_um: the PML thickness, in µm (adaptive meshing).
+        ppw: target grid cells per wavelength in each material (adaptive meshing).
+        global_dilation: lateral evanescent tail past boundaries in decay
+            lengths (``bf.Refine.global_dilation``, adaptive meshing).
+        global_z_padding: vertical evanescent tail above and below level faces
+            in decay lengths (``bf.Refine.global_z_padding``, adaptive meshing).
+        mesh_growth: maximum cell-size ratio between neighbouring cells
+            (``bf.mesh(..., growth=...)``, adaptive meshing).
+        dilation_layers: per-source-layer lateral dilation ``((layer, um), ...)``
+            passed to ``bf.Refine.dilation`` (adaptive meshing).
     """
 
     wavelength_um: float = 1.55
@@ -354,6 +383,20 @@ class SimSettings:
     #: False (the default) a stopped run is discarded and the previous result
     #: stays on screen; when True its detectors' partial fields are shown.
     keep_partial: bool = False
+    #: meshing mode: ``"uniform"`` or ``"adaptive"`` (``bf.mesh``)
+    meshing: str = "uniform"
+    #: PML thickness in µm when ``meshing == "adaptive"``
+    pml_um: float = 1.0
+    #: cells per wavelength when ``meshing == "adaptive"``
+    ppw: float = 20.0
+    #: lateral evanescent tail in decay lengths (``Refine.global_dilation``)
+    global_dilation: float = 3.0
+    #: vertical evanescent tail in decay lengths (``Refine.global_z_padding``)
+    global_z_padding: float = 3.0
+    #: maximum cell-size ratio between neighbouring cells (``bf.mesh(..., growth=...)``)
+    mesh_growth: float = 1.25
+    #: per-source-layer dilation in µm (``Refine.dilation``)
+    dilation_layers: tuple[tuple[str, float], ...] = ()
 
     def to_wire(self) -> dict[str, Any]:
         """The settings as JSON for the browser (spec R13)."""
@@ -368,6 +411,16 @@ class SimSettings:
             "log_range": float(self.log_range),
             "averaging": str(self.averaging),
             "keep_partial": bool(self.keep_partial),
+            "meshing": str(self.meshing),
+            "pml_um": float(self.pml_um),
+            "ppw": float(self.ppw),
+            "global_dilation": float(self.global_dilation),
+            "global_z_padding": float(self.global_z_padding),
+            "mesh_growth": float(self.mesh_growth),
+            "dilation_layers": [
+                {"layer": str(layer), "dilation": float(val)}
+                for layer, val in self.dilation_layers
+            ],
         }
 
     @classmethod
@@ -381,10 +434,16 @@ class SimSettings:
             and all(math.isfinite(float(v)) for v in padding)
         ):
             raise ValueError(f"port_padding must be two finite numbers, got {padding!r}")
-        wavelength = float(data.get("wavelength_um", defaults.wavelength_um))
-        resolution = float(data.get("resolution_um", defaults.resolution_um))
-        time_s = float(data.get("time_s", defaults.time_s))
-        pml = int(data.get("pml_thickness", defaults.pml_thickness))
+        wavelength = _finite_float("wavelength_um", data.get("wavelength_um", defaults.wavelength_um))
+        resolution = _finite_float("resolution_um", data.get("resolution_um", defaults.resolution_um))
+        time_s = _finite_float("time_s", data.get("time_s", defaults.time_s))
+        pulse_width_frac = _finite_float(
+            "pulse_width_frac", data.get("pulse_width_frac", defaults.pulse_width_frac)
+        )
+        raw_pml = data.get("pml_thickness", defaults.pml_thickness)
+        if isinstance(raw_pml, bool):
+            raise ValueError(f"pml_thickness must be an integer, got {raw_pml!r}")
+        pml = int(raw_pml)
         if wavelength <= 0 or resolution <= 0 or time_s <= 0 or pml < 0:
             raise ValueError("Settings must be positive (wavelength, resolution, time) or non-negative (PML)")
         offset = data.get("boundary_offset", defaults.boundary_offset)
@@ -393,15 +452,65 @@ class SimSettings:
         offset = tuple(float(v) for v in offset)
         if not all(math.isfinite(v) for v in offset):
             raise ValueError(f"boundary_offset must be finite, got {offset!r}")
-        log_range = float(data.get("log_range", defaults.log_range))
-        if not math.isfinite(log_range) or log_range <= 0:
+        log_range = _finite_float("log_range", data.get("log_range", defaults.log_range))
+        if log_range <= 0:
             raise ValueError(f"log_range must be a positive number of decades, got {log_range!r}")
         averaging = str(data.get("averaging", defaults.averaging))
         if averaging not in AVERAGINGS:
             raise ValueError(f"averaging must be one of {AVERAGINGS}, got {averaging!r}")
+        meshing = str(data.get("meshing", defaults.meshing))
+        if meshing not in MESHING_TYPES:
+            raise ValueError(f"meshing must be one of {MESHING_TYPES}, got {meshing!r}")
+        pml_um = _finite_float("pml_um", data.get("pml_um", defaults.pml_um))
+        if pml_um < 0:
+            raise ValueError(f"pml_um must be non-negative, got {pml_um!r}")
+        ppw = _finite_float("ppw", data.get("ppw", defaults.ppw))
+        if ppw <= 0:
+            raise ValueError(f"ppw must be positive, got {ppw!r}")
+        global_dilation = _finite_float("global_dilation", data.get("global_dilation", defaults.global_dilation))
+        if global_dilation < 0:
+            raise ValueError(f"global_dilation must be non-negative, got {global_dilation!r}")
+        global_z_padding = _finite_float("global_z_padding", data.get("global_z_padding", defaults.global_z_padding))
+        if global_z_padding < 0:
+            raise ValueError(f"global_z_padding must be non-negative, got {global_z_padding!r}")
+        mesh_growth = _finite_float("mesh_growth", data.get("mesh_growth", defaults.mesh_growth))
+        if mesh_growth <= 1.0:
+            raise ValueError(f"mesh_growth must be > 1, got {mesh_growth!r}")
+
+        raw_dilations = data.get("dilation_layers", defaults.dilation_layers)
+        if isinstance(raw_dilations, (str, bytes)) or not isinstance(raw_dilations, (list, tuple)):
+            raise ValueError(f"dilation_layers must be a list of {{layer, dilation}} entries, got {raw_dilations!r}")
+        dilations: list[tuple[str, float]] = []
+        seen_layers: set[str] = set()
+        for entry in raw_dilations:
+            if isinstance(entry, dict):
+                if set(entry) != {"layer", "dilation"}:
+                    raise ValueError(f"dilation_layers entry must have keys 'layer' and 'dilation', got {entry!r}")
+                raw_layer, raw_val = entry["layer"], entry["dilation"]
+            elif isinstance(entry, (list, tuple)) and len(entry) == 2:
+                raw_layer, raw_val = entry
+            else:
+                raise ValueError(
+                    f"dilation_layers entry must be {{layer, dilation}} or (layer, dilation), got {entry!r}"
+                )
+            if not isinstance(raw_layer, str) or not raw_layer.strip():
+                raise ValueError(f"dilation layer name must be a non-empty string, got {raw_layer!r}")
+            layer = raw_layer.strip()
+            if layer.startswith("vertices/"):
+                layer = layer.split("/", 1)[-1]
+            if not layer:
+                raise ValueError(f"dilation layer name must be a non-empty string, got {raw_layer!r}")
+            if layer in seen_layers:
+                raise ValueError(f"duplicate dilation layer {layer!r}")
+            seen_layers.add(layer)
+            val = _finite_float(f"dilation_layers[{layer!r}]", raw_val)
+            if val < 0:
+                raise ValueError(f"dilation for {layer!r} must be non-negative, got {val!r}")
+            dilations.append((layer, val))
+
         return cls(
             wavelength_um=wavelength,
-            pulse_width_frac=float(data.get("pulse_width_frac", defaults.pulse_width_frac)),
+            pulse_width_frac=pulse_width_frac,
             port_padding=(float(padding[0]), float(padding[1])),
             pml_thickness=pml,
             resolution_um=resolution,
@@ -410,6 +519,13 @@ class SimSettings:
             log_range=log_range,
             averaging=averaging,
             keep_partial=bool(data.get("keep_partial", defaults.keep_partial)),
+            meshing=meshing,
+            pml_um=pml_um,
+            ppw=ppw,
+            global_dilation=global_dilation,
+            global_z_padding=global_z_padding,
+            mesh_growth=mesh_growth,
+            dilation_layers=tuple(dilations),
         )
 
 
@@ -631,8 +747,98 @@ def _temporal_profile(settings: SimSettings, wave: Any) -> Any | None:
     )
 
 
+def _mesh_wavelength(state: Any) -> float | tuple[float, float]:
+    """Wavelength (um) or ``(min, max)`` band across configured sources, detectors, and pulse width."""
+    settings: SimSettings = state.settings
+    pwf = float(settings.pulse_width_frac)
+    adopted = getattr(state, "adopted", ())
+    samples: list[float] = []
+    has_pulsed_source = False
+    for spec in state.specs:
+        if spec.id in adopted:
+            continue
+        kind = TYPES[spec.type]
+        if kind.wave == "none":
+            continue
+        ws = [float(w) for w in (spec.params.get("wavelengths") or [settings.wavelength_um])]
+        if kind.wave == "one":
+            w0 = ws[0]
+            samples.append(w0)
+            if pwf > 0:
+                samples.append(w0 / (1.0 + pwf))
+                samples.append(w0 / max(1.0 - pwf, 0.1))
+                has_pulsed_source = True
+        else:
+            samples.extend(ws)
+    if not samples:
+        samples.append(float(settings.wavelength_um))
+    if pwf > 0 and not has_pulsed_source:
+        w0 = float(settings.wavelength_um)
+        samples.append(w0 / (1.0 + pwf))
+        samples.append(w0 / max(1.0 - pwf, 0.1))
+    lo, hi = min(samples), max(samples)
+    return lo if math.isclose(lo, hi, rel_tol=1e-12, abs_tol=0.0) else (lo, hi)
+
+
+def build_adaptive_mesh(stack: Any, state: Any) -> Any:
+    """Builds the adaptive :class:`~bifrost.Mesh` from the viewer's state and settings."""
+    from ..meshing import Refine, mesh as _build_mesh
+
+    settings: SimSettings = state.settings
+    refine = Refine(
+        dilation=dict(settings.dilation_layers),
+        global_dilation=float(settings.global_dilation),
+        global_z_padding=float(settings.global_z_padding),
+    )
+    return _build_mesh(
+        stack,
+        _mesh_wavelength(state),
+        ppw=float(settings.ppw),
+        refine=refine,
+        pml=float(settings.pml_um),
+        growth=float(settings.mesh_growth),
+    )
+
+
+def snap_absolute_plane(
+    stack: Any,
+    grid: Any,
+    axis: int,
+    center: Sequence[float],
+    size: Sequence[float],
+) -> tuple[
+    tuple[float | None, float | None, float | None],
+    tuple[int | None, int | None, int | None],
+    tuple[float, float, float],
+    tuple[float, float],
+]:
+    """Shapes and snaps an absolute plane (``port == 'None'``) onto a rectilinear grid."""
+    u_axis, v_axis = _IN_PLANE[axis]
+    width_um = float(size[0])
+    height_um = float(size[1])
+    real: list[float | None] = [None, None, None]
+    cells: list[int | None] = [None, None, None]
+    cells[axis] = 1
+    real[u_axis] = width_um * 1e-6
+    real[v_axis] = height_um * 1e-6
+    snapped_center = [float(c) for c in center]
+    snapped_extents = [width_um, height_um]
+    if grid is not None:
+        for idx, (a, extent) in enumerate(((u_axis, width_um), (v_axis, height_um))):
+            snapped = stack._snap_extent_span(grid, a, snapped_center[a], extent)
+            if snapped is not None:
+                cells[a], snapped_center[a], snapped_extents[idx] = snapped
+                real[a] = None
+    return (
+        (real[0], real[1], real[2]),
+        (cells[0], cells[1], cells[2]),
+        (snapped_center[0], snapped_center[1], snapped_center[2]),
+        (snapped_extents[0], snapped_extents[1]),
+    )
+
+
 def _create_absolute(spec: ObjectSpec, settings: SimSettings,
-                     volume: Any | None, stack: Any) -> tuple[Any, list[Any]]:
+                     volume: Any | None, stack: Any, grid: Any = None) -> tuple[Any, list[Any]]:
     """Builds a source/detector at an absolute position (spec R18).
 
     The same object construction ``StackDevice._at_port`` does — a plane is one
@@ -655,18 +861,20 @@ def _create_absolute(spec: ObjectSpec, settings: SimSettings,
 
     cls = getattr(_stack, spec.type, None) or getattr(fdtdx, spec.type)
 
-    real: list[float | None] = [None, None, None]
-    grid: list[int | None] = [None, None, None]
+    real: tuple[float | None, float | None, float | None] = (None, None, None)
+    grid_shape: tuple[int | None, int | None, int | None] = (None, None, None)
+    center_used = center
+    fields: dict[str, Any] = {"name": spec.name}
     if kind.plane:
         size = params.get("size")
         if not size:
             raise ValueError(f"spec {spec.name!r}: a plane needs a size (u, v in um)")
-        u_axis, v_axis = _IN_PLANE[axis]
-        grid[axis] = 1
-        real[u_axis] = float(size[0]) * 1e-6
-        real[v_axis] = float(size[1]) * 1e-6
+        real, grid_shape, center_used, snapped_extents = snap_absolute_plane(
+            stack, grid, axis, center, size
+        )
+        if grid is not None and issubclass(cls, fdtdx.GaussianPlaneSource) and "radius" not in fields:
+            fields["radius"] = 0.5 * min(snapped_extents) * 1e-6
 
-    fields: dict[str, Any] = {"name": spec.name}
     waves = _wave_characters(spec, settings)
     wave = waves[0] if waves else _wave_character(settings.wavelength_um)
     if kind.wave == "one":
@@ -684,10 +892,10 @@ def _create_absolute(spec: ObjectSpec, settings: SimSettings,
     fields.update(_extra_kwargs(kind, params))
     if kind.category == "detector" and settings.pulse_width_frac > 0 and "scaling_mode" in kind.extra:
         fields.setdefault("scaling_mode", "pulse")
-    obj = cls(partial_real_shape=tuple(real), partial_grid_shape=tuple(grid), **fields)
+    obj = cls(partial_real_shape=real, partial_grid_shape=grid_shape, **fields)
 
     reference = (float(stack.center[0]), float(stack.center[1]), float(stack.z_center))
-    margins = tuple((c - r) * 1e-6 for c, r in zip(center, reference, strict=True))
+    margins = tuple((c - r) * 1e-6 for c, r in zip(center_used, reference, strict=True))
     # a detector plane is anchored by the point fdtdx samples it at, like
     # ``StackDevice._at_port`` does (see ``detector_plane_own_positions``)
     from ..stack import detector_plane_own_positions
@@ -703,7 +911,7 @@ def _create_absolute(spec: ObjectSpec, settings: SimSettings,
 
 
 def _create(stack: Any, spec: ObjectSpec, settings: SimSettings,
-            volume: Any | None = None) -> tuple[Any, list[Any]]:
+            volume: Any | None = None, grid: Any = None) -> tuple[Any, list[Any]]:
     """Calls the device's ``create_*_at`` for one spec (spec D11).
 
     Builds the keyword arguments from the spec's parameters, falling back to the
@@ -713,7 +921,7 @@ def _create(stack: Any, spec: ObjectSpec, settings: SimSettings,
     """
     kind = TYPES[spec.type]
     if spec.absolute:
-        return _create_absolute(spec, settings, volume, stack)
+        return _create_absolute(spec, settings, volume, stack, grid=grid)
     method = getattr(stack, kind.method)
     params = spec.params
     kwargs: dict[str, Any] = {
@@ -728,6 +936,8 @@ def _create(stack: Any, spec: ObjectSpec, settings: SimSettings,
         kwargs["port_padding"] = (float(padding[0]), float(padding[1]))
         if kind.wave == "none":  # no wavelength of its own: the padding unit is the settings'
             kwargs["wavelength_um"] = float(settings.wavelength_um)
+        if grid is not None:
+            kwargs["grid"] = grid
 
     waves = _wave_characters(spec, settings)
     wave = waves[0] if waves else _wave_character(settings.wavelength_um)
@@ -823,19 +1033,31 @@ def build_objects(stack: Any, state: Any) -> tuple[list[Any], Any, list[Any]]:
     objects: list[Any] = [volume, stack]
     constraints = list(constraints)
 
+    adaptive = build_adaptive_mesh(stack, state) if settings.meshing == "adaptive" else None
+    if adaptive is not None:
+        config = stack.get_simulation_config(  # in the device's precision
+            time=settings.time_s,
+            grid=adaptive.grid,
+        )
+    else:
+        config = stack.get_simulation_config(  # in the device's precision
+            time=settings.time_s,
+            grid=fdtdx.core.grid.UniformGrid(spacing=settings.resolution_um * 1e-6),
+        )
+
+    grid_arg = config if adaptive is not None else None
     for spec in state.specs:
         if spec.id in getattr(state, "adopted", ()):
             continue  # adopted foreign detectors are already placed (D18)
-        obj, cons = _create(stack, spec, settings, volume=volume)
+        obj, cons = _create(stack, spec, settings, volume=volume, grid=grid_arg)
         objects.append(obj)
         constraints += cons
 
-    config = stack.get_simulation_config(  # in the device's precision
-        time=settings.time_s,
-        grid=fdtdx.core.grid.UniformGrid(spacing=settings.resolution_um * 1e-6),
-    )
-    pml = fdtdx.BoundaryConfig.from_uniform_bound(thickness=settings.pml_thickness)
-    boundaries, cons = fdtdx.boundary_objects_from_config(pml, volume)
+    if adaptive is not None:
+        boundaries, cons = fdtdx.boundary_objects_from_config(adaptive.boundary, volume)
+    else:
+        pml = fdtdx.BoundaryConfig.from_uniform_bound(thickness=settings.pml_thickness)
+        boundaries, cons = fdtdx.boundary_objects_from_config(pml, volume)
     objects += list(boundaries.values())
     constraints += cons
     return objects, config, constraints
@@ -877,7 +1099,8 @@ def _repr(value: Any) -> str:
 _RESERVED_IDENTS = frozenset({
     "bf", "fdtdx", "jax", "jnp", "stack", "volume", "config",
     "objects", "arrays", "params", "key", "constraints", "pml",
-    "boundaries", "cons", "_wave", "_pulse",
+    "boundaries", "cons", "_wave", "_pulse", "mesh", "refine",
+    "_real", "_cells", "_center", "_ext",
 })
 
 
@@ -918,6 +1141,7 @@ def _absolute_lines(
     wavelengths: Any,
     stack: Any,
     var: str | None = None,
+    adaptive: bool = False,
 ) -> list[str]:
     """The emitted construction for an absolutely-placed spec (spec R18).
 
@@ -930,17 +1154,30 @@ def _absolute_lines(
     center = [float(v) for v in spec.params["center"]]
     lines = [f"# {spec.name!r}: absolute placement (no create_*_at for it)"]
     owner = "bf" if spec.type in ("ModePlaneSource", "ModeOverlapDetector") else "fdtdx"
+    snap_plane = adaptive and kind.plane
+    if snap_plane:
+        size = spec.params.get("size") or (0.0, 0.0)
+        lines.append(
+            f"_real, _cells, _center, _ext = bf.viewer.sim.snap_absolute_plane("
+            f"stack, config, {axis}, {_seq(center)}, {_seq(size)})"
+        )
     lines.append(f"{ident} = {owner}.{spec.type}(")
     if kind.plane:
-        size = spec.params.get("size") or (0.0, 0.0)
-        real: list[str | None] = ["None", "None", "None"]
-        grid = ["None", "None", "None"]
-        u_axis, v_axis = _IN_PLANE[axis]
-        grid[axis] = "1"
-        real[u_axis] = f"{_num(size[0])} * 1e-6"
-        real[v_axis] = f"{_num(size[1])} * 1e-6"
-        lines.append(f"    partial_real_shape=({real[0]}, {real[1]}, {real[2]}),")
-        lines.append(f"    partial_grid_shape=({grid[0]}, {grid[1]}, {grid[2]}),")
+        if snap_plane:
+            lines.append("    partial_real_shape=_real,")
+            lines.append("    partial_grid_shape=_cells,")
+        else:
+            size = spec.params.get("size") or (0.0, 0.0)
+            real: list[str | None] = ["None", "None", "None"]
+            grid = ["None", "None", "None"]
+            u_axis, v_axis = _IN_PLANE[axis]
+            grid[axis] = "1"
+            real[u_axis] = f"{_num(size[0])} * 1e-6"
+            real[v_axis] = f"{_num(size[1])} * 1e-6"
+            lines.append(f"    partial_real_shape=({real[0]}, {real[1]}, {real[2]}),")
+            lines.append(f"    partial_grid_shape=({grid[0]}, {grid[1]}, {grid[2]}),")
+        if snap_plane and spec.type == "GaussianPlaneSource":
+            lines.append("    radius=0.5 * min(_ext) * 1e-6,")
     else:
         lines.append("    partial_grid_shape=(1, 1, 1),")
     lines.append(f"    name={spec.name!r},")
@@ -964,9 +1201,14 @@ def _absolute_lines(
     own = f"bf.stack.detector_plane_own_positions({axis})" if kind.plane and kind.category == "detector" else "(0, 0, 0)"
     lines.append(f"    stack, axes=(0, 1, 2), own_positions={own}, other_positions=(0, 0, 0),")
     lines.append("    margins=(")
-    lines.append(f"        ({_num(center[0])} - float(stack.center[0])) * 1e-6,")
-    lines.append(f"        ({_num(center[1])} - float(stack.center[1])) * 1e-6,")
-    lines.append(f"        ({_num(center[2])} - float(stack.z_center)) * 1e-6,")
+    if snap_plane:
+        lines.append("        (_center[0] - float(stack.center[0])) * 1e-6,")
+        lines.append("        (_center[1] - float(stack.center[1])) * 1e-6,")
+        lines.append("        (_center[2] - float(stack.z_center)) * 1e-6,")
+    else:
+        lines.append(f"        ({_num(center[0])} - float(stack.center[0])) * 1e-6,")
+        lines.append(f"        ({_num(center[1])} - float(stack.center[1])) * 1e-6,")
+        lines.append(f"        ({_num(center[2])} - float(stack.z_center)) * 1e-6,")
     lines.append("    ),")
     lines.append(")]")
     return lines
@@ -1041,6 +1283,29 @@ def launch_code(stack: Any, state: Any) -> str:
     lines.append("volume, constraints = stack.get_simulation_volume()")
     lines.append("objects = [volume, stack]")
 
+    adaptive = settings.meshing == "adaptive"
+    if adaptive:
+        band = _mesh_wavelength(state)
+        band_src = _seq(band) if isinstance(band, tuple) else _num(band)
+        dilation_items = ", ".join(f"{layer!r}: {_num(val)}" for layer, val in settings.dilation_layers)
+        lines.append("refine = bf.Refine(")
+        lines.append(f"    dilation={{{dilation_items}}},")
+        lines.append(f"    global_dilation={_num(settings.global_dilation)},")
+        lines.append(f"    global_z_padding={_num(settings.global_z_padding)},")
+        lines.append(")")
+        lines.append("mesh = bf.mesh(")
+        lines.append("    stack,")
+        lines.append(f"    {band_src},")
+        lines.append(f"    ppw={_num(settings.ppw)},")
+        lines.append("    refine=refine,")
+        lines.append(f"    pml={_num(settings.pml_um)},")
+        lines.append(f"    growth={_num(settings.mesh_growth)},")
+        lines.append(")")
+        lines.append("config = stack.get_simulation_config(")
+        lines.append(f"    time={_num(settings.time_s)},")
+        lines.append("    grid=mesh.grid,")
+        lines.append(")")
+
     # one call per spec, in spec order, with the same fallbacks _create applies
     used = set(_RESERVED_IDENTS)
     for spec in state.specs:
@@ -1055,7 +1320,7 @@ def launch_code(stack: Any, state: Any) -> str:
         if spec.absolute:
             # R18: no create_*_at exists for absolute placement, so the tail
             # constructs the object directly, as _create_absolute does
-            lines.extend(_absolute_lines(spec, kind, settings, wavelengths, stack, var=ident))
+            lines.extend(_absolute_lines(spec, kind, settings, wavelengths, stack, var=ident, adaptive=adaptive))
             lines.append(f"objects.append({ident})")
             lines.append(f"constraints += cons_{ident}")
             continue
@@ -1080,6 +1345,8 @@ def launch_code(stack: Any, state: Any) -> str:
             args.append(f"level={spec.params['level']!r}")
         args.append(f"port_offset={_num(spec.params.get('port_offset', 0.0))}")
         args.append(f"name={spec.name!r}")
+        if adaptive and kind.plane:
+            args.append("grid=config")
         lines.append(f"{ident}, cons_{ident} = stack.{kind.method}(")
         for arg in args:
             lines.append(f"    {arg},")
@@ -1088,13 +1355,16 @@ def launch_code(stack: Any, state: Any) -> str:
         lines.append(f"constraints += cons_{ident}")
 
     # the config and the PML boundaries, as build_objects builds them
-    lines.append("config = stack.get_simulation_config(")
-    lines.append(f"    time={_num(settings.time_s)},")
-    lines.append("    grid=fdtdx.core.grid.UniformGrid(spacing="
-                 f"{_num(settings.resolution_um)} * 1e-6),")
-    lines.append(")")
-    lines.append(f"pml = fdtdx.BoundaryConfig.from_uniform_bound(thickness={int(settings.pml_thickness)})")
-    lines.append("boundaries, cons = fdtdx.boundary_objects_from_config(pml, volume)")
+    if adaptive:
+        lines.append("boundaries, cons = fdtdx.boundary_objects_from_config(mesh.boundary, volume)")
+    else:
+        lines.append("config = stack.get_simulation_config(")
+        lines.append(f"    time={_num(settings.time_s)},")
+        lines.append("    grid=fdtdx.core.grid.UniformGrid(spacing="
+                     f"{_num(settings.resolution_um)} * 1e-6),")
+        lines.append(")")
+        lines.append(f"pml = fdtdx.BoundaryConfig.from_uniform_bound(thickness={int(settings.pml_thickness)})")
+        lines.append("boundaries, cons = fdtdx.boundary_objects_from_config(pml, volume)")
     lines.append("objects += list(boundaries.values())")
     lines.append("constraints += cons")
 
@@ -1263,6 +1533,8 @@ def sampled_coordinate(axis: int, coord_um: float, box_um: float, resolution_um:
 
 def _snap_to_samples(glyph: dict[str, Any], spec: ObjectSpec, stack: Any, settings: SimSettings) -> None:
     """Moves a detector plane glyph's normal coordinate onto its sample point, in place."""
+    if settings.meshing != "uniform":
+        return
     kind = TYPES[spec.type]
     shape = getattr(stack, "partial_real_shape", None)
     if not (kind.plane and kind.category == "detector") or shape is None or None in tuple(shape):
