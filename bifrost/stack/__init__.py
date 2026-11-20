@@ -25,9 +25,10 @@ Geometry (lengths in grid cells inside, gds/stack units are um):
   vertices (``derived_shapes="exact"``; :func:`derive_polygons`), or, with
   ``derived_shapes="composite"`` and where a level's sizing below its root
   cannot be drawn that way, the layers' distances combined with ``or = min``,
-  ``and = max``, ``not = max(a, -b)``; layers that cover the
-  whole wafer (``fill_layers``, default WAFER) and background levels are
-  everywhere inside;
+  ``and = max``, ``not = max(a, -b)``; layers whose material is applied to
+  the inverse of their geometry (``inverted_layers``, default WAFER, which
+  covers the whole plane when empty) and background levels are everywhere
+  inside outside their polygons;
 - a level at height z offsets its distance by
   ``(z - z_ref) * tan(sidewall_angle) - bias - z_to_bias(z)`` with
   ``z_ref = zmin + width_to_z * thickness``; along z each voxel is split at the
@@ -178,6 +179,8 @@ from ._layers import (
     _sizing,
     _compile_layer,
     _compile_level,
+    _add_grow,
+    _simplify_expr,
     _expr_layers,
     _expr_can_draw,
     _expr_positive_layers,

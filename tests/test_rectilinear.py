@@ -132,7 +132,6 @@ def test_conductivity_scale():
 def device(**kwargs) -> bf.StackDevice:
     c = gf.Component()
     c.add_polygon([(0.0, 0.0), (1.0, 0.0), (1.0, 0.5), (0.0, 0.5)], layer=L.WG)
-    c.add_polygon([(-0.2, -0.2), (1.2, -0.2), (1.2, 0.7), (-0.2, 0.7)], layer=L.WAFER)
     ls = LayerStack(layers={
         "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
         "under": LayerLevel(layer=L.WAFER, zmin=-1.0, thickness=0.85, material="sio2", mesh_order=9),
@@ -861,12 +860,6 @@ def test_mode_source_and_overlap_are_port_area_invariant_on_graded_grids():
     bend = c << gf.components.bend_euler(radius=1.8, width=0.45, layer=L.WG, allow_min_radius_violation=True)
     c.add_port("o1", port=bend.ports["o1"])
     c.add_port("o2", port=bend.ports["o2"])
-    b = c.bbox()
-    c.add_polygon(
-        [(b.left - 2.0, b.bottom - 2.0), (b.right + 2.0, b.bottom - 2.0),
-         (b.right + 2.0, b.top + 2.0), (b.left - 2.0, b.top + 2.0)],
-        layer=L.WAFER,
-    )
     ls = LayerStack(layers={
         "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
         "box": LayerLevel(layer=L.WAFER, zmin=-1.5, thickness=1.5, material="sio2", mesh_order=2),

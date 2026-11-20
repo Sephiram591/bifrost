@@ -1300,63 +1300,6 @@ def _static_source_topology(device: Any) -> dict[int, np.ndarray]:
     return out
 
 
-def _add_grow(expr: tuple, grow: float) -> tuple:
-    """Fold an additional scalar grow ``grow`` (um) into a boolean geometry expression."""
-    if not grow:
-        return expr
-    kind = expr[0]
-    if kind in ("fill", "empty"):
-        return expr
-    if kind == "layer":
-        return ("layer", int(expr[1]), float(expr[2]) + grow)
-    return (kind, expr[1], expr[2], float(expr[3]) + grow)
-
-
-def _simplify_expr(expr: tuple, valid_sources: set[int] | dict[int, Any]) -> tuple:
-    """Propagate ``empty``/``fill`` identities through a LayerStack expression tree."""
-    kind = expr[0]
-    if kind == "fill":
-        return ("fill", 0.0)
-    if kind == "empty":
-        return ("empty", 0.0)
-    if kind == "layer":
-        idx = int(expr[1])
-        return expr if idx in valid_sources else ("empty", 0.0)
-    left = _simplify_expr(expr[1], valid_sources)
-    right = _simplify_expr(expr[2], valid_sources)
-    grow = float(expr[3])
-    lk, rk = left[0], right[0]
-    if kind == "or":
-        if lk == "fill" or rk == "fill":
-            return ("fill", 0.0)
-        if lk == "empty":
-            return _add_grow(right, grow)
-        if rk == "empty":
-            return _add_grow(left, grow)
-    elif kind == "and":
-        if lk == "empty" or rk == "empty":
-            return ("empty", 0.0)
-        if lk == "fill":
-            return _add_grow(right, grow)
-        if rk == "fill":
-            return _add_grow(left, grow)
-    elif kind == "not":
-        if lk == "empty" or rk == "fill":
-            return ("empty", 0.0)
-        if rk == "empty":
-            return _add_grow(left, grow)
-    elif kind == "xor":
-        if lk == "empty":
-            return _add_grow(right, grow)
-        if rk == "empty":
-            return _add_grow(left, grow)
-        if lk == "fill":
-            return ("not", ("fill", 0.0), right, grow)
-        if rk == "fill":
-            return ("not", ("fill", 0.0), left, grow)
-    return (kind, left, right, grow)
-
-
 def _level_kind_and_parts(
     device: Any,
     lv: Any,
@@ -1364,7 +1307,7 @@ def _level_kind_and_parts(
     sources: dict[int, Any] | None = None,
 ) -> tuple[str, Any]:
     """Classify a level as ('fill', 0), ('empty', 0), ('boundary', (slots, negate, root_grow)), or ('sdf', expr)."""
-    from .stack._layers import _inner_grows, _root_grow
+    from .stack._layers import _inner_grows, _root_grow, _simplify_expr
 
     if lv.name in derived_meta:
         parts = derived_meta[lv.name]

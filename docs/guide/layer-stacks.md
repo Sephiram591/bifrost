@@ -46,8 +46,7 @@ Display the device with `viewer = bf.view(stack)`; see [Viewer](viewer.md).
 
 ## Adding a substrate
 
-Next, place the same guide on a 2 µm silica substrate under air. The substrate sits on the `WAFER` layer, which fills the
-entire xy plane and needs no polygon of its own:
+Next, place the same guide on a 2 µm silica substrate under air. The substrate sits on the `WAFER` layer, which is in `inverted_layers` by default, so with no polygons drawn on `WAFER` its inverse fills the entire xy plane:
 
 ```python
 --8<-- "examples/guide/layer_stacks.py:substrate"
@@ -64,7 +63,7 @@ Besides the arguments above, `from_layer_stack` takes:
 | Argument | Meaning |
 | --- | --- |
 | `extend_ports` | also `(port, length, [layers])`, to extend only some layers |
-| `fill_layers` | layers that cover the whole plane (default `WAFER`) |
+| `inverted_layers` | layers whose material is applied to the inverse of their geometry (default `WAFER`, which covers the whole plane when empty) |
 | `level_margin` | include levels within this distance of the box, so their `zmin` can move into it |
 | `dtype` | `jnp.float32` (default) or `jnp.float64`: the precision of the whole simulation, see [Precision](simulation-setup.md#precision) |
 

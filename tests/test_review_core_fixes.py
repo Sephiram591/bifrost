@@ -548,7 +548,7 @@ def test_retopologize_grows_junction_voxels_and_check_topology_fill_only() -> No
     _, st_g = retop_g.write_with_status(arrs_g, retop_g.pack(comp_dense))
     assert int(st_g["junction_overflow"]) == 0
 
-    comp_fill = _poly_comp({WAFER: [_rect(-0.3, -0.3, 0.3, 0.3)]})
+    comp_fill = _poly_comp({SLAB: [_rect(-0.3, -0.3, 0.3, 0.3)]})
     ls_fill = LayerStack(layers={"sub": LayerLevel(layer=WAFER, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})
     fill_dev = StackDevice.from_layer_stack(
         comp_fill,
@@ -556,10 +556,22 @@ def test_retopologize_grows_junction_voxels_and_check_topology_fill_only() -> No
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
         background="air",
         zrange_layers=["sub"],
-        fill_layers=(WAFER,),
+        inverted_layers=(WAFER,),
     )
     assert fill_dev.source_layers == ()
     assert fill_dev.check_topology({}) is None
+
+    comp_inv = _poly_comp({WAFER: [_rect(-0.3, -0.3, 0.3, 0.3)]})
+    inv_dev = StackDevice.from_layer_stack(
+        comp_inv,
+        ls_fill,
+        {"air": MATERIALS["air"], "si": MATERIALS["si"]},
+        background="air",
+        zrange_layers=["sub"],
+        inverted_layers=(WAFER,),
+    )
+    assert inv_dev.source_layers == (("vertices/WAFER", int(gf.get_layer(WAFER))),)
+    assert inv_dev.levels[0].expr == ("not", ("fill", 0.0), ("layer", int(gf.get_layer(WAFER)), 0.0), 0.0)
 
 
 # --------------------------------------------------------------------------- E-BF-09

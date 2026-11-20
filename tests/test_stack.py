@@ -2732,9 +2732,9 @@ def test_polygons_on_a_layer_the_device_was_built_without() -> None:
         **ls.layers, "slab": LayerLevel(layer=SLAB, zmin=0.55, thickness=0.03, material="si", mesh_order=3)
     })
     unplaced = build(_waveguide_to(2.0, 2.0), high, **kwargs)
-    assert {name for _, readers in unplaced.empty_layers for name, *_ in readers} == {"core", "slab"}
+    assert {name for _, readers in unplaced.empty_layers for name, *_ in readers} == {"box", "clad", "core", "slab"}
     objects, _, _ = place(unplaced)
-    assert {name for _, readers in objects["stack"].empty_layers for name, *_ in readers} == {"core"}
+    assert {name for _, readers in objects["stack"].empty_layers for name, *_ in readers} == {"box", "clad", "core"}
     objects["stack"].pack(_rib_to(2.0))
 
 
@@ -4159,3 +4159,304 @@ def test_a_detector_without_a_wave_needs_a_wavelength_for_its_padding() -> None:
     plain, _ = d.create_field_detector_at("o2", (0.0, 0.0))
     padded, _ = d.create_field_detector_at("o2", (1.0, 1.0), wavelength_um=1.0)
     assert float(padded.partial_real_shape[1]) - float(plain.partial_real_shape[1]) == pytest.approx(2.0e-6)
+
+
+# ---------------------------------------------------------------- inverted_layers
+
+
+def test_inverted_layers_geometry_bias_sidewall_and_voxelizer_parity() -> None:
+    """An inverted layer applies material outside its polygons, with bias/sizing/sidewall parity across voxelizers."""
+    c = gf.Component()
+    # Two overlapping polygons on ETCH form one dumbbell cutout; WG sets a larger box.
+    c.add_polygon(_rect(-0.30, -0.15, 0.05, 0.15), layer=ETCH)
+    c.add_polygon(_rect(-0.05, -0.15, 0.30, 0.15), layer=ETCH)
+    c.add_polygon(_rect(-0.70, -0.50, 0.70, 0.50), layer=WG)
+
+    ls_vert = LayerStack(
+        layers={
+            "inv": LayerLevel(
+                layer=LogicalLayer(layer=ETCH).sized(20),  # +0.02 um grows inverted material (shrinks hole)
+                zmin=0.0,
+                thickness=0.22,
+                material="si",
+                mesh_order=1,
+                bias=0.02,  # +0.02 um more -> total hole shrink = 0.04 um
+            )
+        }
+    )
+    ls_sloped = LayerStack(
+        layers={
+            "inv": LayerLevel(
+                layer=ETCH,
+                zmin=0.0,
+                thickness=0.20,
+                material="si",
+                mesh_order=1,
+                sidewall_angle=15.0,
+                width_to_z=0.0,
+            )
+        }
+    )
+    mats = {"air": MATERIALS["air"], "si": MATERIALS["si"]}
+    common = dict(
+        materials=mats,
+        background="air",
+        zrange_layers=["inv"],
+        boundary_offset=(0.1, -0.1, 0.1, -0.1, 0.04, -0.04),
+        inverted_layers=(WAFER, ETCH),
+    )
+
+    weights = {}
+    for voxelizer in ("greens", "legacy"):
+        d = bf.stack.StackDevice.from_layer_stack(c, ls_vert, name="s", voxelizer=voxelizer, **common)
+        assert len(d.derived_layers) == 1 and d.derived_layers[0].recipes[0].negate
+        objects, _, params = _place_own_volume(d)
+        placed = objects["s"]
+        names, w = placed.material_weights(params["s"])
+        weights[voxelizer] = np.asarray(w[names.index("si")])
+        # Outside the hole: si; well inside the hole (|x| < 0.2, |y| < 0.05): air
+        assert float(weights[voxelizer][cell(placed, -0.35, 0.0, 0.11)]) == pytest.approx(1.0)
+        assert float(weights[voxelizer][cell(placed, 0.0, 0.0, 0.11)]) == pytest.approx(0.0)
+    np.testing.assert_allclose(weights["greens"], weights["legacy"], atol=1e-4)
+
+    # Check total shrunk-hole cross-sectional area at z = 0.11 um matches exact analytical area:
+    # box around ETCH is 0.8 x 0.5 um^2 minus shrunk rectangle [-0.26, 0.26] x [-0.11, 0.11] (0.52 * 0.22)
+    d0 = bf.stack.StackDevice.from_layer_stack(c, ls_vert, name="s", **common)
+    objs0, _, pars0 = _place_own_volume(d0)
+    k_mid = cell(objs0["s"], 0.0, 0.0, 0.11)[2]
+    si_area = float(weights["greens"][:, :, k_mid].sum()) * (RES**2)
+    assert si_area == pytest.approx(0.8 * 0.5 - 0.52 * 0.22, abs=2e-3)
+
+    # Sloped sidewall (> 0): inverted material narrows toward the top, so etched hole widens toward the top.
+    s_weights = {}
+    for voxelizer in ("greens", "legacy"):
+        ds = bf.stack.StackDevice.from_layer_stack(c, ls_sloped, name="s", voxelizer=voxelizer, **common)
+        objs, _, pars = _place_own_volume(ds)
+        placed = objs["s"]
+        names, w = placed.material_weights(pars["s"])
+        s_weights[voxelizer] = np.asarray(w[names.index("si")])
+        k_bot = cell(placed, 0.0, 0.0, 0.01)[2]
+        k_top = cell(placed, 0.0, 0.0, 0.19)[2]
+        assert float(s_weights[voxelizer][:, :, k_top].sum()) < float(s_weights[voxelizer][:, :, k_bot].sum()) - 1.0
+    np.testing.assert_allclose(s_weights["greens"], s_weights["legacy"], atol=0.05)
+    assert float(s_weights["greens"].sum()) == pytest.approx(float(s_weights["legacy"].sum()), rel=1e-3)
+
+
+def test_inverted_layers_default_wafer_override_and_deprecated_fill_layers() -> None:
+    """Default inverted_layers=(WAFER,): empty WAFER fills; drawn WAFER cuts out; inverted_layers=() disables."""
+    with pytest.raises(TypeError):
+        build(fill_layers=(WAFER,))  # type: ignore[call-arg]
+
+    c_no_wafer = _straight(0.0)
+    d_default = bf.stack.StackDevice.from_layer_stack(
+        c_no_wafer, stack(), MATERIALS, background="air", name="stack", zrange_layers=["core"]
+    )
+    box_lv = next(lv for lv in d_default.levels if lv.name == "box")
+    assert box_lv.expr == ("fill", 0.0)
+    assert int(gf.get_layer(WAFER)) in box_lv.declared_layers
+    assert any(idx == int(gf.get_layer(WAFER)) for idx, _ in d_default.empty_layers)
+
+    c_with_wafer = _straight(0.0)
+    c_with_wafer.add_polygon(_rect(0.5, -0.2, 1.5, 0.2), layer=WAFER)
+    with pytest.raises(ValueError, match="WAFER"):
+        d_default.check_topology(c_with_wafer)
+    with pytest.raises(ValueError, match="WAFER"):
+        d_default.retopologize(c_with_wafer)
+
+    # Drawing a polygon on WAFER with default inverted_layers punches a cutout in the WAFER level.
+    ls_wafer = LayerStack(
+        layers={
+            "box": LayerLevel(layer=WAFER, zmin=-0.2, thickness=0.2, material="sio2", mesh_order=9),
+            "core": LayerLevel(layer=WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
+        }
+    )
+    d_cutout = bf.stack.StackDevice.from_layer_stack(
+        c_with_wafer,
+        ls_wafer,
+        {"air": MATERIALS["air"], "sio2": MATERIALS["sio2"], "si": MATERIALS["si"]},
+        background="air",
+        name="stack",
+        zrange_layers=["box", "core"],
+        boundary_offset=(0.2, -0.2, 0.4, -0.4, 0.0, 0.0),
+    )
+    objs, _, params = _place_own_volume(d_cutout)
+    placed = objs["stack"]
+    names, w = placed.material_weights(params["stack"])
+    w_map = {n: np.asarray(w[i]) for i, n in enumerate(names)}
+    assert float(w_map["sio2"][cell(placed, 0.1, 0.0, -0.1)]) == pytest.approx(1.0)
+    assert float(w_map["air"][cell(placed, 1.0, 0.0, -0.1)]) == pytest.approx(1.0)
+
+    # Disabling inverted_layers=() treats WAFER as a normal positive polygon layer.
+    d_pos = bf.stack.StackDevice.from_layer_stack(
+        c_with_wafer,
+        ls_wafer,
+        {"air": MATERIALS["air"], "sio2": MATERIALS["sio2"], "si": MATERIALS["si"]},
+        background="air",
+        name="stack",
+        zrange_layers=["box", "core"],
+        boundary_offset=(0.2, -0.2, 0.4, -0.4, 0.0, 0.0),
+        inverted_layers=(),
+    )
+    objs_p, _, params_p = _place_own_volume(d_pos)
+    placed_p = objs_p["stack"]
+    names_p, wp = placed_p.material_weights(params_p["stack"])
+    wp_map = {n: np.asarray(wp[i]) for i, n in enumerate(names_p)}
+    assert float(wp_map["air"][cell(placed_p, 0.1, 0.0, -0.1)]) == pytest.approx(1.0)
+    assert float(wp_map["sio2"][cell(placed_p, 1.0, 0.0, -0.1)]) == pytest.approx(1.0)
+
+
+def test_inverted_layers_derived_expressions() -> None:
+    """Boolean expressions combining inverted and non-inverted layers simplify and evaluate accurately."""
+    c = gf.Component()
+    c.add_polygon(_rect(0.0, -0.3, 1.0, 0.3), layer=WG)
+    c.add_polygon(_rect(0.4, -0.4, 0.8, 0.4), layer=ETCH)
+
+    # 1. WAFER - ETCH (empty WAFER, ETCH inverted) folds double negation and preserves negated sizing cleanly.
+    # 2. WG - WAFER (empty WAFER) folds to empty and is skipped without requiring its material.
+    # 3. WAFER - WG - ETCH (both WAFER and ETCH empty/non-empty) draws complement of WG | ETCH.
+    ls = LayerStack(
+        layers={
+            "double_neg": LayerLevel(
+                layer=LogicalLayer(layer=WAFER) - LogicalLayer(layer=ETCH).sized(20),
+                derived_layer=LogicalLayer(layer=WAFER),
+                zmin=0.0,
+                thickness=0.2,
+                material="si",
+                mesh_order=1,
+            ),
+            "skipped": LayerLevel(
+                layer=LogicalLayer(layer=WG) - LogicalLayer(layer=WAFER),
+                derived_layer=LogicalLayer(layer=WG),
+                zmin=0.0,
+                thickness=0.2,
+                material="missing_material",
+                mesh_order=2,
+            ),
+            "bg_level": LayerLevel(
+                layer=LogicalLayer(layer=WAFER) - LogicalLayer(layer=WG) - LogicalLayer(layer=ETCH),
+                derived_layer=LogicalLayer(layer=WAFER),
+                zmin=-0.2,
+                thickness=0.2,
+                material="sio2",
+                mesh_order=9,
+            ),
+        }
+    )
+    mats = {"air": MATERIALS["air"], "si": MATERIALS["si"], "sio2": MATERIALS["sio2"]}
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", bf.stack.StackDiagnosticWarning)
+        d = bf.stack.StackDevice.from_layer_stack(
+            c,
+            ls,
+            mats,
+            background="air",
+            name="stack",
+            zrange_layers=["bg_level", "double_neg"],
+            boundary_offset=(0.2, -0.2, 0.2, -0.2, 0.0, 0.0),
+            inverted_layers=(WAFER, ETCH),
+        )
+    assert [lv.name for lv in d.levels] == ["double_neg", "bg_level"]
+    assert d.levels[0].expr == ("layer", int(gf.get_layer(ETCH)), -0.02)
+
+    objs, _, params = _place_own_volume(d)
+    placed = objs["stack"]
+    names, w = placed.material_weights(params["stack"])
+    w_map = {n: np.asarray(w[i]) for i, n in enumerate(names)}
+    # double_neg = ETCH shrunk by 0.02 um: [0.42, 0.78] x [-0.38, 0.38]
+    assert float(w_map["si"][cell(placed, 0.6, 0.0, 0.1)]) == pytest.approx(1.0)
+    assert float(w_map["air"][cell(placed, 0.2, 0.0, 0.1)]) == pytest.approx(1.0)
+    # bg_level = WAFER - WG - (WAFER - ETCH) = (~WG) & ETCH: inside ETCH & outside WG ([0.4, 0.8], y=0.35)
+    assert float(w_map["sio2"][cell(placed, 0.6, 0.35, -0.1)]) == pytest.approx(1.0)
+    assert float(w_map["air"][cell(placed, 0.6, 0.0, -0.1)]) == pytest.approx(1.0)
+    assert float(w_map["air"][cell(placed, 0.1, 0.0, -0.1)]) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("port_width_mode", ["core", "total"])
+def test_inverted_layers_negative_tone_waveguide_end_to_end(port_width_mode: str) -> None:
+    """Negative-tone waveguide on ETCH: extend_ports, port sources, gradients, retopologize, mesh, and viewer."""
+    solids = pytest.importorskip("bifrost.viewer.solids")
+    state = pytest.importorskip("bifrost.viewer.state")
+
+    outer_y = 1.0
+
+    def neg_wg(core_w: float, port_w: float | None = None) -> gf.Component:
+        c = gf.Component()
+        # Two trench rails on ETCH leaving a core_w strip of material in between.
+        c.add_polygon(_rect(0.0, 0.5 * core_w, 2.0, outer_y), layer=ETCH)
+        c.add_polygon(_rect(0.0, -outer_y, 2.0, -0.5 * core_w), layer=ETCH)
+        if port_w is not None:
+            pw = port_w
+        else:
+            pw = core_w if port_width_mode == "core" else 2.0 * outer_y
+        c.add_port("o1", center=(0.0, 0.0), width=pw, orientation=180, layer=ETCH)
+        c.add_port("o2", center=(2.0, 0.0), width=pw, orientation=0, layer=ETCH)
+        return c
+
+    ls = LayerStack(
+        layers={
+            "box": LayerLevel(layer=WAFER, zmin=-0.3, thickness=0.3, material="sio2", mesh_order=9),
+            "core": LayerLevel(layer=ETCH, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
+        }
+    )
+    mats = {"air": MATERIALS["air"], "sio2": MATERIALS["sio2"], "si": MATERIALS["si"]}
+    d = bf.stack.StackDevice.from_layer_stack(
+        neg_wg(0.5),
+        ls,
+        mats,
+        background="air",
+        name="stack",
+        zrange_layers=["box", "core"],
+        extend_ports=(("o1", 0.4), ("o2", 0.4)),
+        boundary_offset=(0.0, 0.0, 0.3, -0.3, 0.28, 0.0),
+        inverted_layers=(WAFER, ETCH),
+    )
+    assert len(d.source_extensions[0]) == 4  # 2 trenches x 2 ports, no hole across core
+    assert d.diagnose(RES) == []
+
+    # Port source matches "core" via declared_layers.
+    wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
+    src, src_cons = d.create_mode_plane_source_at("o1", (0.1, 0.1), wave_character=wave)
+    assert float(src.partial_real_shape[2]) == pytest.approx((0.22 + 2 * 0.1 * 1.55) * 1e-6)
+
+    # Check extended waveguide cross-section and gradient wrt core_w.
+    objects, _, params = _place_own_volume(d, extra=[(src, src_cons)])
+    placed = objects["stack"]
+    names, w = placed.material_weights(params["stack"])
+    w_map = {n: np.asarray(w[i]) for i, n in enumerate(names)}
+    for x in (-0.25, 1.0, 2.25):
+        assert float(w_map["si"][cell(placed, x, 0.0, 0.11)]) == pytest.approx(1.0)
+        assert float(w_map["air"][cell(placed, x, 0.55, 0.11)]) == pytest.approx(1.0)
+        assert float(w_map["si"][cell(placed, x, 1.15, 0.11)]) == pytest.approx(1.0)
+
+    si_idx = names.index("si")
+
+    def si_vol(cw) -> jax.Array:
+        p = {**params["stack"], **placed.pack(neg_wg(cw))}
+        return placed.material_weights(p)[1][si_idx].sum()
+
+    cw0 = 0.5137
+    g = float(jax.grad(si_vol)(cw0))
+    h = 1e-3
+    fd = (float(si_vol(cw0 + h)) - float(si_vol(cw0 - h))) / (2 * h)
+    assert g == pytest.approx(fd, rel=5e-3)
+    assert g * (RES**3) == pytest.approx(2.8 * 0.22, rel=0.02)
+
+    # check_topology / retopologize
+    d.check_topology(neg_wg(0.5))
+    retop = placed.retopologize(neg_wg(0.6))
+    retop.check_topology(neg_wg(0.6))
+    if port_width_mode == "core":
+        # Changing trench separation without changing port width moves trenches off the narrower port face.
+        c_narrow_port = neg_wg(0.6, port_w=0.5)
+        with pytest.raises(ValueError, match="cross-section at port 'o1' changed"):
+            d.check_topology(c_narrow_port)
+
+    # bf.mesh works cleanly on inverted levels.
+    m = bf.mesh(placed, 1.55, ppw=12, pml=0.2)
+    assert len(m.edges[0]) > 10
+
+    # Viewer distinguishes empty fill level (box) from patterned inverted level (core) and finds port level.
+    vs = state.ViewerState(placed)
+    assert vs.styles["box"].opacity == state.FILL_OPACITY
+    assert vs.styles["core"].opacity == state.LEVEL_OPACITY
+    assert solids._port_level(placed, int(gf.get_layer(ETCH))).name == "core"

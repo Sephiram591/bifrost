@@ -413,7 +413,7 @@ def _port_level(device: Any, layer: int) -> Any | None:
     from ..stack import _expr_layers
 
     for level in device.levels:
-        if layer in _expr_layers(level.expr) or layer == getattr(level, "fill_layer", None):
+        if layer in _expr_layers(level.expr) or layer in getattr(level, "declared_layers", ()):
             return level
     return None
 

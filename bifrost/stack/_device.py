@@ -10,7 +10,7 @@ import fdtdx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Container, Sequence
 from enum import Enum
 from functools import lru_cache, partial
 from typing import Any, Literal, Self
@@ -119,6 +119,7 @@ from ._layers import (
     _root_grow,
     _shape_region,
     _shapely_polygons,
+    _simplify_expr,
     _span,
     _topology_tol,
     _unit_normal,
@@ -346,6 +347,8 @@ class StackDevice(StaticMultiMaterialObject):
         extended_ports: (port, length, layers it may continue) per extended port.
         empty_layers: stack layers the levels in the box read that had no
             polygons, with those levels.
+        inverted_layers: layer indices whose material is applied to the
+            inverse of their geometry.
         topology_tol: distance (um) within which the polygon topology is found
             (None: 2 database units of the layout), plus float32 round-off.
         ports: the component's ports.
@@ -430,6 +433,8 @@ class StackDevice(StaticMultiMaterialObject):
     #: read it as empty, and those that need it are not drawn, so polygons on it
     #: need a new device (`check_topology` reports them)
     empty_layers: tuple[tuple[int, tuple[tuple[str, float, float], ...]], ...] = frozen_field(default=())
+    #: layer indices whose material is applied to the inverse of their geometry
+    inverted_layers: tuple[int, ...] = frozen_field(default=())
     #: distance (um) within which a vertex lies on an edge of another polygon (a
     #: T-junction, split so that the partly shared edge is a seam), two vertices
     #: coincide (seams of abutting polygons) and a vertex is on a port face, when
@@ -567,7 +572,7 @@ class StackDevice(StaticMultiMaterialObject):
         extend_ports: Sequence[tuple[str, float] | tuple[str, float, Sequence[Any]]] = (),
         boundary_offset: Sequence[float] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         levels: Sequence[str] | None = None,
-        fill_layers: Sequence[Any] | None = None,
+        inverted_layers: Sequence[Any] | None = None,
         options: StackOptions | None = None,
         **kwargs: Any,
     ) -> Self:
@@ -575,8 +580,8 @@ class StackDevice(StaticMultiMaterialObject):
 
         ``extend_ports`` first adds a straight waveguide to each listed port. The
         box then starts as the xy bounding box of the polygons on the stack's
-        layers (extensions included; all polygons if the levels only fill the
-        plane) and the z range of ``zrange_layers``, and ``boundary_offset``
+        layers (extensions included; all polygons if no source layers have
+        polygons) and the z range of ``zrange_layers``, and ``boundary_offset``
         moves its faces without changing the geometry. Every level that overlaps
         the final box (or comes within ``level_margin`` of it) is drawn, also
         levels outside ``zrange_layers``, unless no polygon is on its layers.
@@ -598,15 +603,18 @@ class StackDevice(StaticMultiMaterialObject):
                 orientation (opposite to the direction light is injected through
                 the port): every stack layer (or only ``layers``) whose polygons
                 reach the port face, over a stretch that overlaps the port's
-                width, gets a rectangle as wide as that stretch, so a rib
-                waveguide continues with its slab and an etch over the port
+                width (or touches its boundary on an inverted layer), gets a
+                rectangle as wide as that stretch, so a rib waveguide continues
+                with its slab and an etch or negative-tone trench over the port
                 continues too. On the port's own layer, a port without polygons
                 at its face gets a rectangle of the port's width, unless that
-                layer is a fill layer: it already covers the plane, so only the
-                other layers reaching the face are extended. The extensions
-                are polygons like the others: every level draws them with its
-                thickness, sidewall angle and bias, and they follow the port and
-                the polygons' edges when the component's parameters change.
+                layer is an inverted layer: an empty inverted layer already
+                covers the plane, and no polygon on it already means material is
+                present, so only the other layers reaching the face are extended.
+                The extensions are polygons like the others: every level draws
+                them with its thickness, sidewall angle and bias, and they
+                follow the port and the polygons' edges when the component's
+                parameters change.
             boundary_offset: (x+, x-, y+, y-, z+, z-) in um. Moves each face of the
                 box along its axis, positive towards +x, +y or +z for both faces
                 of an axis (so (1, -1, ...) grows the box by 1 um on each side
@@ -614,7 +622,9 @@ class StackDevice(StaticMultiMaterialObject):
                 of the same layer stack.
             levels: levels that may be drawn (default: every level with a
                 material and nonzero thickness).
-            fill_layers: layers that cover the whole plane (default: WAFER).
+            inverted_layers: layers whose material is applied to the inverse of
+                their geometry (default: WAFER, which covers the whole plane
+                when no polygons are drawn on it).
             options: the geometry features (`StackOptions`; default: all
                 on, the most accurate). Its fields are StackDevice fields, which
                 can also be passed one by one in ``kwargs``, but not both.
@@ -631,8 +641,8 @@ class StackDevice(StaticMultiMaterialObject):
             KeyError: unknown level or port names, or a level in the box (or the
                 background) whose material is not in ``materials``.
             ValueError: invalid offsets or extensions (no orientation or width,
-                length <= 0, a port layer no level draws and that is not a fill
-                layer), an empty box, a
+                length <= 0, a port layer no level draws and that is not an
+                inverted layer), an empty box, a
                 negative ``topology_tol``, or a component without polygons.
             TypeError: a box field passed in ``kwargs``.
         """
@@ -673,9 +683,9 @@ class StackDevice(StaticMultiMaterialObject):
             raise KeyError(f"background {background!r} is not in materials")
         if _ANISOTROPY_SENTINEL in materials:
             raise ValueError(f"{_ANISOTROPY_SENTINEL!r} is reserved for the device's internal placeholder material")
-        if fill_layers is None:
-            fill_layers = [layer_stack_wafer_layer()]
-        fills = {int(get_layer(lay)) for lay in fill_layers if lay is not None}
+        if inverted_layers is None:
+            inverted_layers = [layer_stack_wafer_layer()]
+        inverted = {int(get_layer(lay)) for lay in inverted_layers if lay is not None}
 
         # z faces: the included levels, then the offsets
         spans = [_span(layer_stack.layers[n]) for n in zrange_layers]
@@ -690,7 +700,7 @@ class StackDevice(StaticMultiMaterialObject):
                 if levels is not None:
                     raise ValueError(f"Level {name!r} has no material or zero thickness")
                 continue
-            candidates.append((name, level, _compile_level(level, fills)))
+            candidates.append((name, level, _compile_level(level, inverted)))
         stack_layers = set().union(*(_expr_layers(expr) for *_, expr in candidates))
         lap("compile_levels")
 
@@ -723,7 +733,7 @@ class StackDevice(StaticMultiMaterialObject):
                 or not float(length) > 0
             ):
                 raise ValueError(f"Cannot extend port {name!r}: needs an orientation, a width and a length > 0")
-            if p.layer not in stack_layers and p.layer not in fills:
+            if p.layer not in stack_layers and p.layer not in inverted:
                 raise ValueError(f"Port {name!r} is on layer {p.layer}, which no level of the stack draws")
             layers = sorted(stack_layers)
             if only:
@@ -741,7 +751,7 @@ class StackDevice(StaticMultiMaterialObject):
         topology_tol = kwargs.get("topology_tol")
         if topology_tol is not None and not float(topology_tol) >= 0:
             raise ValueError(f"topology_tol must be >= 0, got {topology_tol}")
-        extensions, rectangles = _port_extensions(polygons, by_name, extended, topology_tol)
+        extensions, rectangles = _port_extensions(polygons, by_name, extended, topology_tol, inverted=inverted)
         lap("port_extensions")
 
         # xy faces: bounding box of the polygons on the stack's layers (any z;
@@ -827,18 +837,17 @@ class StackDevice(StaticMultiMaterialObject):
                 if any(zs[i + 1] <= zs[i] for i in range(len(zs) - 1)):
                     raise ValueError(f"Level {name!r}: z_to_bias heights must be strictly increasing, got {zs}")
                 z_to_bias = (zs, bs)
-            fill_layer = None
-            if expr[0] == "fill" and not level.background:
+            expr_simplified = _simplify_expr(expr, nonempty)
+            declared_layers: tuple[int, ...] = ()
+            if not level.background:
                 try:
-                    declared = _expr_positive_layers(_compile_layer(level.layer, set()))
+                    declared_layers = tuple(sorted(_expr_positive_layers(_compile_layer(level.layer, set()))))
                 except (KeyError, TypeError, ValueError):
-                    declared = set()
-                if len(declared) == 1:
-                    fill_layer = declared.pop()
+                    declared_layers = ()
             compiled.append(
                 _Level(
                     name=name,
-                    expr=expr,
+                    expr=expr_simplified,
                     zmin=zmin_val,
                     thickness=thick_val,
                     sidewall_angle=angle_val,
@@ -847,7 +856,7 @@ class StackDevice(StaticMultiMaterialObject):
                     z_to_bias=z_to_bias,
                     mesh_order=int(level.mesh_order),
                     material=level.material,
-                    fill_layer=fill_layer,
+                    declared_layers=declared_layers,
                 )
             )
         level_names = {lv.name for lv in compiled}
@@ -857,10 +866,11 @@ class StackDevice(StaticMultiMaterialObject):
 
         layer_ids = sorted(set().union(*(_expr_layers(lv.expr) for lv in compiled)))
         # extensions on layers no level in the box draws are dropped with them,
-        # but the port's own layer must be drawn, or fill the plane
+        # but the port's own layer must be drawn or be an inverted layer
+        drawn_or_declared = set(layer_ids).union(*(lv.declared_layers for lv in compiled))
         missing = [
             n for n, *_ in extend_ports
-            if by_name[n].layer not in layer_ids and by_name[n].layer not in fills
+            if by_name[n].layer not in drawn_or_declared and by_name[n].layer not in inverted
         ]
         if missing:
             raise ValueError(f"No level in the box draws the layer of the extended ports {missing}")
@@ -888,6 +898,7 @@ class StackDevice(StaticMultiMaterialObject):
             source_extensions=tuple(exts),
             extended_ports=tuple(extended),
             empty_layers=tuple((index, tuple(levels)) for index, levels in sorted(empty.items())),
+            inverted_layers=tuple(sorted(inverted)),
             dropped_levels=tuple(dropped),
             background=background,
             partial_real_shape=((x1 - x0) * 1e-6, (y1 - y0) * 1e-6, (z1 - z0) * 1e-6),
@@ -1196,6 +1207,7 @@ class StackDevice(StaticMultiMaterialObject):
                 by_name,
                 [(name, length, tuple(i for i in ls if i in drawn)) for name, length, ls in extended],
                 self.topology_tol,
+                inverted=self.inverted_layers,
             )
             verts, sizes, exts = [], [], []
             for k, index in self.source_layers:
@@ -1340,7 +1352,7 @@ class StackDevice(StaticMultiMaterialObject):
             if ports:
                 own = v[: sum(own_sizes)]
                 found += self._extension_changes(
-                    index, own, own_sizes, exts, extended, ports, self._topology_tol(own)
+                    index, own, own_sizes, exts, extended, ports, self._topology_tol(own), self.inverted_layers
                 )
             if not np.isfinite(v).all():
                 found.append(f"vertex {int(np.flatnonzero(~np.isfinite(v).all(axis=1))[0])} is not finite")
@@ -1421,6 +1433,7 @@ class StackDevice(StaticMultiMaterialObject):
         extended: Sequence[tuple[str, float, tuple[int, ...]]],
         ports: dict[str, _Port],
         tol: float,
+        inverted: Container[int] = (),
     ) -> list[str]:
         """Port faces where a layer's polygons no longer meet the face as its extensions assume.
 
@@ -1439,6 +1452,7 @@ class StackDevice(StaticMultiMaterialObject):
             extended: (port, length, layers it may continue) per extended port.
             ports: the component's current ports by name.
             tol: the layer's topology tolerance (um) for ``own``.
+            inverted: inverted layer indices.
 
         Returns:
             One line per port whose extensions changed.
@@ -1450,12 +1464,13 @@ class StackDevice(StaticMultiMaterialObject):
             return "extensions from " + ", ".join(f"({a[0]:.6g}, {a[1]:.6g}) to ({b[0]:.6g}, {b[1]:.6g})" for a, b in c)
 
         found = []
+        inv = index in inverted
         for name, length, layers in extended:
             if index not in layers:
                 continue
             port = ports[name]
-            now = _face_intervals(port, own, own_sizes, tol)
-            if index == port.layer and not now:
+            now = _face_intervals(port, own, own_sizes, tol, inverted=inv)
+            if index == port.layer and not inv and not now:
                 now = [(_PORT_CORNER, _PORT_CORNER)]
             built = _face_spans([(a, b) for n, ln, a, b in exts if n == name and ln == length], own, port)
             seen = _face_spans(now, own, port)
@@ -4079,7 +4094,7 @@ class StackDevice(StaticMultiMaterialObject):
         else:
             match = [
                 lv for lv in self.levels
-                if p.layer in _expr_positive_layers(lv.expr) or p.layer == lv.fill_layer
+                if p.layer in _expr_positive_layers(lv.expr) or p.layer in lv.declared_layers
             ]
             if not match:
                 raise ValueError(f"No level of {self.name!r} draws the layer of port {port!r}; pass level=...")

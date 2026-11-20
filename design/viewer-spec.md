@@ -154,8 +154,9 @@ AC:
 - **Default color:** the active PDK's `layer_views` fill color, or a fallback
   palette when the layer has none.
 - **Default opacity (proposed, Q5):** 0.15 for fill levels, 0.9 for the rest.
-- **Fill level:** a level whose layer is one of the `StackDevice` `fill_layers`
-  (default `WAFER`), or a level with `background=True`.
+- **Fill level:** a level whose compiled expression covers the whole plane
+  (e.g. an empty `StackDevice` `inverted_layers` layer such as `WAFER`, or a
+  level with `background=True`).
 - One color/opacity per layer drives both viewports.
 - Persistence of edits: Q6.
 

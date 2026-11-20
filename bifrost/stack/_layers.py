@@ -188,7 +188,7 @@ class _Level(NamedTuple):
     z_to_bias: tuple[tuple[float, ...], tuple[float, ...]] | None
     mesh_order: int
     material: str
-    fill_layer: int | None = None  # declared layer when the expression cannot name it
+    declared_layers: tuple[int, ...] = ()  # positive declared layers before inversion and empty-layer folding
 
 
 class _Port(NamedTuple):
@@ -299,16 +299,22 @@ def _extension_rect(
 
 
 def _face_intervals(
-    port: _Port, vertices: np.ndarray, sizes: Sequence[int], tol: float = _FACE_TOL
+    port: _Port,
+    vertices: np.ndarray,
+    sizes: Sequence[int],
+    tol: float = _FACE_TOL,
+    *,
+    inverted: bool = False,
 ) -> list[tuple[_FaceEnd, _FaceEnd]]:
     """Where a layer meets a port's face: the cross-section the port extension continues.
 
     The union of the layer's polygons (nonzero winding per polygon, so abutting
     and overlapping polygons merge) is sliced along a line parallel to the port
     face, just inside the component. Each covered interval that overlaps the port
-    (its width along the face) is returned by its two ends on the face itself:
-    a polygon vertex there, else the crossing of the polygon edge with the face,
-    so the extension follows the vertices when they move.
+    (its width along the face; for an ``inverted`` layer, also intervals whose
+    edge bounds the port's core at ``+-width / 2``) is returned by its two ends
+    on the face itself: a polygon vertex there, else the crossing of the polygon
+    edge with the face, so the extension follows the vertices when they move.
 
     Args:
         port: the port (with an orientation).
@@ -316,6 +322,7 @@ def _face_intervals(
         sizes: vertices per polygon.
         tol: distance (um) within which a vertex is on the face and two crossings
             coincide.
+        inverted: whether the layer is inverted (keep boundary-touching intervals).
 
     Returns:
         ``(first end, second end)`` per interval, ordered along the face tangent.
@@ -373,6 +380,8 @@ def _face_intervals(
         else:
             intervals.append((opened[0], s[g], opened[1], end(edges[g])))
     half = 0.5 * port.width
+    if inverted:
+        return [(ea, eb) for s0, s1, ea, eb in intervals if s1 >= -half - tol and s0 <= half + tol]
     return [(ea, eb) for s0, s1, ea, eb in intervals if s1 > -half + tol and s0 < half - tol]
 
 
@@ -381,6 +390,7 @@ def _port_extensions(
     ports: dict[str, _Port],
     extended: Sequence[tuple[str, float, tuple[int, ...]]],
     tol: float | None = None,
+    inverted: Container[int] = (),
 ) -> tuple[dict[int, list[tuple[str, float, _FaceEnd, _FaceEnd]]], dict[int, list[np.ndarray]]]:
     """The port extensions of every layer (see ``extend_ports`` of :meth:`StackDevice.from_layer_stack`).
 
@@ -390,6 +400,8 @@ def _port_extensions(
         extended: (port, length, layers it may continue) per extended port.
         tol: the device's ``topology_tol``: where a layer meets a port face is
             found within the layer's topology tolerance (:func:`_topology_tol`).
+        inverted: layer indices whose material is applied to the inverse of
+            their geometry (never synthesized across an empty port face).
 
     Returns:
         extensions: per layer, (port, length, face end a, face end b) of each
@@ -403,8 +415,9 @@ def _port_extensions(
         for index in layers:
             polys = polygons.get(index, [])
             own = np.concatenate(polys) if polys else np.zeros((0, 2))
-            ends = _face_intervals(p, own, [len(q) for q in polys], _topology_tol(tol, own))
-            if index == p.layer and not ends:
+            inv = index in inverted
+            ends = _face_intervals(p, own, [len(q) for q in polys], _topology_tol(tol, own), inverted=inv)
+            if index == p.layer and not inv and not ends:
                 ends = [(_PORT_CORNER, _PORT_CORNER)]  # nothing drawn at the face: the port's width
             for pair in ends:
                 extensions.setdefault(index, []).append((name, float(length), *pair))
@@ -629,7 +642,7 @@ def _sizing(layer: Any) -> float:
     return float(sum(x for x, *_ in steps)) * float(kcl.dbu)
 
 
-def _compile_layer(layer: Any, fill_layers: set[int]) -> tuple:
+def _compile_layer(layer: Any, inverted_layers: set[int]) -> tuple:
     """Turns a LogicalLayer / DerivedLayer into a static expression tree.
 
     Nodes are ``("fill", grow)``, ``("layer", index, grow)`` and
@@ -637,7 +650,8 @@ def _compile_layer(layer: Any, fill_layers: set[int]) -> tuple:
 
     Args:
         layer: LogicalLayer, DerivedLayer or anything ``get_layer`` accepts.
-        fill_layers: layer indices that cover the whole plane.
+        inverted_layers: layer indices whose material is applied to the inverse
+            of their geometry.
 
     Returns:
         The expression tree.
@@ -647,43 +661,103 @@ def _compile_layer(layer: Any, fill_layers: set[int]) -> tuple:
 
     if isinstance(layer, LogicalLayer):
         index = int(get_layer(layer.layer))
-        if index in fill_layers:
-            return ("fill", _sizing(layer))
+        if index in inverted_layers:
+            return ("not", ("fill", 0.0), ("layer", index, 0.0), _sizing(layer))
         return ("layer", index, _sizing(layer))
     if isinstance(layer, DerivedLayer):
         op = {"&": "and", "|": "or", "^": "xor", "-": "not"}.get(layer.operation, layer.operation)
         return (
             op,
-            _compile_layer(layer.layer1, fill_layers),
-            _compile_layer(layer.layer2, fill_layers),
+            _compile_layer(layer.layer1, inverted_layers),
+            _compile_layer(layer.layer2, inverted_layers),
             _sizing(layer),
         )
-    return _compile_layer(LogicalLayer(layer=layer), fill_layers)
+    return _compile_layer(LogicalLayer(layer=layer), inverted_layers)
 
 
-def _compile_level(level: Any, fill_layers: set[int]) -> tuple:
+def _compile_level(level: Any, inverted_layers: set[int]) -> tuple:
     """Expression tree of a LayerLevel, including background levels.
 
     Args:
         level: the LayerLevel.
-        fill_layers: layer indices that cover the whole plane.
+        inverted_layers: layer indices whose material is applied to the inverse
+            of their geometry.
 
     Returns:
         The expression tree (see :func:`_compile_layer`).
     """
-    from gdsfactory.pdk import get_layer
-
     if not level.background:
-        return _compile_layer(level.layer, fill_layers)
+        return _compile_layer(level.layer, inverted_layers)
     expr: tuple = ("fill", 0.0)
     for lay in level.background_exclude_layers:
-        expr = ("not", expr, ("layer", int(get_layer(lay)), 0.0), 0.0)
+        expr = ("not", expr, _compile_layer(lay, inverted_layers), 0.0)
     return expr
+
+
+def _add_grow(expr: tuple, grow: float) -> tuple:
+    """Fold an additional scalar grow ``grow`` (um) into a boolean geometry expression."""
+    if not grow:
+        return expr
+    kind = expr[0]
+    if kind in ("fill", "empty"):
+        return expr
+    if kind == "layer":
+        return ("layer", int(expr[1]), float(expr[2]) + grow)
+    return (kind, expr[1], expr[2], float(expr[3]) + grow)
+
+
+def _simplify_expr(expr: tuple, valid_sources: Container[int]) -> tuple:
+    """Propagate ``empty`` and ``fill`` identities through a LayerStack expression tree."""
+    kind = expr[0]
+    if kind == "fill":
+        return ("fill", 0.0)
+    if kind == "empty":
+        return ("empty", 0.0)
+    if kind == "layer":
+        idx = int(expr[1])
+        return expr if idx in valid_sources else ("empty", 0.0)
+    left = _simplify_expr(expr[1], valid_sources)
+    right = _simplify_expr(expr[2], valid_sources)
+    grow = float(expr[3])
+    lk, rk = left[0], right[0]
+    if kind == "or":
+        if lk == "fill" or rk == "fill":
+            return ("fill", 0.0)
+        if lk == "empty":
+            return _add_grow(right, grow)
+        if rk == "empty":
+            return _add_grow(left, grow)
+    elif kind == "and":
+        if lk == "empty" or rk == "empty":
+            return ("empty", 0.0)
+        if lk == "fill":
+            return _add_grow(right, grow)
+        if rk == "fill":
+            return _add_grow(left, grow)
+    elif kind == "not":
+        if lk == "empty" or rk == "fill":
+            return ("empty", 0.0)
+        if rk == "empty":
+            return _add_grow(left, grow)
+        if lk == "fill" and rk == "not" and right[1][0] == "fill":
+            return _add_grow(right[2], grow - float(right[3]))
+    elif kind == "xor":
+        if lk == "empty":
+            return _add_grow(right, grow)
+        if rk == "empty":
+            return _add_grow(left, grow)
+        if lk == "fill" and rk == "fill":
+            return ("empty", 0.0)
+        if lk == "fill":
+            return ("not", ("fill", 0.0), right, grow)
+        if rk == "fill":
+            return ("not", ("fill", 0.0), left, grow)
+    return (kind, left, right, grow)
 
 
 def _expr_layers(expr: tuple) -> set[int]:
     """Indices of all polygon layers an expression reads."""
-    if expr[0] == "fill":
+    if expr[0] in ("fill", "empty"):
         return set()
     if expr[0] == "layer":
         return {expr[1]}
@@ -692,21 +766,12 @@ def _expr_layers(expr: tuple) -> set[int]:
 
 def _expr_can_draw(expr: tuple, nonempty: set[int]) -> bool:
     """Whether an expression can be nonempty, given the layers that have polygons."""
-    kind = expr[0]
-    if kind == "fill":
-        return True
-    if kind == "layer":
-        return expr[1] in nonempty
-    if kind == "not":
-        return _expr_can_draw(expr[1], nonempty)
-    if kind == "and":
-        return _expr_can_draw(expr[1], nonempty) and _expr_can_draw(expr[2], nonempty)
-    return _expr_can_draw(expr[1], nonempty) or _expr_can_draw(expr[2], nonempty)
+    return _simplify_expr(expr, nonempty)[0] != "empty"
 
 
 def _expr_positive_layers(expr: tuple) -> set[int]:
     """Indices of the polygon layers that add to an expression (not the subtracted ones)."""
-    if expr[0] == "fill":
+    if expr[0] in ("fill", "empty"):
         return set()
     if expr[0] == "layer":
         return {expr[1]}
