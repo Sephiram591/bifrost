@@ -11,59 +11,57 @@ runs the same structure in MEEP, and
 [`examples/compare_directional_coupler.py`](https://github.com/Sephiram591/bifrost/blob/main/examples/compare_directional_coupler.py)
 plots the two together:
 
-![fdtdx (subpixel and subpixel_full) vs MEEP: TE0 power from o1 to the through (o4) and cross (o3) ports, 20 nm grid](../images/directional_coupler_spectra.png)
+![fdtdx (bf.mesh, ppw=20) vs MEEP (20 nm): TE0 power from o1 to the through (o4) and cross (o3) ports](../images/directional_coupler_spectra.png)
 
-Both runs use the same polygons (the MEEP script reads the ones the fdtdx `StackDevice` draws), the same 20 nm grid, the
-same Gaussian pulse (spectral width 10 % of the center frequency), the same 0.5 µm PML, the same 2.0 × 1.4 µm source and
-monitor planes, and the same 400 fs of simulated time. The transmission is `|a_out / a_in|^2` with `a_in` the forward TE0
-amplitude at the input monitor.
+Both runs use the same polygons (the MEEP script reads the ones the fdtdx `StackDevice` draws), the same Gaussian pulse
+(spectral width 10 % of the center frequency), the same 0.5 µm PML, the same 2.0 × 1.4 µm source and monitor planes, and
+the same 400 fs of simulated time; fdtdx uses `bf.mesh` at its default `ppw = 20` (`pml = 0.5` µm), while MEEP runs on a
+uniform 20 nm grid. The transmission is `|a_out / a_in|^2` with `a_in` the forward TE0 amplitude at the input monitor.
 
 ## Run it
 
 ```bash
-# fdtdx, on a GPU (one run, 89M cells at 20 nm: about 6 minutes on an L40S)
-python examples/fdtdx_directional_coupler.py            # optional arguments: the grid cell in um (0.02), the averaging
-python examples/fdtdx_directional_coupler.py 0.02 subpixel_full   # about 20 minutes on an H200, peaking at 50 GiB
+# fdtdx, on a GPU (default ppw=20, 207.6M cells: about 21 minutes on an L40S, peaking at 40.6 GiB)
+python examples/fdtdx_directional_coupler.py            # optional arguments: ppw (20), averaging (subpixel)
+python examples/fdtdx_directional_coupler.py 16 subpixel_full   # full tensor at ppw=16 (106.6M cells) on an H200; ppw=20 needs >100 GiB
 
 # MEEP, on CPUs (about 45 minutes on 48 cores at 20 nm)
 python examples/meep_directional_coupler.py export      # writes examples/output/geometry_dc.json
 mpirun -np 48 python examples/meep_directional_coupler.py run
 
-python examples/compare_directional_coupler.py          # optional argument: the grid cell in nm, default 20
+python examples/compare_directional_coupler.py          # optional arguments: fdtdx ppw (20), MEEP dx in nm (20)
 ```
 
-The results are saved as `examples/output/{fdtdx,meep}_dc_<nm>nm.npz` and the comparison writes
-`directional_coupler_spectra.png` and `directional_coupler_fields.png` next to them. The box (43 × 6.4 × 2.6 µm) is a
-whole number of cells at 20 and 40 nm. The comparison plots whichever of the fdtdx runs (`subpixel`, the default, and
-`subpixel_full`) and the MEEP run exist for the grid.
+The results are saved as `examples/output/fdtdx_dc_ppw<ppw>.npz` and `examples/output/meep_dc_<nm>nm.npz`, and the
+comparison writes `directional_coupler_spectra.png` and `directional_coupler_fields.png` next to them. The comparison
+plots whichever of the fdtdx runs (`subpixel`, the default, and `subpixel_full`) and the MEEP run exist.
 
 ## What the comparison shows
 
-TE0 power at the two outputs, 20 nm grid (the rest of the input power is lost or reflected: 0.6 to 2.7 % across the band in fdtdx):
+TE0 power at the two outputs, `fdtdx` with `bf.mesh` (`ppw = 20`) vs. MEEP at 20 nm (the rest of the input power is lost or reflected: 0.6 to 2.7 % across the sampled band in fdtdx):
 
 | wavelength (nm) | through, fdtdx | through, MEEP | cross, fdtdx | cross, MEEP |
 | ---: | ---: | ---: | ---: | ---: |
-| 538 | 0.911 | 0.913 | 0.069 | 0.062 |
-| 584 | 0.800 | 0.812 | 0.194 | 0.178 |
-| 619 | 0.625 | 0.650 | 0.365 | 0.337 |
-| 658 | 0.363 | 0.401 | 0.623 | 0.584 |
-| 703 | 0.076 | 0.105 | 0.904 | 0.876 |
-| 728 | 0.003 | 0.012 | 0.970 | 0.961 |
+| 538.3 | 0.9170 | 0.9133 | 0.0652 | 0.0621 |
+| 584.0 | 0.8072 | 0.8119 | 0.1869 | 0.1783 |
+| 619.0 | 0.6362 | 0.6497 | 0.3535 | 0.3368 |
+| 658.5 | 0.3766 | 0.4012 | 0.6089 | 0.5836 |
+| 703.4 | 0.0851 | 0.1046 | 0.8952 | 0.8756 |
+| 728.2 | 0.0049 | 0.0119 | 0.9683 | 0.9610 |
 
-The cross-port power rises from 7 % to 97 % over the band, as the coupling length shortens with wavelength; the 50:50
-point is at 641.3 nm in fdtdx and 647.0 nm in MEEP. The two
-solvers agree to within 0.04 in power everywhere (rms 0.025); fdtdx couples slightly more, as if its curve were shifted by
-about 5 nm. The difference shrinks with the grid: at 40 nm it is up to 0.08. Between 40 and 20 nm fdtdx's cross power at
-619 nm moves from 0.414 to 0.365 while MEEP's moves from 0.351 to 0.337, so the remaining difference is probably
-resolution-limited (the 300 nm gap is 15 cells at 20 nm); a finer grid was not run.
+The cross-port power rises from 6.5 % to 96.8 % over the band, as the coupling length shortens with wavelength; the 50:50
+point is at 643.3 nm in fdtdx and 647.0 nm in MEEP (-3.7 nm). Across all 31 frequencies the two solvers agree to within
+0.026 in power (max |diff| 0.0246 through, 0.0259 cross; rms 0.0146 through, 0.0164 cross), and the `|E|^2` field map
+on `z = 0` at 619 nm agrees with a relative difference of 0.062. At 20 nm MEEP's 300 nm gap is 15 cells wide, whereas
+`bf.mesh` (`ppw = 16`, 106.6M cells) already places `0.3548` in `cross` at 619 nm and `ppw = 20` gives `0.3535`.
 
-Running fdtdx with `averaging="subpixel_full"` (the full permittivity tensor with its off-diagonal entries, the most
-accurate option) changes none of this: its spectra are within 2e-4 in power of the default `subpixel` run at every
-wavelength, the 50:50 point moves by 0.1 nm, and the difference from MEEP is the same. So the remaining 5.7 nm offset is
-not from how fdtdx averages the permittivity at the guide walls; its cause has not been investigated.
+Full-tensor subpixel averaging (`averaging="subpixel_full"`, the off-diagonal tensor entries at bends and corners)
+requires >48 GiB of GPU memory at `ppw = 20` (207.6M cells) and fits on an H200/B200; on the `ppw = 16` benchmark
+(106.6M cells; see [Diagonal vs. full-tensor averaging](../guide/adaptive-meshing.md#diagonal-vs-full-tensor-averaging))
+`subpixel` and `subpixel_full` agree within `4e-5` in power across the band.
 
-On the same 89.4M cells fdtdx took 383 s on one NVIDIA L40S with `subpixel`, compilation included, and 1203 s on an H200 with
-`subpixel_full`, which peaked at 50 GiB of GPU memory. MEEP took 2720 s on 48 CPU cores.
+On 207.6M cells `fdtdx` (`subpixel`) took 1285 s on one NVIDIA L40S, compilation included, peaking at 40.6 GiB of GPU
+memory. MEEP took 2720 s on 48 CPU cores (89.4M cells).
 
 ## Things to try
 

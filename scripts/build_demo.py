@@ -7,7 +7,7 @@ reruns the simulation. Run this on a GPU node after the example, the viewer or t
 export format changes, then commit the result.
 
     python scripts/build_demo.py
-    python scripts/build_demo.py --resolution 0.1 --out /tmp/demo   # a quick CPU try-out
+    python scripts/build_demo.py --ppw 10 --out /tmp/demo   # a quick CPU try-out
 """
 
 import argparse
@@ -34,14 +34,14 @@ def git(*args: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--resolution", type=float, default=bend.RESOLUTION, help="grid cell in um")
+    parser.add_argument("--ppw", type=float, default=bend.PPW, help="cells per wavelength in each material")
     parser.add_argument("--duration", type=float, default=bend.DURATION, help="simulated time in s")
     parser.add_argument("--out", type=Path, default=ROOT / "docs" / "demo" / "data")
     parser.add_argument("--figure", type=Path, default=ROOT / "docs" / "images" / "waveguide_bend_field.png")
     parser.add_argument("--section-step", type=float, default=0.1, help="spacing of the stored slices, um")
     args = parser.parse_args()
 
-    result = bend.simulate(args.resolution, args.duration)
+    result = bend.simulate(args.ppw, args.duration)
     print(f"transmission {result.transmission:.4f}; {result.seconds:.1f} s; peak {result.peak_gib} GiB")
     args.figure.parent.mkdir(parents=True, exist_ok=True)
     bend.plot_field(result, str(args.figure))
@@ -61,9 +61,10 @@ def main() -> None:
             "width_um": bend.WIDTH,
             "thickness_um": bend.THICKNESS,
             "radius_um": bend.RADIUS,
-            "resolution_um": args.resolution,
+            "ppw": args.ppw,
             "duration_s": args.duration,
-            "pml_um": bend.PML,
+            "pml_um": 1.0,
+            "grid_shape": [int(n) for n in result.objects.volume.grid_shape],
             "box_um": [round(sx, 3), round(sy, 3), round(sz, 3)],
             "movie_frames": bend.MOVIE_FRAMES,
             "section_step_um": args.section_step,

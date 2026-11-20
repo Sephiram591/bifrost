@@ -1,15 +1,16 @@
 """Measures what the grid costs and buys for examples/waveguide_bend.py, as a Markdown table.
 
-Each resolution runs in its own process, so the peak memory is that run's alone. A last row-less
+Each ppw runs in its own process, so the peak memory is that run's alone. A last row-less
 run executes the simulation twice in one process, to show how much of the first run is compilation.
 Run it on the GPU node whose numbers you want to quote, and paste the table into docs/getting-started.md
 and docs/examples/waveguide-bend.md:
 
     python scripts/bend_sweep.py
-    python scripts/bend_sweep.py --resolutions 0.1 0.08     # a quick CPU try-out
+    python scripts/bend_sweep.py --ppws 8 10     # a quick CPU try-out
 """
 
 import argparse
+import math
 import re
 import subprocess
 import sys
@@ -18,6 +19,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "examples" / "waveguide_bend.py"
+sys.path.insert(0, str(ROOT / "examples"))
+
+import waveguide_bend as bend  # noqa: E402
+
+import bifrost as bf  # noqa: E402
 
 
 def run(*args: str) -> dict[str, str]:
@@ -31,14 +37,18 @@ def run(*args: str) -> dict[str, str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--resolutions", type=float, nargs="+", default=[0.05, 0.04, 0.025, 0.02])
-    parser.add_argument("--long", type=float, default=0.025, help="the resolution of the 600 fs check")
+    parser.add_argument("--ppws", type=float, nargs="+", default=[12, 16, 20, 24])
+    parser.add_argument("--long", type=float, default=24, help="the ppw of the 600 fs check")
     args = parser.parse_args()
 
+    stack = bend.build_stack()
     with tempfile.TemporaryDirectory() as tmp:
         figure = str(Path(tmp) / "field.png")
-        rows = [(r, run("--resolution", str(r), "--figure", figure)) for r in args.resolutions]
-        longer = run("--resolution", str(args.long), "--duration", "600e-15", "--figure", figure)
+        rows = [
+            (p, math.prod(bf.mesh(stack, bend.WAVELENGTH, ppw=p).shape), run("--ppw", str(p), "--figure", figure))
+            for p in args.ppws
+        ]
+        longer = run("--ppw", str(args.long), "--duration", "600e-15", "--figure", figure)
         warm = subprocess.run(
             [sys.executable, "-c",
              "import sys; sys.path.insert(0, 'examples'); import waveguide_bend as b; "
@@ -46,12 +56,13 @@ def main() -> None:
             cwd=ROOT, capture_output=True, text=True, check=True,
         ).stdout.split()[-2:]
 
-    print("| Grid cell | Transmission | Wall time | Peak GPU memory |")
-    print("|---|---|---|---|")
-    for resolution, row in rows:
-        print(f"| {resolution * 1000:g} nm | {row['T']} | {float(row['seconds']):.0f} s | {row['memory']} GiB |")
+    print("| Points per wavelength (ppw) | Grid cells | Transmission | Wall time | Peak GPU memory |")
+    print("|---|---|---|---|---|")
+    for ppw, cells, row in rows:
+        label = f"{ppw:g} (the script's default)" if ppw == bend.PPW else f"{ppw:g}"
+        print(f"| {label} | {cells / 1e6:.2f}M | {row['T']} | {float(row['seconds']):.0f} s | {row['memory']} GiB |")
     print()
-    print(f"600 fs at {args.long * 1000:g} nm: transmission {longer['T']}, {float(longer['seconds']):.0f} s, {longer['memory']} GiB.")
+    print(f"600 fs at ppw={args.long:g}: transmission {longer['T']}, {float(longer['seconds']):.0f} s, {longer['memory']} GiB.")
     print(f"Default settings twice in one process: {warm[0]} s, then {warm[1]} s.")
 
 

@@ -25,18 +25,17 @@ materials = {
 stack = bf.StackDevice.from_layer_stack(
     component, layer_stack, materials, background="clad", zrange_layers=["core"],
     extend_ports=(("o1", 2.0), ("o2", 2.0)),          # the leads end at the box faces ...
-    # ... which are 1.6 um from the guide in y and 1.59 um from the core in z. The box is then
-    # 9 x 3.7 x 3.4 um: a whole number of cells at the 50 nm grid below.
-    boundary_offset=(0, 0, 1.6, -1.6, 1.59, -1.59),
+    # ... which are 1.5 um from the guide in y and z (a 9 x 3.5 x 3.22 um box)
+    boundary_offset=(0, 0, 1.5, -1.5, 1.5, -1.5),
     name="stack",
 )
 # --8<-- [end:device]
 
 # --8<-- [start:settings]
-RESOLUTION = 0.05  # um, coarse enough for a quick check
+mesh = bf.mesh(stack, 1.55)                                          # graded grid and 1 um PMLs at 1.55 um
 config = stack.get_simulation_config(                                # fdtdx.SimulationConfig, in the device's precision
     time=100e-15,                                                    # seconds of simulated time
-    grid=fdtdx.core.grid.UniformGrid(spacing=RESOLUTION * 1e-6),     # the cell edge, in meters
+    grid=mesh.grid,
 )
 wave = fdtdx.WaveCharacter(wavelength=1.55e-6)                       # fdtdx works in meters; bifrost's lengths are um
 pulse = fdtdx.GaussianPulseProfile(
@@ -51,14 +50,17 @@ te0 = dict(mode_index=0, filter_pol="te")             # the fundamental TE mode
 for obj, placing in (
     # a mode source 0.5 um outside port o1 (negative port_offset moves it out of the component)
     stack.create_mode_plane_source_at(
-        "o1", (0.5, 0.3), wave_character=wave, temporal_profile=pulse, port_offset=-0.5, name="source", **te0,
+        "o1", (0.5, 0.3), wave_character=wave, temporal_profile=pulse, port_offset=-0.5, name="source",
+        grid=config, **te0,
     ),
     # mode monitors on both ports; "in" counts the mode travelling into the component
     stack.create_mode_overlap_detector_at(
-        "o1", (0.5, 0.3), direction="in", wave_characters=(wave,), scaling_mode="pulse", name="in", **te0,
+        "o1", (0.5, 0.3), direction="in", wave_characters=(wave,), scaling_mode="pulse", name="in",
+        grid=config, **te0,
     ),
     stack.create_mode_overlap_detector_at(
-        "o2", (0.5, 0.3), wave_characters=(wave,), scaling_mode="pulse", name="out", **te0,
+        "o2", (0.5, 0.3), wave_characters=(wave,), scaling_mode="pulse", name="out",
+        grid=config, **te0,
     ),
 ):
     objects.append(obj)
@@ -66,9 +68,7 @@ for obj, placing in (
 # --8<-- [end:ports]
 
 # --8<-- [start:place]
-boundaries, placing = fdtdx.boundary_objects_from_config(
-    fdtdx.BoundaryConfig.from_uniform_bound(thickness=round(1.0 / RESOLUTION)), volume   # 1 um of PML
-)
+boundaries, placing = fdtdx.boundary_objects_from_config(mesh.boundary, volume)   # 1 um PMLs from bf.mesh
 objects += boundaries.values()
 constraints += placing
 

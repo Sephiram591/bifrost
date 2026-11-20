@@ -23,7 +23,7 @@ Output:
 ```text
 transmission: 1.000
 flux ratio: 1.000
-field grid: (180, 74) peak |E|^2: 1132.8427734375
+field grid: (405, 95) peak |E|^2: 1214.309814453125
 ```
 
 - **Mode monitors** (`ModeOverlapDetector`) give the complex amplitude of a guided mode on their plane:

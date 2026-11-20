@@ -1,7 +1,9 @@
 # Geometry diagnostics
 
 When a device is placed, bifrost checks what each level draws against the grid and warns about the parts the grid
-cannot resolve. A 40 nm strip on a 50 nm grid, placed without a run:
+cannot resolve. `bf.mesh` automatically refines narrow parts and gaps (`feature_cells=1.5`) unless constrained by
+`min_cell`, whereas a `min_cell`-limited mesh (shown here) or a fixed `UniformGrid` emits `StackDiagnosticWarning`. A
+40 nm strip on a `min_cell=0.05` mesh (~50 nm cells), placed without a run:
 
 ```python
 --8<-- "examples/guide/diagnostics.py:diagnostics"
@@ -10,7 +12,7 @@ cannot resolve. A 40 nm strip on a 50 nm grid, placed without a run:
 The warning:
 
 ```text
-StackDevice 'stack', level 'core': 1 part narrower than 0.075 um (1.5 cells); the narrowest is 0.04 um (0.8 cells) wide, at (2.5000, 0.0000) um and z = 0.0000 um. The grid does not resolve it: refine the grid, raise xy_subsamples, or widen the part (diagnostics=False turns these warnings off)
+StackDevice 'stack', level 'core': 1 part narrower than 0.07895 um (1.5 cells); the narrowest is 0.04 um (0.76 cells) wide, at (2.5000, 0.0000) um and z = 0.0000 um. The grid does not resolve it: refine the grid, raise xy_subsamples, or widen the part (diagnostics=False turns these warnings off)
 ```
 
 ## What is checked

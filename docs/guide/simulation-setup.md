@@ -15,11 +15,11 @@ The device and the numerical settings:
 --8<-- "examples/guide/simulation_setup.py:settings"
 ```
 
-- **Units.** bifrost's lengths (`boundary_offset`, `extend_ports`, `port_offset`) are in **µm**. fdtdx's are in
-  **meters**: `SimulationConfig(time=...)` is in seconds, `UniformGrid(spacing=...)` and `WaveCharacter(wavelength=...)`
-  are in meters. The `* 1e-6` conversions are the usual source of a factor-of-a-million mistake.
-- **The grid.** `UniformGrid(spacing=...)` is the cell edge. fdtdx rounds the box to a whole number of cells in every
-  direction, so keep its sides on the grid (see [Layer stacks and materials](layer-stacks.md)).
+- **Units.** bifrost's lengths (`boundary_offset`, `extend_ports`, `port_offset`, `bf.mesh`) are in **µm**. fdtdx's are in
+  **meters**: `SimulationConfig(time=...)` and `WaveCharacter(wavelength=...)` take seconds and meters (`* 1e-6`).
+  The conversion is the usual source of a factor-of-a-million mistake.
+- **The grid.** `bf.mesh(stack, 1.55)` builds an adaptive non-uniform grid (`mesh.grid`, 20 points per local wavelength
+  by default) and 1 µm PML boundaries (`mesh.boundary`) over any box size; see [Automatic meshing](#automatic-meshing).
 - **The pulse.** A Gaussian pulse with a spectral width of 5 % of the center frequency ramps up smoothly and lets one run
   cover a band; the monitors below record the center wavelength.
 - **The precision.** `stack.get_simulation_config(...)` is `fdtdx.SimulationConfig` with the device's `dtype` filled in;
@@ -40,16 +40,16 @@ The absorbing boundary and the placement:
 Output:
 
 ```text
-grid cells: (180, 74, 68)
-source   (1, 41, 23) cells at [(30, 31), (16, 57), (22, 45)]
-in       (1, 41, 23) cells at [(40, 41), (16, 57), (22, 45)]
-out      (1, 41, 23) cells at [(140, 141), (16, 57), (22, 45)]
+grid cells: (405, 95, 83)
+source   (1, 67, 43) cells at [(67, 68), (14, 81), (20, 63)]
+in       (1, 67, 43) cells at [(90, 91), (14, 81), (20, 63)]
+out      (1, 67, 43) cells at [(315, 316), (14, 81), (20, 63)]
 ```
 
-The box is 180 × 74 × 68 cells of 50 nm. Each slice is `(start, stop)` cell indices along x, y and z: each plane is
-one cell thick along its normal and 41 × 23 cells (2.05 × 1.15 µm) across, the 0.5 µm guide plus 0.5 wavelengths per
-side, and the 0.22 µm core plus 0.3 wavelengths per side. The source is 10 cells (0.5 µm) before the input monitor,
-which sits on the port at x = 0.
+The box is 405 × 95 × 83 non-uniform cells. Each slice is `(start, stop)` cell indices along x, y and z: each plane is
+one cell thick along its normal and 67 × 43 cells across, snapped via `grid=config` to the cell edges around the
+0.5 µm guide plus 0.5 wavelengths per side in y and 0.3 wavelengths per side in z. The source sits 0.5 µm before the
+input monitor at `x = 0`.
 
 ## Sources and monitors on ports
 
@@ -252,7 +252,8 @@ is the only place to set it:
 stack = bf.StackDevice.from_layer_stack(
     component, layer_stack, materials, background="clad", zrange_layers=["core"], dtype=jnp.float64
 )
-config = stack.get_simulation_config(time=100e-15, grid=fdtdx.core.grid.UniformGrid(spacing=50e-9))
+mesh = bf.mesh(stack, 1.55)
+config = stack.get_simulation_config(time=100e-15, grid=mesh.grid)
 ```
 
 - `get_simulation_config` builds the `fdtdx.SimulationConfig` with the device's dtype and passes every other argument
@@ -273,8 +274,9 @@ config = stack.get_simulation_config(time=100e-15, grid=fdtdx.core.grid.UniformG
 
 ## Troubleshooting
 
-- **`Configured grid shape ... does not match simulation volume shape`**: a side of the box is exactly halfway between
-  two cell counts. Move `boundary_offset` by a fraction of a cell, or change the grid spacing.
+- **`Configured grid shape ... does not match simulation volume shape`**: only applies to a manual `UniformGrid` when
+  a side of the box is halfway between two cell counts (default `bf.mesh` accepts any box size). Move `boundary_offset`
+  by a fraction of a cell, or change the grid spacing.
 - **A source or monitor is in the wrong place or clipped.** Print `monitor.grid_slice` as above and compare with the
   box's cell count. Check the sign of `port_offset` (negative moves the
   plane *out* of the component) and `direction`.

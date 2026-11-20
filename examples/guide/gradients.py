@@ -15,7 +15,6 @@ from gdsfactory.technology import LayerLevel, LayerStack
 gf.gpdk.PDK.activate()
 
 RADIUS = 2.0  # um: the parameter we differentiate with respect to
-RESOLUTION = 0.04  # um, the grid of the bend tutorial
 
 layer_stack = LayerStack(
     layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
@@ -30,11 +29,12 @@ stack = bf.StackDevice.from_layer_stack(
     extend_ports=(("o1", 2.0), ("o2", 2.0)), boundary_offset=(1.75, 0, 0, -1.75, 1.59, -1.59), name="stack",
 )
 
+mesh = bf.mesh(stack, 1.55)
 config = stack.get_simulation_config(
-    time=400e-15, grid=fdtdx.core.grid.UniformGrid(spacing=RESOLUTION * 1e-6),
-    # how the backward pass trades memory for time: it re-simulates from 60 stored states
+    time=400e-15, grid=mesh.grid,
+    # how the backward pass trades memory for time: it re-simulates from 30 stored states
     # instead of keeping every step, so the memory stays small
-    gradient_config=fdtdx.GradientConfig(method="checkpointed", num_checkpoints=60),
+    gradient_config=fdtdx.GradientConfig(method="checkpointed", num_checkpoints=30),
 )
 wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
 pulse = fdtdx.GaussianPulseProfile(
@@ -45,23 +45,24 @@ volume, constraints = stack.get_simulation_volume()
 objects = [volume, stack]
 for obj, placing in (
     stack.create_mode_plane_source_at(
-        "o1", (0.5, 0.3), wave_character=wave, temporal_profile=pulse, port_offset=-0.5, name="source", **te0,
+        "o1", (0.5, 0.3), wave_character=wave, temporal_profile=pulse, port_offset=-0.5, name="source",
+        grid=config, **te0,
     ),
     stack.create_mode_overlap_detector_at(
-        "o1", (0.5, 0.3), direction="in", wave_characters=(wave,), scaling_mode="pulse", name="in", **te0,
+        "o1", (0.5, 0.3), direction="in", wave_characters=(wave,), scaling_mode="pulse", name="in",
+        grid=config, **te0,
     ),
     # the output monitor sits 0.5 um out in the straight extension (port_offset < 0 moves a plane out of the
     # component), so that it stays in the straight lead for every radius we try; on the port itself it would
     # sit inside the bend as soon as the radius grows
     stack.create_mode_overlap_detector_at(
-        "o2", (0.5, 0.3), wave_characters=(wave,), scaling_mode="pulse", port_offset=-0.5, name="out", **te0,
+        "o2", (0.5, 0.3), wave_characters=(wave,), scaling_mode="pulse", port_offset=-0.5, name="out",
+        grid=config, **te0,
     ),
 ):
     objects.append(obj)
     constraints += placing
-boundaries, placing = fdtdx.boundary_objects_from_config(
-    fdtdx.BoundaryConfig.from_uniform_bound(thickness=round(1.0 / RESOLUTION)), volume
-)
+boundaries, placing = fdtdx.boundary_objects_from_config(mesh.boundary, volume)
 objects += boundaries.values()
 constraints += placing
 

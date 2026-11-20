@@ -9,14 +9,19 @@ A short Gaussian pulse launches TE0 into o1 (lower left). One run covers the who
 input and on the two outputs, o4 (through, same guide) and o3 (cross, other guide), record the TE0 amplitudes at
 31 frequencies centered on 619 nm, and ``T = |a_out / a_in|^2`` gives the power spectra.
 
-Run on a GPU node:  python examples/fdtdx_directional_coupler.py [resolution_um] [averaging]
+Run on a GPU node:  python examples/fdtdx_directional_coupler.py [ppw] [averaging]
                     averaging: subpixel (default), subpixel_full or inverse, see StackOptions
 Compare with MEEP:  examples/meep_directional_coupler.py, examples/compare_directional_coupler.py
 """
 
+import os
 import sys
 import time as clock
 from pathlib import Path
+
+# At ppw=20 this 43 x 6.4 x 2.6 um coupler has 207.6M cells (~41 GiB peak);
+# cuda_async avoids XLA BFC fragmentation and its 75 % default cap on 48 GiB GPUs.
+os.environ.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "cuda_async")
 
 import fdtdx
 import jax
@@ -46,7 +51,8 @@ PLANE = (2.0, 1.4)  # y and z size of the source and monitor planes around a gui
 BANDWIDTH = 0.15  # the band is the center frequency +- this fraction of it
 N_FREQ = 31  # frequencies in the band
 PULSE_WIDTH = 0.10  # Gaussian spectral width (sigma of the amplitude spectrum) / center frequency
-RESOLUTION = 0.02  # um
+RESOLUTION = 0.02  # um (kept for examples/meep_directional_coupler.py)
+PPW = 20  # points per wavelength in each material
 TIME = 400e-15  # s: the pulse leaves the last monitor at ~350 fs
 AVERAGING = "subpixel"  # how the stack averages permittivity at interfaces: "subpixel", "subpixel_full", "inverse"
 
@@ -124,11 +130,13 @@ def padding(wave_characters: list[fdtdx.WaveCharacter]) -> tuple[float, float]:
     return (PLANE[0] - WIDTH) / 2 / mean, (PLANE[1] - HEIGHT) / 2 / mean
 
 
-def simulate(resolution: float = RESOLUTION, time: float = TIME, averaging: str = AVERAGING) -> dict:
-    (x0, _), (y0, _), _ = domain()
-    config = fdtdx.SimulationConfig(
-        time=time, grid=fdtdx.core.grid.UniformGrid(spacing=resolution * 1e-6), dtype=jnp.float32
+def simulate(ppw: float = PPW, time: float = TIME, averaging: str = AVERAGING) -> dict:
+    stack = build_stack(averaging=averaging)
+    wavelengths = 1.0 / frequencies()
+    mesh = bf.mesh(
+        stack, (float(wavelengths.min()), float(wavelengths.max())), ppw=ppw, pml=PML,  # 0.5 um PML in extensions
     )
+    config = fdtdx.SimulationConfig(time=time, grid=mesh.grid, dtype=jnp.float32)
     center = fdtdx.WaveCharacter(wavelength=WAVELENGTH * 1e-6)
     band = [fdtdx.WaveCharacter(wavelength=1e-6 / f) for f in frequencies()]
     pulse = fdtdx.GaussianPulseProfile(
@@ -137,17 +145,16 @@ def simulate(resolution: float = RESOLUTION, time: float = TIME, averaging: str 
     te0 = dict(mode_index=0, filter_pol="te")  # TE0: E_y dominant
     mode = dict(wave_characters=band, scaling_mode="pulse", **te0)
 
-    stack = build_stack(averaging=averaging)
     volume, constraints = stack.get_simulation_volume()
     objects = [volume, stack]
     for obj, c in (
         stack.create_mode_plane_source_at(
             "o1", padding([center]), wave_character=center, temporal_profile=pulse, port_offset=-0.3, name="source",
-            **te0,
+            grid=config, **te0,
         ),
-        stack.create_mode_overlap_detector_at("o1", padding(band), direction="in", name="in", **mode),
-        stack.create_mode_overlap_detector_at("o4", padding(band), name="through", **mode),
-        stack.create_mode_overlap_detector_at("o3", padding(band), name="cross", **mode),
+        stack.create_mode_overlap_detector_at("o1", padding(band), direction="in", name="in", grid=config, **mode),
+        stack.create_mode_overlap_detector_at("o4", padding(band), name="through", grid=config, **mode),
+        stack.create_mode_overlap_detector_at("o3", padding(band), name="cross", grid=config, **mode),
     ):
         objects.append(obj)
         constraints += c
@@ -157,52 +164,55 @@ def simulate(resolution: float = RESOLUTION, time: float = TIME, averaging: str 
     )
     objects.append(field)
     constraints += [field.same_size(volume, axes=(0, 1)), field.place_at_center(volume)]
-    pml = fdtdx.BoundaryConfig.from_uniform_bound(thickness=round(PML / resolution))
-    boundaries, c = fdtdx.boundary_objects_from_config(pml, volume)
+    boundaries, c = fdtdx.boundary_objects_from_config(mesh.boundary, volume)
     objects += boundaries.values()
     constraints += c
 
     key = jax.random.PRNGKey(0)
-    objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
-    arrays, objects, _ = bf.stack.apply_stack(arrays, objects, {**params, **bf.stack.init_stack_params(objects)}, key)
-    start = clock.perf_counter()
-    _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
-    jax.block_until_ready(arrays.detector_states)
-    runtime = clock.perf_counter() - start
+    # gdsfactory turns on x64; keep place_objects, apply_stack, and run_fdtd in float32
+    with jax.enable_x64(False):
+        objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
+        arrays, objects, _ = bf.stack.apply_stack(arrays, objects, {**params, **bf.stack.init_stack_params(objects)}, key)
+        start = clock.perf_counter()
+        _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
+        jax.block_until_ready(arrays.detector_states)
+        runtime = clock.perf_counter() - start
     peak = (jax.devices()[0].memory_stats() or {}).get("peak_bytes_in_use", 0) / 2**30  # GiB, the whole process
 
     states = arrays.detector_states
     a_in, a_through, a_cross = (objects[n].compute_overlap(states[n]) for n in ("in", "through", "cross"))
     k = objects["field"].grid_slice[2].start  # z index of the field slice
     E = np.asarray(states["field"]["phasor"][0, 0, :, :, :, 0])  # (3, nx, ny) at the center wavelength
-    nx, ny = E.shape[1:]
+    x_edges = np.asarray(mesh.edges[0], dtype=float)
+    y_edges = np.asarray(mesh.edges[1], dtype=float)
     return {
         "frequency": frequencies(),  # 1 / um
-        "wavelength": 1 / frequencies(),  # um
+        "wavelength": wavelengths,  # um
         "through": np.abs(np.asarray(a_through / a_in)) ** 2,  # one overlap per frequency
         "cross": np.abs(np.asarray(a_cross / a_in)) ** 2,
-        "x": x0 + resolution * (np.arange(nx) + 0.5),
-        "y": y0 + resolution * (np.arange(ny) + 0.5),
+        "x": 0.5 * (x_edges[:-1] + x_edges[1:]),
+        "y": 0.5 * (y_edges[:-1] + y_edges[1:]),
         "E2": np.sum(np.abs(E) ** 2, axis=0),  # |E|^2 on the xy plane
         "eps": 1 / np.asarray(arrays.inv_permittivities[0, :, :, k]),
         "runtime": runtime,  # s, the FDTD run including its JIT compilation
         "cells": int(np.prod(arrays.inv_permittivities.shape[1:])),
         "peak_gb": peak,
         "averaging": averaging,
+        "ppw": float(ppw),
     }
 
 
 if __name__ == "__main__":
     out = Path(__file__).parent / "output"
     out.mkdir(exist_ok=True)
-    resolution = float(sys.argv[1]) if len(sys.argv) > 1 else RESOLUTION
+    ppw = float(sys.argv[1]) if len(sys.argv) > 1 else PPW
     averaging = sys.argv[2] if len(sys.argv) > 2 else AVERAGING
-    result = simulate(resolution, averaging=averaging)
+    result = simulate(ppw, averaging=averaging)
     mid = N_FREQ // 2
     print(
-        f"fdtdx ({averaging}), resolution {resolution * 1e3:g} nm, {result['cells'] / 1e6:.1f}M cells, "
+        f"fdtdx ({averaging}), ppw {ppw:g}, {result['cells'] / 1e6:.1f}M cells, "
         f"{result['runtime']:.0f} s, peak {result['peak_gb']:.1f} GiB: "
         f"{WAVELENGTH * 1e3:.0f} nm through {result['through'][mid]:.4f}, cross {result['cross'][mid]:.4f}"
     )
     suffix = "" if averaging == AVERAGING else f"_{averaging}"  # the default's files keep their plain names
-    np.savez(out / f"fdtdx_dc_{resolution * 1e3:g}nm{suffix}.npz", **result)
+    np.savez(out / f"fdtdx_dc_ppw{ppw:g}{suffix}.npz", **result)

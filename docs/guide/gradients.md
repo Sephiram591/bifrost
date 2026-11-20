@@ -13,12 +13,13 @@ Output:
 
 ```text
 phase shift at 2.0 um: +0.000 rad (zero by construction)
-d(phase)/dR: autodiff -5.64 rad per um, finite difference -5.64 rad per um
+d(phase)/dR: autodiff -6.43 rad per um, finite difference -5.64 rad per um
 ```
 
-On an NVIDIA L40S the script took 133 s: four simulations, one of them also run backward. In a scan of the phase shift
-at radii from 1.95 to 2.1 µm, the finite difference was -5.39, -5.58 and -5.64 rad per µm for steps of ±0.01, ±0.02 and
-±0.05 µm: the smallest steps are the noisiest, because the grid's cells are 0.04 µm wide.
+On an NVIDIA L40S the script took 319 s: four simulations, one of them also run backward. On this `bf.mesh` grid
+(`~22 nm` cells in the core), `autodiff` gives the local slope inside a single voxel at `R = 2.0` (`-6.43 rad per µm`),
+while central finite differences of ±0.01, ±0.02 and ±0.05 µm step across voxel faces and yield `-5.39`, `-5.61` and
+`-5.64` rad per µm (see [What the derivatives are](#what-the-derivatives-are)).
 
 How the script works:
 

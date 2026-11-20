@@ -6,15 +6,14 @@ The rainbow bridge between your [gdsfactory](https://gdsfactory.github.io/gdsfac
 [fdtdx](https://github.com/ymahlau/fdtdx) simulation.
 
 bifrost turns a [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx) (the JAX port
-of gdsfactory that makes layouts differentiable) component and its layer stack into a differentiable [fdtdx](https://github.com/ymahlau/fdtdx)
+of gdsfactory) component and its layer stack into a differentiable [fdtdx](https://github.com/ymahlau/fdtdx)
 simulation. It also ships a 3D viewer for setting up the run and inspecting its fields. Below is an example of a straight silicon waveguide, opened in the viewer:
 
 ```python
 --8<-- "examples/straight_waveguide.py:straight"
 ```
 
-`bf.StackDevice` is the device the solver sees: the component's polygons, extruded using the layer stack data, with ports ready to take sources and monitors. 
-
+`bf.StackDevice` is the helper class where all the magic happens, handling adaptive FDTD meshing and allowing you to create sources/detectors on ports. 
 ## Where to go next
 
 <div class="grid cards" markdown>

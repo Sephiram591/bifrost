@@ -10,6 +10,8 @@ the two 10 um tapers (650 nm -> 50 nm wide).
 Run on a GPU node:  python examples/fdtdx_elevator_coupler.py
 """
 
+import sys
+import time as clock
 from pathlib import Path
 
 import fdtdx
@@ -27,6 +29,7 @@ N_SIN, N_OXIDE = 2.0, 1.457
 UPPER, LOWER = (34, 0), (35, 0)
 LENGTH, W_MAX, W_MIN = 10.0, 0.65, 0.05  # taper length and widths (um)
 PML = 0.5  # um
+PPW = 20  # points per wavelength in each material
 LEAD = 0.5  # straight sections carrying the ports (um)
 EXTENSION = 1.0  # port extensions (um): to the box faces, through the PML
 
@@ -78,8 +81,7 @@ def build_stack(overlap: float) -> bf.stack.StackDevice:
     )
 
 
-def simulate(overlap: float, resolution: float = 0.02, time: float = 400e-15) -> dict:
-    (x0, _), _, (z0, _) = domain(overlap)
+def simulate(overlap: float, ppw: float = PPW, time: float = 400e-15) -> dict:
     wave = fdtdx.WaveCharacter(wavelength=WAVELENGTH * 1e-6)
     pulse = fdtdx.GaussianPulseProfile(
         center_wave=wave, spectral_width=fdtdx.WaveCharacter(frequency=0.05 * wave.get_frequency())
@@ -88,17 +90,21 @@ def simulate(overlap: float, resolution: float = 0.02, time: float = 400e-15) ->
     mode = dict(wave_characters=(wave,), scaling_mode="pulse", **te0)
 
     stack = build_stack(overlap)
-    config = stack.get_simulation_config(time=time, grid=fdtdx.core.grid.UniformGrid(spacing=resolution * 1e-6))
+    mesh = bf.mesh(stack, WAVELENGTH, ppw=ppw, pml=PML)  # 0.5 um PML fits inside the 1 um port extensions
+    config = stack.get_simulation_config(time=time, grid=mesh.grid)
     volume, constraints = stack.get_simulation_volume()
     objects = [volume, stack]
     # port planes 2.9 um wide and 1.5 (upper) / 2.0 (lower) um tall around each guide, outside the PML:
     # port_padding is per side, in wavelengths (0.619 um), past the guide's width and its level's height
     for obj, c in (
         stack.create_mode_plane_source_at(
-            "o1", (1.838, 1.074), wave_character=wave, temporal_profile=pulse, port_offset=-0.3, name="source", **te0
+            "o1", (1.838, 1.074), wave_character=wave, temporal_profile=pulse, port_offset=-0.3,
+            name="source", grid=config, **te0,
         ),
-        stack.create_mode_overlap_detector_at("o1", (1.838, 1.074), direction="in", name="in", **mode),
-        stack.create_mode_overlap_detector_at("o2", (1.838, 1.511), name="out", **mode),
+        stack.create_mode_overlap_detector_at(
+            "o1", (1.838, 1.074), direction="in", name="in", grid=config, **mode,
+        ),
+        stack.create_mode_overlap_detector_at("o2", (1.838, 1.511), name="out", grid=config, **mode),
     ):
         objects.append(obj)
         constraints += c
@@ -108,35 +114,46 @@ def simulate(overlap: float, resolution: float = 0.02, time: float = 400e-15) ->
     )
     objects.append(field)
     constraints += [field.same_size(volume, axes=(0, 2)), field.place_at_center(volume)]
-    pml = fdtdx.BoundaryConfig.from_uniform_bound(thickness=round(PML / resolution))
-    boundaries, c = fdtdx.boundary_objects_from_config(pml, volume)
+    boundaries, c = fdtdx.boundary_objects_from_config(mesh.boundary, volume)
     objects += boundaries.values()
     constraints += c
 
     key = jax.random.PRNGKey(0)
     objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
     arrays, objects, _ = bf.stack.apply_stack(arrays, objects, {**params, **bf.stack.init_stack_params(objects)}, key)
+    start = clock.perf_counter()
     _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
+    jax.block_until_ready(arrays.detector_states)
+    runtime = clock.perf_counter() - start
 
     states = arrays.detector_states
     a_in = objects["in"].compute_overlap(states["in"])
     a_out = objects["out"].compute_overlap(states["out"])
     j = objects["field"].grid_slice[1].start  # y index of the field slice (y = 0)
     E = np.asarray(states["field"]["phasor"][0, 0, :, :, 0, :])  # (3, nx, nz) at the wavelength
-    nx, nz = E.shape[1:]
+    x_edges = np.asarray(mesh.edges[0], dtype=float)
+    z_edges = np.asarray(mesh.edges[2], dtype=float)
     return {
         "T": float(np.ravel(abs(a_out / a_in) ** 2)[0]),  # one overlap per wave character
-        "x": x0 + resolution * (np.arange(nx) + 0.5),
-        "z": z0 + resolution * (np.arange(nz) + 0.5),
+        "x": 0.5 * (x_edges[:-1] + x_edges[1:]),
+        "z": 0.5 * (z_edges[:-1] + z_edges[1:]),
+        "z_edges": z_edges,
         "E2": np.sum(np.abs(E) ** 2, axis=0),  # |E|^2 on the xz plane through the taper axis
         "eps": 1 / np.asarray(arrays.inv_permittivities[0, :, j, :]),
+        "cells": int(np.prod(mesh.shape)),
+        "runtime": runtime,
+        "ppw": float(ppw),
     }
 
 
 if __name__ == "__main__":
+    ppw = float(sys.argv[1]) if len(sys.argv) > 1 else PPW
     out = Path(__file__).parent / "output"
     out.mkdir(exist_ok=True)
     for overlap in np.linspace(1, 6, 4):
-        result = simulate(overlap)
-        print(f"overlap {overlap:.2f} um: T = {result['T']:.4f}")
+        result = simulate(overlap, ppw=ppw)
+        print(
+            f"overlap {overlap:.2f} um (ppw={ppw:g}, {result['cells'] / 1e6:.1f}M cells, "
+            f"{result['runtime']:.0f} s): T = {result['T']:.4f}"
+        )
         np.savez(out / f"fdtdx_overlap_{overlap:.2f}.npz", **result)

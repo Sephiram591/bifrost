@@ -116,7 +116,7 @@ def _(PROSE, json, mo, pathlib):
     mo.md(
         f"A {_p['width_um']} × {_p['thickness_um']} µm silicon waveguide ({_p['core_index']}) in oxide "
         f"({_p['clad_index']}) turning through a {_p['radius_um']} µm bend at {_p['wavelength_um']} µm, "
-        f"simulated with fdtdx on `{_m['device']}` at {_p['resolution_um']} µm resolution: "
+        f"simulated with fdtdx on `{_m['device']}` with adaptive meshing (`ppw={_p['ppw']:g}`): "
         f"transmission **{_r['transmission']:.3f}** in {_r['wall_seconds']} s. "
         f"Source: `{_p['example']}` at commit `{_m['source']['commit'][:7]}`."
     ).style(PROSE)

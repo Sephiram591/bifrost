@@ -6,7 +6,7 @@ in TE0 is measured. The same script produces the field image
 and the result the viewer loads (see docs/getting-started.md).
 
 Run it on a GPU node:  python examples/waveguide_bend.py
-Options:               python examples/waveguide_bend.py --resolution 0.04 --figure out.png
+Options:               python examples/waveguide_bend.py --ppw 20 --figure out.png
 """
 
 # --8<-- [start:imports]
@@ -32,11 +32,10 @@ CORE_INDEX, CLAD_INDEX = 3.48, 1.444  # silicon in silica, constant (no dispersi
 WIDTH, THICKNESS = 0.5, 0.22  # um
 RADIUS = 5.0  # um, of the bend's centerline
 EXTENSION = 2.5  # um, how far both ports are extended, straight, to the box faces
-PML = 1.0  # um of perfectly matched layer inside each face of the box
 MARGIN = 2.25  # um of cladding between the bend and the two box faces that have no port
-BOX_HEIGHT = 3.4  # um, the box in z; with MARGIN this makes the box exactly 10 x 10 x 3.4 um
+BOX_HEIGHT = 3.4  # um, the box in z; with MARGIN this makes the box 10 x 10 x 3.4 um
 PLANE_PADDING = (0.5, 0.3)  # source and monitor planes: wavelengths past the guide, per side (width, height)
-RESOLUTION = 0.04  # um, the grid cell
+PPW = 20  # cells per wavelength in each material (bf.mesh's default)
 DURATION = 400e-15  # s of simulated time
 MOVIE_FRAMES = 40  # time steps the field movie records, evenly spaced
 # --8<-- [end:parameters]
@@ -67,8 +66,7 @@ def build_stack() -> bf.StackDevice:
         background="clad",
         zrange_layers=["core"],    # the box's z range starts as the core's: 0 to 0.22 um
         extend_ports=(("o1", EXTENSION), ("o2", EXTENSION)),  # both end at a box face
-        # (x+, x-, y+, y-, z+, z-): the faces holding a port stay put, the others move out. fdtdx rounds
-        # the box to whole cells; 10, 10 and 3.4 um are whole numbers of cells at 50, 40, 25 and 20 nm.
+        # (x+, x-, y+, y-, z+, z-): the faces holding a port stay put, the others move out.
         boundary_offset=(MARGIN, 0.0, 0.0, -MARGIN, z_margin, -z_margin),
         name="stack",
     )
@@ -85,20 +83,21 @@ class BendResult:
     config: Any
     transmission: float
     field: np.ndarray  # |E|^2 on the xy plane through the middle of the core, shape (nx, ny)
-    extent: tuple[float, float, float, float]  # x0, x1, y0, y1 of that plane, um
+    edges: tuple[np.ndarray, np.ndarray]  # x and y cell edges of that plane, um
     eps: np.ndarray  # the permittivity on that plane, shape (nx, ny)
     seconds: float  # wall time of place + apply + run, compilation included
     peak_gib: float | None  # peak device memory, when the backend reports it
 
 
-def simulate(resolution: float = RESOLUTION, duration: float = DURATION) -> BendResult:
+def simulate(ppw: float = PPW, duration: float = DURATION) -> BendResult:
     started = time.perf_counter()
     stack = build_stack()
 
     # --8<-- [start:settings]
+    mesh = bf.mesh(stack, WAVELENGTH, ppw=ppw)  # graded grid and 1 um PMLs (ppw=20 by default)
     config = stack.get_simulation_config(  # fdtdx.SimulationConfig, in the device's precision (float32 by default)
         time=duration,
-        grid=fdtdx.core.grid.UniformGrid(spacing=resolution * 1e-6),
+        grid=mesh.grid,
     )
     wave = fdtdx.WaveCharacter(wavelength=WAVELENGTH * 1e-6)
     pulse = fdtdx.GaussianPulseProfile(  # a pulse 5 % wide in frequency, so it ramps up smoothly
@@ -114,17 +113,17 @@ def simulate(resolution: float = RESOLUTION, duration: float = DURATION) -> Bend
         # launch 1 um outside port o1 (a negative port_offset moves a plane out of the device,
         # into the port extension), clear of the absorbing boundary at the box face
         stack.create_mode_plane_source_at(
-            "o1", PLANE_PADDING, wave_character=wave, temporal_profile=pulse, port_offset=-1.0,
-            name="source", **te0,
+            "o1", PLANE_PADDING, wave_character=wave, temporal_profile=pulse, port_offset=-1.0, name="source",
+            grid=config, **te0,
         ),
         # one monitor 0.5 um outside each port, in the straight extensions, before and after the bend
         stack.create_mode_overlap_detector_at(
             "o1", PLANE_PADDING, direction="in", wave_characters=(wave,), scaling_mode="pulse",
-            port_offset=-0.5, name="in", **te0,
+            port_offset=-0.5, name="in", grid=config, **te0,
         ),
         stack.create_mode_overlap_detector_at(
             "o2", PLANE_PADDING, wave_characters=(wave,), scaling_mode="pulse",
-            port_offset=-0.5, name="out", **te0,
+            port_offset=-0.5, name="out", grid=config, **te0,
         ),
     ):
         objects.append(obj)
@@ -140,9 +139,7 @@ def simulate(resolution: float = RESOLUTION, duration: float = DURATION) -> Bend
     for monitor in (field, movie):
         objects.append(monitor)
         constraints += [monitor.same_size(volume, axes=(0, 1)), monitor.place_at_center(volume)]
-    boundaries, placing = fdtdx.boundary_objects_from_config(
-        fdtdx.BoundaryConfig.from_uniform_bound(thickness=round(PML / resolution)), volume
-    )
+    boundaries, placing = fdtdx.boundary_objects_from_config(mesh.boundary, volume)
     objects += boundaries.values()
     constraints += placing
     # --8<-- [end:objects]
@@ -164,14 +161,11 @@ def simulate(resolution: float = RESOLUTION, duration: float = DURATION) -> Bend
 
     k = objects["field"].grid_slice[2].start  # z index of the field plane
     phasor = np.asarray(states["field"]["phasor"][0, 0, :, :, :, 0])  # (3, nx, ny) at the wavelength
-    nx, ny = phasor.shape[1:]
-    sx, sy, _ = (float(v) * 1e6 for v in stack.partial_real_shape)
-    x0, y0 = float(stack.center[0]) - sx / 2, float(stack.center[1]) - sy / 2
     stats = getattr(jax.devices()[0], "memory_stats", lambda: None)()
     return BendResult(
         stack=stack, objects=objects, arrays=arrays, config=config, transmission=transmission,
         field=np.sum(np.abs(phasor) ** 2, axis=0),
-        extent=(x0, x0 + nx * resolution, y0, y0 + ny * resolution),
+        edges=(np.asarray(mesh.edges[0], dtype=float), np.asarray(mesh.edges[1], dtype=float)),
         eps=1 / np.asarray(arrays.inv_permittivities[0, :, :, k]),
         seconds=time.perf_counter() - started,
         peak_gib=None if not stats else stats.get("peak_bytes_in_use", 0) / 2**30,
@@ -198,13 +192,14 @@ def plot_field(result: BendResult, path: str) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    x0, x1, y0, y1 = result.extent
+    x_edges, y_edges = result.edges
     fig, ax = plt.subplots(figsize=(6, 5.4))
-    image = ax.imshow(
-        result.field.T / result.field.max(), origin="lower", extent=(x0, x1, y0, y1), cmap="inferno",
+    image = ax.pcolormesh(
+        x_edges, y_edges, result.field.T / result.field.max(), cmap="inferno", shading="flat",
     )
-    xs, ys = np.linspace(x0, x1, result.eps.shape[0]), np.linspace(y0, y1, result.eps.shape[1])
+    xs, ys = 0.5 * (x_edges[:-1] + x_edges[1:]), 0.5 * (y_edges[:-1] + y_edges[1:])
     ax.contour(xs, ys, result.eps.T, levels=[(CORE_INDEX**2 + CLAD_INDEX**2) / 2], colors="white", linewidths=0.6)
+    ax.set_aspect("equal")
     ax.set(xlabel="x (um)", ylabel="y (um)", title=f"|E|$^2$ at {WAVELENGTH} um, T = {result.transmission:.3f}")
     fig.colorbar(image, label="|E|$^2$ (relative to the peak)")
     fig.tight_layout()
@@ -214,12 +209,12 @@ def plot_field(result: BendResult, path: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--resolution", type=float, default=RESOLUTION, help="grid cell in um")
+    parser.add_argument("--ppw", type=float, default=PPW, help="cells per wavelength in each material")
     parser.add_argument("--duration", type=float, default=DURATION, help="simulated time in s")
     parser.add_argument("--figure", default="waveguide_bend_field.png", help="where to save the field image")
     args = parser.parse_args()
 
-    result = simulate(args.resolution, args.duration)
+    result = simulate(args.ppw, args.duration)
     print(f"transmission: {result.transmission:.4f}")
     print(f"wall time:    {result.seconds:.1f} s (compilation included)")
     if result.peak_gib is not None:

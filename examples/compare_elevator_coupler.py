@@ -39,8 +39,11 @@ def on_grid(d: dict, x: np.ndarray, z: np.ndarray, key: str = "E2") -> np.ndarra
 def guide_power(d: dict) -> tuple[np.ndarray, np.ndarray]:
     """|E|^2 integrated over the upper (z > -0.06) and lower (z < -0.06) guide regions."""
     z = d["z"]
-    upper = d["E2"][:, (z > -0.06) & (z < 0.45)].sum(axis=1)
-    lower = d["E2"][:, (z > -0.45) & (z <= -0.06)].sum(axis=1)
+    dz = np.diff(d["z_edges"]) if "z_edges" in d else np.ones_like(z)
+    up_mask = (z > -0.06) & (z < 0.45)
+    lo_mask = (z > -0.45) & (z <= -0.06)
+    upper = (d["E2"][:, up_mask] * dz[up_mask]).sum(axis=1)
+    lower = (d["E2"][:, lo_mask] * dz[lo_mask]).sum(axis=1)
     return upper, lower
 
 
@@ -50,18 +53,18 @@ def main(prefixes: tuple[str, str] = ("fdtdx", "meep")) -> None:
     report = []
     for row, overlap in zip(axes, rows):
         a, b = (load(p, overlap) for p in prefixes)
-        x, z = a["x"], a["z"]
+        x, z = b["x"], b["z"]  # compare and display on MEEP's uniform grid
         keep = (z >= Z_VIEW[0]) & (z <= Z_VIEW[1])
         interior = (x > -0.6) & (x < x.max() - 0.5)  # after the source, before the PML
-        b_on_a = on_grid(b, x, z)
-        err = np.linalg.norm((a["E2"] - b_on_a)[interior][:, keep]) / np.linalg.norm(b_on_a[interior][:, keep])
+        a_on_b = on_grid(a, x, z)
+        err = np.linalg.norm((a_on_b - b["E2"])[interior][:, keep]) / np.linalg.norm(b["E2"][interior][:, keep])
         report.append((overlap, float(a["T"]), float(b["T"]), float(err)))
         extent = (x.min(), x.max(), Z_VIEW[0], Z_VIEW[1])
         style = dict(extent=extent, origin="lower", aspect="auto")
-        row[0].imshow(a["eps"][:, keep].T, cmap="Greys", **style)
-        row[0].contour(x, z[keep], on_grid(b, x, z[keep], "eps").T, levels=[3.0], colors="r", linewidths=0.6)
+        row[0].imshow(on_grid(a, x, z[keep], "eps").T, cmap="Greys", **style)
+        row[0].contour(x, z[keep], b["eps"][:, keep].T, levels=[3.0], colors="r", linewidths=0.6)
         row[0].set_title(f"overlap {overlap:.2f} um: eps (fdtdx, grey) / MEEP n=1.73 contour (red)", fontsize=9)
-        for ax, d, name in ((row[1], a["E2"], prefixes[0]), (row[2], b_on_a, prefixes[1])):
+        for ax, d, name in ((row[1], a_on_b, prefixes[0]), (row[2], b["E2"], prefixes[1])):
             ax.imshow(np.sqrt(d[:, keep]).T, cmap="inferno", vmin=0, vmax=1.2, **style)
             ax.set_title(f"{name}: |E| (y = 0), T = {(a if ax is row[1] else b)['T']:.3f}", fontsize=9)
         for ax in row:

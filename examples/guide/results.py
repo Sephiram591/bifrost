@@ -1,7 +1,6 @@
 """Results and field monitors: run a short simulation of a straight waveguide and read the monitors.
 
-The grid is coarse (50 nm) and the run short, so this finishes in a minute or two on a CPU or in seconds on a GPU.
-Run it:  python examples/guide/results.py
+Run it on a GPU:  python examples/guide/results.py
 """
 
 # --8<-- [start:simulate]
@@ -22,11 +21,11 @@ materials = {"core": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Materia
 stack = bf.StackDevice.from_layer_stack(
     component, layer_stack, materials, background="clad", zrange_layers=["core"],
     extend_ports=(("o1", 2.0), ("o2", 2.0)), name="stack",
-    boundary_offset=(0, 0, 1.6, -1.6, 1.59, -1.59),  # a 9 x 3.7 x 3.4 um box: whole cells at 50 nm
+    boundary_offset=(0, 0, 1.5, -1.5, 1.5, -1.5),
 )
 
-RESOLUTION = 0.05  # um
-config = stack.get_simulation_config(time=300e-15, grid=fdtdx.core.grid.UniformGrid(spacing=RESOLUTION * 1e-6))
+mesh = bf.mesh(stack, 1.55)
+config = stack.get_simulation_config(time=300e-15, grid=mesh.grid)
 wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
 pulse = fdtdx.GaussianPulseProfile(
     center_wave=wave, spectral_width=fdtdx.WaveCharacter(frequency=0.05 * wave.get_frequency())
@@ -36,19 +35,26 @@ volume, constraints = stack.get_simulation_volume()
 objects = [volume, stack]
 for obj, placing in (
     stack.create_mode_plane_source_at(
-        "o1", (0.5, 0.3), wave_character=wave, temporal_profile=pulse, port_offset=-0.5, name="source", **te0,
+        "o1", (0.5, 0.3), wave_character=wave, temporal_profile=pulse, port_offset=-0.5, name="source",
+        grid=config, **te0,
     ),
     # mode monitors: how much of TE0 passes each port
     stack.create_mode_overlap_detector_at(
-        "o1", (0.5, 0.3), direction="in", wave_characters=(wave,), scaling_mode="pulse", name="in", **te0,
+        "o1", (0.5, 0.3), direction="in", wave_characters=(wave,), scaling_mode="pulse", name="in",
+        grid=config, **te0,
     ),
     stack.create_mode_overlap_detector_at(
-        "o2", (0.5, 0.3), wave_characters=(wave,), scaling_mode="pulse", name="out", **te0,
+        "o2", (0.5, 0.3), wave_characters=(wave,), scaling_mode="pulse", name="out",
+        grid=config, **te0,
     ),
     # Poynting-flux monitors: the power through a plane at every time step (no wave of their own, so
     # the padding's unit is wavelength_um)
-    stack.create_poynting_flux_detector_at("o1", (0.5, 0.3), wavelength_um=1.55, direction="in", name="flux_in"),
-    stack.create_poynting_flux_detector_at("o2", (0.5, 0.3), wavelength_um=1.55, name="flux_out"),
+    stack.create_poynting_flux_detector_at(
+        "o1", (0.5, 0.3), wavelength_um=1.55, direction="in", name="flux_in", grid=config,
+    ),
+    stack.create_poynting_flux_detector_at(
+        "o2", (0.5, 0.3), wavelength_um=1.55, name="flux_out", grid=config,
+    ),
 ):
     objects.append(obj)
     constraints += placing
@@ -59,9 +65,7 @@ field = fdtdx.PhasorDetector(
 )
 objects.append(field)
 constraints += [field.same_size(volume, axes=(0, 1)), field.place_at_center(volume)]
-boundaries, placing = fdtdx.boundary_objects_from_config(
-    fdtdx.BoundaryConfig.from_uniform_bound(thickness=round(1.0 / RESOLUTION)), volume
-)
+boundaries, placing = fdtdx.boundary_objects_from_config(mesh.boundary, volume)
 objects += boundaries.values()
 constraints += placing
 

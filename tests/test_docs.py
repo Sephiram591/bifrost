@@ -153,7 +153,7 @@ LIGHT = [
     ("examples/check_install.py", ["devices", "bifrost", "fdtdx"]),
     ("examples/straight_waveguide.py", []),
     ("examples/guide/layer_stacks.py", ["box (um): [7.0, 3.5, 3.22]"]),
-    ("examples/guide/simulation_setup.py", ["grid cells: (180, 74, 68)", "source", "out"]),
+    ("examples/guide/simulation_setup.py", ["grid cells: (405, 95, 83)", "source", "out"]),
     ("examples/guide/options.py", ["default", "fast", "corner_lines=0"]),
     ("examples/guide/diagnostics.py", ["narrower than"]),
 ]
@@ -215,7 +215,7 @@ def test_hardware_the_gradient_example_agrees_with_finite_differences() -> None:
 def test_hardware_the_width_optimization_improves_the_bend() -> None:
     done = _run("examples/guide/inverse_design.py", "--iterations", "3", "--check", "0", "--figure", "", timeout=1800)
     assert done.returncode == 0, done.stderr[-2000:]
-    found = re.search(r"transmission at \d+ nm: uniform ([\d.]+), optimized ([\d.]+)", done.stdout)
+    found = re.search(r"transmission at ppw=[\d.]+: uniform ([\d.]+), optimized ([\d.]+)", done.stdout)
     uniform, optimized = (float(v) for v in found.groups())
     assert optimized > uniform, done.stdout
 

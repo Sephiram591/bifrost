@@ -22,13 +22,12 @@ materials = {"core": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Materia
 stack = bf.StackDevice.from_layer_stack(
     component, layer_stack, materials, background="clad", zrange_layers=["core"],
     extend_ports=(("o1", 1.0), ("o2", 1.0)),
-    boundary_offset=(0, 0, 1.48, -1.48, 1.39, -1.39),  # a 7 x 3 x 3 um box: whole cells at 50 nm
+    boundary_offset=(0, 0, 1.48, -1.48, 1.39, -1.39),  # a 7 x 3 x 3 um box
     name="stack",
 )
 
-config = stack.get_simulation_config(
-    time=50e-15, grid=fdtdx.core.grid.UniformGrid(spacing=50e-9)  # 50 nm cells
-)
+mesh = bf.mesh(stack, 1.55, min_cell=0.05)  # cap cells at 50 nm so the 40 nm strip is under-resolved
+config = stack.get_simulation_config(time=50e-15, grid=mesh.grid)
 volume, constraints = stack.get_simulation_volume()
 with warnings.catch_warnings(record=True) as caught:
     warnings.simplefilter("always")

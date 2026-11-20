@@ -6,7 +6,7 @@ each side of its centerline, at 70 stations along the bend, is optimized for TE0
 gradient ascent through the simulation; both ends stay 1.6 um wide and centered, so the ports and their
 straight leads never change. The optimized design is then checked on a finer grid.
 Run it on a GPU:  python examples/guide/inverse_design.py
-Options:  --iterations 50 --resolution 0.06 --check 0.04 --figure inverse_design.png
+Options:  --iterations 50 --ppw 20 --check 24 --figure inverse_design.png
 """
 
 import argparse
@@ -61,9 +61,9 @@ UNIFORM = jnp.full((2, N_STATIONS), WIDTH / 2)  # the 1.6 um guide, centered eve
 
 # --8<-- [start:simulation]
 EXTENSION = 2.5  # um: both ports run straight out to the box faces
-MARGIN = 2.06  # um past the bend's two free sides; the box is 12.36 x 12.36 x 4.8 um, whole cells at 60 and 40 nm
+MARGIN = 2.06  # um past the bend's two free sides; the box is 12.36 x 12.36 x 4.8 um
 BOX_HEIGHT, PML = 4.8, 1.0  # um
-RESOLUTION, CHECK_RESOLUTION = 0.06, 0.04  # um: the grid it is optimized on, and the finer one it is checked on
+PPW, CHECK_PPW = 20, 24  # bf.mesh's default ppw, and a finer check
 DURATION = 500e-15  # s
 PADDING = (0.5, 0.5)  # wavelengths past the port's width and the core's height: the mode reaches into the silica
 KEY = jax.random.PRNGKey(0)
@@ -81,17 +81,21 @@ materials = {
 }
 
 
-def place(resolution):
-    """The uniform bend, placed on a grid of this cell (um) with its source and monitors."""
+def place(ppw):
+    """The uniform bend, placed on an adaptive mesh of this ppw with its source and monitors."""
     z_margin = (BOX_HEIGHT - THICKNESS) / 2  # the silica runs through the bottom face, the air through the top
     stack = bf.StackDevice.from_layer_stack(
         tight_bend(UNIFORM), layer_stack, materials, background="air", zrange_layers=["core"],
         extend_ports=(("o1", EXTENSION), ("o2", EXTENSION)),
         boundary_offset=(MARGIN, 0, 0, -MARGIN, z_margin, -z_margin), name="stack",
     )
+    mesh = bf.mesh(
+        stack, WAVELENGTH, ppw=ppw,
+        refine=bf.Refine(dilation={"WG": H_MAX - WIDTH / 2}),  # 0.45 um: fine cells wherever the edges may move
+    )
     config = stack.get_simulation_config(
-        time=DURATION, grid=fdtdx.core.grid.UniformGrid(spacing=resolution * 1e-6),
-        gradient_config=fdtdx.GradientConfig(method="checkpointed", num_checkpoints=60),  # bounded backward memory
+        time=DURATION, grid=mesh.grid,
+        gradient_config=fdtdx.GradientConfig(method="checkpointed", num_checkpoints=35),  # bounded backward memory
     )
     wave = fdtdx.WaveCharacter(wavelength=WAVELENGTH * 1e-6)
     pulse = fdtdx.GaussianPulseProfile(
@@ -103,14 +107,16 @@ def place(resolution):
     for obj, placing in (
         # source and monitors in the straight leads, clear of the bend whose edges move
         stack.create_mode_plane_source_at(
-            "o1", PADDING, wave_character=wave, temporal_profile=pulse, port_offset=-1.0, name="source", **te0,
+            "o1", PADDING, wave_character=wave, temporal_profile=pulse, port_offset=-1.0, name="source",
+            grid=config, **te0,
         ),
         stack.create_mode_overlap_detector_at(
             "o1", PADDING, direction="in", wave_characters=(wave,), scaling_mode="pulse", port_offset=-0.5,
-            name="in", **te0,
+            name="in", grid=config, **te0,
         ),
         stack.create_mode_overlap_detector_at(
-            "o2", PADDING, wave_characters=(wave,), scaling_mode="pulse", port_offset=-0.5, name="out", **te0,
+            "o2", PADDING, wave_characters=(wave,), scaling_mode="pulse", port_offset=-0.5,
+            name="out", grid=config, **te0,
         ),
     ):
         objects.append(obj)
@@ -121,9 +127,7 @@ def place(resolution):
     )
     objects.append(field)
     constraints += [field.same_size(volume, axes=(0, 1)), field.place_at_center(volume)]
-    boundaries, placing = fdtdx.boundary_objects_from_config(
-        fdtdx.BoundaryConfig.from_uniform_bound(thickness=round(PML / resolution)), volume
-    )
+    boundaries, placing = fdtdx.boundary_objects_from_config(mesh.boundary, volume)
     objects += boundaries.values()
     constraints += placing
     objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, KEY)
@@ -194,18 +198,17 @@ def optimize(placed, iterations, learning_rate=0.03):
 # --8<-- [end:optimize]
 
 
-def field_image(half_widths, placed, resolution):
-    """The transmission, and |E|^2, the permittivity and the extent (um) of the xy plane through the core."""
+def field_image(half_widths, placed):
+    """The transmission, and |E|^2, the permittivity and the (x, y) cell edges (um) of the xy plane through the core."""
     transmission, arrays = simulate(half_widths, placed)
-    objects = placed[0]
+    objects, _, _, config = placed
     stack, k = objects["stack"], objects["field"].grid_slice[2].start
     phasor = np.asarray(arrays.detector_states["field"]["phasor"][0, 0, :, :, :, 0])
-    nx, ny = phasor.shape[1:]
-    sx, sy, _ = (float(v) * 1e6 for v in stack.partial_real_shape)
-    x0, y0 = float(stack.center[0]) - sx / 2, float(stack.center[1]) - sy / 2
-    extent = (x0, x0 + nx * resolution, y0, y0 + ny * resolution)
+    grid = config.resolved_grid
+    x_edges = float(stack.center[0]) + np.asarray(grid.edges(0), dtype=float) * 1e6
+    y_edges = float(stack.center[1]) + np.asarray(grid.edges(1), dtype=float) * 1e6
     eps = 1 / np.asarray(arrays.inv_permittivities[0, :, :, k])
-    return float(transmission), np.sum(np.abs(phasor) ** 2, axis=0), eps, extent
+    return float(transmission), np.sum(np.abs(phasor) ** 2, axis=0), eps, (x_edges, y_edges)
 
 
 def plot(images, history, path):
@@ -217,10 +220,11 @@ def plot(images, history, path):
 
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.4), gridspec_kw={"width_ratios": [1, 1, 0.9]})
     peak = max(field.max() for _, field, _, _ in images.values())
-    for ax, (name, (transmission, field, eps, (x0, x1, y0, y1))) in zip(axes, images.items()):
-        ax.imshow(field.T / peak, origin="lower", extent=(x0, x1, y0, y1), cmap="inferno", vmax=1)
-        xs, ys = np.linspace(x0, x1, eps.shape[0]), np.linspace(y0, y1, eps.shape[1])
+    for ax, (name, (transmission, field, eps, (x_edges, y_edges))) in zip(axes, images.items()):
+        ax.pcolormesh(x_edges, y_edges, field.T / peak, cmap="inferno", vmax=1, shading="flat")
+        xs, ys = 0.5 * (x_edges[:-1] + x_edges[1:]), 0.5 * (y_edges[:-1] + y_edges[1:])
         ax.contour(xs, ys, eps.T, levels=[(CORE_INDEX**2 + CLAD_INDEX**2) / 2], colors="white", linewidths=0.6)
+        ax.set_aspect("equal")
         ax.set(xlabel="x (um)", ylabel="y (um)", title=f"{name}: T = {transmission:.3f}")
     axes[2].plot(range(len(history)), history, "o-")
     axes[2].set(xlabel="step", ylabel="transmission", title="optimization")
@@ -232,23 +236,23 @@ def plot(images, history, path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--iterations", type=int, default=50, help="optimization steps")
-    parser.add_argument("--resolution", type=float, default=RESOLUTION, help="grid cell (um) to optimize on")
-    parser.add_argument("--check", type=float, default=CHECK_RESOLUTION, help="finer grid cell (um); 0 skips it")
+    parser.add_argument("--ppw", type=float, default=PPW, help="cells per wavelength in each material")
+    parser.add_argument("--check", type=float, default=CHECK_PPW, help="finer ppw; 0 skips it")
     parser.add_argument("--figure", default="inverse_design.png", help="where to save the figure; '' skips it")
     args = parser.parse_args()
 
     started = time.perf_counter()
     # --8<-- [start:run]
-    placed = place(args.resolution)
+    placed = place(args.ppw)
     half_widths, history = optimize(placed, args.iterations)
     print(f"optimized: {describe(half_widths)}")
-    images = {name: field_image(h, placed, args.resolution) for name, h in (("uniform", UNIFORM), ("optimized", half_widths))}
+    images = {name: field_image(h, placed) for name, h in (("uniform", UNIFORM), ("optimized", half_widths))}
     t_uniform, t_optimized = images["uniform"][0], images["optimized"][0]
-    print(f"transmission at {args.resolution * 1e3:.0f} nm: uniform {t_uniform:.4f}, optimized {t_optimized:.4f}")
+    print(f"transmission at ppw={args.ppw:g}: uniform {t_uniform:.4f}, optimized {t_optimized:.4f}")
     if args.check:
         fine = place(args.check)  # the same two designs on a finer grid: is the gain real?
         t_uniform, t_optimized = (float(simulate(h, fine)[0]) for h in (UNIFORM, half_widths))
-        print(f"transmission at {args.check * 1e3:.0f} nm: uniform {t_uniform:.4f}, optimized {t_optimized:.4f}")
+        print(f"transmission at ppw={args.check:g}: uniform {t_uniform:.4f}, optimized {t_optimized:.4f}")
     # --8<-- [end:run]
     print(f"wall time: {time.perf_counter() - started:.0f} s on {jax.devices()[0].device_kind}")
     if args.figure:

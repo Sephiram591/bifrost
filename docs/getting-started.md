@@ -1,17 +1,11 @@
 # Getting started: your first simulation
 
-A 90° silicon waveguide bend, simulated by
-[`examples/waveguide_bend.py`](https://github.com/Sephiram591/bifrost/blob/main/examples/waveguide_bend.py): a
-transmission value, a field image, and the result open in the viewer. [Install bifrost](installation.md) first, and run
-the script on a GPU if you have one.
-
-The device is a 500 nm wide, 220 nm thick silicon strip in silica: gdsfactory's `bend_circular` cell, a 5 µm radius
-arc, with both ports extended straight to the edge of the simulation box. TE0 light at 1.55 µm is launched into the
-extension of port `o1`, and the script measures how much of it leaves port `o2` in TE0.
+Here we simulate a 90° silicon waveguide bend: we compute the
+transmission value, plot the field, and open the result in the viewer.
 
 ## Run it
 
-Save the [complete script](#the-complete-script) as `waveguide_bend.py` and run it:
+You can download the [complete script](https://github.com/Sephiram591/bifrost/blob/main/examples/waveguide_bend.py) as `waveguide_bend.py` and run it:
 
 ```bash
 python waveguide_bend.py
@@ -20,22 +14,16 @@ python waveguide_bend.py
 Output on an NVIDIA L40S (yours will differ slightly):
 
 ```text
-transmission: 1.0008
-wall time:    32.4 s (compilation included)
-peak memory:  1.2 GiB on cuda:0
+transmission: 0.9998
+wall time:    68.0 s (compilation included)
+peak memory:  2.9 GiB on cuda:0
 field image:  waveguide_bend_field.png
 ```
 
 ![|E|² on the middle of the bend, with the guide's outline](images/waveguide_bend_field.png)
 
-A transmission a little above 1 is not gain: it is the numerical error of the mode amplitudes at this grid, a few parts
-in a thousand, and it shrinks as the grid is refined (see [Choosing the settings](#choosing-the-settings)). A bend this
-wide loses less than that error.
-
-!!! note "How long it takes"
-    About half of the first run is compiling the solver: in one process, the first simulation took 32.7 s and an
-    identical second one 16.1 s. Without a GPU, try a coarser grid first (`--resolution 0.1` took 31 s on 4 CPU cores,
-    with a transmission of 0.980). The settings are chosen to be quick, not converged.
+A bend this wide loses only a few parts in ten thousand—comparable to the numerical error of the mode amplitudes on the
+grid, which can put coarser grids slightly above 1 without gain (see [Choosing the settings](#choosing-the-settings)).
 
 ## The script, step by step
 
@@ -67,26 +55,18 @@ constant-index silicon for the core and silica for the cladding.
 
 `StackDevice.from_layer_stack` voxelizes the component through the stack. `background="clad"` fills everything the core
 does not. `extend_ports` continues both ports straight out by 2.5 µm, so the guide runs through the absorbing boundary
-instead of ending inside the simulation. `boundary_offset` sets the box: the faces that hold a port stay put, the others
+instead of ending inside the simulation. `boundary_offset` sets the simulation size by offseting each face from the boundary of the GDS cell and the zrange_layers: the faces that hold a port stay put, the others
 move out by 2.25 µm in x and y, and the box is 3.4 µm tall, 10 × 10 × 3.4 µm in all.
 
 ```python
 --8<-- "examples/waveguide_bend.py:stack"
 ```
 
-!!! note "Keep the box on the grid"
-    fdtdx rounds each side of the box to a whole number of grid cells when it places it: a 10.03 µm side on a 40 nm grid
-    becomes 10.04 µm, so the simulated box can differ from `boundary_offset` by up to half a cell, and changes with the
-    grid. The script's 10 µm and 3.4 µm are whole numbers of cells at 50, 40, 25 and 20 nm, so the box is the same in
-    every run of the [table below](#choosing-the-settings). A side exactly halfway between two cell counts (3.42 µm is
-    85.5 cells of 40 nm) can make fdtdx stop with `Configured grid shape ... does not match simulation volume shape`.
-
 ### 4. Wavelength, grid, duration and boundaries
 
-These are fdtdx objects, and fdtdx works in **meters**: the script's µm lengths are multiplied by `1e-6` where they
-enter. `SimulationConfig` takes the simulated time and the grid, and `WaveCharacter` the 1.55 µm wavelength. The source
-is a pulse 5 % wide in frequency that ramps up smoothly. The absorbing boundary (PML) is 1 µm thick, placed later inside
-each face of the box.
+`bf.mesh` builds a graded grid (20 points per local wavelength by default) and a 1 µm absorbing boundary (PML, placed
+later inside each face of the box) from µm inputs. fdtdx objects work in **meters**: `WAVELENGTH` is multiplied by
+`1e-6` where it enters `WaveCharacter`, and `SimulationConfig` takes the simulated time and `mesh.grid`.
 
 ```python
 --8<-- "examples/waveguide_bend.py:settings"
@@ -94,7 +74,7 @@ each face of the box.
 
 ### 5. Source and monitors
 
-Everything placed on a port goes through the device. `create_mode_plane_source_at` launches TE0
+`create_mode_plane_source_at` launches TE0
 (`mode_index=0, filter_pol="te"`) 1 µm outside `o1`, in the straight extension (a negative `port_offset` moves a plane
 out of the device). `create_mode_overlap_detector_at` makes monitors of the TE0 that passes a plane: one 0.5 µm outside
 `o1`, counting the mode travelling *into* the bend, and one 0.5 µm outside `o2`. Each plane extends 0.5 wavelengths past
@@ -148,30 +128,28 @@ and the movie. This exact result, precomputed, is in the [Widget Demo](live-demo
 
 ## Choosing the settings
 
-The same script on an NVIDIA L40S at four grids, each in its own process (`scripts/bend_sweep.py` reproduces the table).
-The transmission moves by less than 0.2 %, so the script uses 40 nm; a more sensitive device would need a finer grid.
+The same script on an NVIDIA L40S at four adaptive meshes, each in its own process (`scripts/bend_sweep.py` reproduces
+the table). The transmission moves by less than 0.2 %, so the script uses `ppw = 20` (`bf.mesh`'s default); a more
+sensitive device would need a finer grid.
 
-| Grid cell | Transmission | Wall time | Peak GPU memory |
-|---|---|---|---|
-| 50 nm | 1.0012 | 24 s | 0.7 GiB |
-| 40 nm (the script's default) | 1.0008 | 32 s | 1.2 GiB |
-| 25 nm | 0.9998 | 106 s | 4.6 GiB |
-| 20 nm | 0.9994 | 227 s | 8.7 GiB |
+| Points per wavelength (ppw) | Grid cells | Transmission | Wall time | Peak GPU memory |
+|---|---|---|---|---|
+| 12 | 3.05M | 1.0009 | 26 s | 1.1 GiB |
+| 16 | 7.02M | 1.0000 | 40 s | 1.8 GiB |
+| 20 (the script's default) | 13.46M | 0.9998 | 68 s | 2.9 GiB |
+| 24 | 23.03M | 0.9993 | 124 s | 5.0 GiB |
 
-A run 1.5 times as long (600 fs) gives the same transmission to four digits at 25 nm (0.9998), so 400 fs is enough for
-the pulse to cross the device and ring down.
+A run 1.5 times as long (600 fs) gives the same transmission to four digits at `ppw = 24` (0.9993), so 400 fs is enough
+for the pulse to cross the device and ring down.
 
 ## Troubleshooting
 
 - **The run takes forever, or `jax.devices()` shows only a CPU.** JAX found no accelerator: see
-  [JAX setup](installation.md#jax-setup). On a CPU, coarsen the grid (`--resolution 0.1`) to try the script.
+  [JAX setup](installation.md#jax-setup). On a CPU, coarsen the mesh (`--ppw 10`) to try the script.
 - **The first run is slow but later ones are fast.** The first call compiles the solver for this grid size. Changing the
   box or the grid compiles again.
 - **`RESOURCE_EXHAUSTED` or an out-of-memory error.** The grid is too fine for the accelerator's memory, which grows with
-  the cube of the refinement (see the table). Use a coarser `--resolution` or a smaller box.
-- **`Configured grid shape ... does not match simulation volume shape`.** A side of the box is exactly halfway between
-  two cell counts, and fdtdx rounded it differently in two places. Move `boundary_offset` by a fraction of a cell, or
-  change the grid spacing; see [step 3](#3-the-device).
+  `--ppw` (see the table). Lower `--ppw` or use a smaller box.
 - **The viewer shows nothing in a plain script.** The viewer is a notebook widget: run the code in Jupyter or marimo and
   end the cell with the viewer, or look at the [Widget Demo](live-demo.md) or standalone [Explorer demo](demo/index.html).
 - **The transmission is 0 or absurd.** Check the units (fdtdx wants meters: `1e-6`), that the source is not inside the

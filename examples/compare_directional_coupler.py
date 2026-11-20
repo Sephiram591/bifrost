@@ -1,8 +1,8 @@
 """Compares the fdtdx and MEEP directional-coupler runs: power spectra, 50:50 point, field maps, speed.
 
-    python examples/compare_directional_coupler.py [resolution_nm]   # reads examples/output/*_dc_<nm>nm*.npz
+    python examples/compare_directional_coupler.py [ppw] [meep_nm]   # reads examples/output/*.npz
 
-The fdtdx runs (``python examples/fdtdx_directional_coupler.py <resolution_um> [averaging]``) are compared with the MEEP
+The fdtdx runs (``python examples/fdtdx_directional_coupler.py [ppw] [averaging]``) are compared with the MEEP
 run; an fdtdx run that is missing is left out.
 """
 
@@ -18,8 +18,8 @@ from scipy.interpolate import RegularGridInterpolator
 
 OUT = Path(__file__).parent / "output"
 RUNS = {  # label: file stem
-    "fdtdx subpixel": "fdtdx_dc_{nm}nm",
-    "fdtdx subpixel_full": "fdtdx_dc_{nm}nm_subpixel_full",
+    "fdtdx subpixel": "fdtdx_dc_ppw{ppw}",
+    "fdtdx subpixel_full": "fdtdx_dc_ppw{ppw}_subpixel_full",
     "MEEP": "meep_dc_{nm}nm",
 }
 REFERENCE = "MEEP"
@@ -50,8 +50,8 @@ def split_wavelength(d: dict) -> float:
     return float(np.interp(0.5, d["cross"][order], d["wavelength"][order] * 1e3))
 
 
-def main(nm: float = 20) -> None:
-    stems = {label: stem.format(nm=f"{nm:g}") for label, stem in RUNS.items()}
+def main(ppw: float = 20, nm: float = 20) -> None:
+    stems = {label: stem.format(ppw=f"{ppw:g}", nm=f"{nm:g}") for label, stem in RUNS.items()}
     runs = {label: load(stem) for label, stem in stems.items() if (OUT / f"{stem}.npz").exists()}
     ref = runs[REFERENCE]
     others = [label for label in runs if label != REFERENCE]
@@ -64,7 +64,7 @@ def main(nm: float = 20) -> None:
             if label != REFERENCE:
                 ax_d.plot(wl, d[key] - ref[key], LINES[label], color=color, label=f"{port}, {label}")
     ax.set(ylabel="TE0 power transmission from o1", ylim=(0, 1.05))
-    ax.set_title(f"SiN directional coupler, 300 nm gap, dx = {nm:g} nm", fontsize=10)
+    ax.set_title(f"SiN directional coupler, 300 nm gap, fdtdx ppw = {ppw:g} vs MEEP dx = {nm:g} nm", fontsize=10)
     ax.legend(fontsize=7.5, ncol=2, loc="lower center")
     ax_d.axhline(0, color="0.7", lw=0.5)
     ax_d.set(xlabel="wavelength (nm)", ylabel=f"fdtdx - {REFERENCE}")
@@ -73,7 +73,7 @@ def main(nm: float = 20) -> None:
     fig.savefig(OUT / "directional_coupler_spectra.png", dpi=130)
 
     first = runs[others[0]] if others else ref
-    x, y = first["x"], first["y"]
+    x, y = ref["x"], ref["y"]  # compare and display on MEEP's uniform grid
     interior = (x > 0.0) & (x < x.max() - 1.0)  # after the source, before the PML
     maps = {label: on_grid(d, x, y) for label, d in runs.items()}
     err = {
@@ -83,8 +83,8 @@ def main(nm: float = 20) -> None:
     extent = (x.min(), x.max(), y.min(), y.max())
     style = dict(extent=extent, origin="lower", aspect="auto")
     fig, axes = plt.subplots(len(runs) + 1, 1, figsize=(14, 2.3 * (len(runs) + 1)), sharex=True)
-    axes[0].imshow(first["eps"].T, cmap="Greys", **style)
-    axes[0].contour(x, y, on_grid(ref, x, y, "eps").T, levels=[EPS_MID], colors="r", linewidths=0.6)
+    axes[0].imshow(on_grid(first, x, y, "eps").T, cmap="Greys", **style)
+    axes[0].contour(x, y, ref["eps"].T, levels=[EPS_MID], colors="r", linewidths=0.6)
     shown = others[0] if others else REFERENCE
     axes[0].set_title(f"eps ({shown}, grey) / {REFERENCE} contour at eps = {EPS_MID:.2f} (red)", fontsize=9)
     for ax, (label, d) in zip(axes[1:], maps.items()):
@@ -122,4 +122,6 @@ def main(nm: float = 20) -> None:
 
 
 if __name__ == "__main__":
-    main(float(sys.argv[1]) if len(sys.argv) > 1 else 20)
+    ppw = float(sys.argv[1]) if len(sys.argv) > 1 else 20
+    nm = float(sys.argv[2]) if len(sys.argv) > 2 else 20
+    main(ppw, nm)
