@@ -13,7 +13,7 @@ simulations), CPU references with numpy/scipy/shapely and meep. The documentatio
 | `study_boundary_conditions.py` | which cell problem a voxel tensor should solve, against the voxel embedded in a 5 x 5 patch | voxel-alone periodic: exact for grid-aligned laminates; Dirichlet and mean-field biased (16 %, 38 %) |
 | `study_closure.py` | sub-cell models for the closure (Voigt, laminate sub-cells; 2 to 8 sub-cells) | laminate sub-cells converge 3 to 5x faster; thresholds r = 0.002 to 0.02 |
 | `validate_closure.py` | the production closure on junction voxels of placed devices (an L, a rotated square, an acute triangle) against the reference | closure vs embedded: 5.1 % median, 14.6 % p90; laminate along one normal: 31 %, 42 %; closure vs exact periodic: 2.2 % median |
-| `legacy_fingerprint.py` | the legacy averagings' weights and tensors, bitwise, against the branch point (deterministic GPU ops) | all identical |
+| `legacy_fingerprint.py` | regression check of diagonal and inverse averaging weights and tensors against saved reference outputs (deterministic GPU ops) | all identical |
 | `berreman.py` | 4 x 4 transfer matrix for anisotropic layers at normal incidence (self-checks against Fabry-Perot and decoupled eigenpolarizations) | reference for `em_slab.py` |
 | `em_slab.py` | a 137 nm slab of a rotated uniaxial crystal with an xz entry in fdtdx vs Berreman, 40 to 5 nm, three grid offsets; staircase and diagonal baselines; reciprocity; `--grad` gradient through the solve | see below |
 | `em_grating.py` | corner scattering: a grating of rotated rods (scalar and anisotropic) in fdtdx vs meep's subpixel smoothing | see below |
@@ -62,14 +62,14 @@ Zeroth-order transmission of a grating of 0.3 x 0.2 µm rods rotated by 30 degre
 | rods, averaging | 40 nm | 20 nm | 10 nm | 5 nm |
 |---|---|---|---|---|
 | eps 12, `subpixel_full` | 3.2e-3 | 1.6e-3 | 7.7e-4 | 6.5e-4 |
-| eps 12, previous `subpixel_full` (one averaged normal per voxel) | 7.5e-3 | 4.4e-3 | 2.0e-3 | 7.4e-4 |
+| eps 12, single-normal laminate (no junction closure) | 7.5e-3 | 4.4e-3 | 2.0e-3 | 7.4e-4 |
 | eps 12, `subpixel` (diagonal) | 2.7e-2 | 1.8e-2 | 9.8e-3 | 5.0e-3 |
 | eps 12, `inverse` | 9.4e-2 | 5.6e-2 | 3.1e-2 | 1.7e-2 |
 | rotated uniaxial crystal with xz entry, `subpixel_full` | 4.2e-3 | 1.8e-3 | 3.8e-4 | 4.2e-4 |
 
 For the crystal rods, fdtdx's own extrapolation (changes 1.2e-3, 5.3e-4, 1.0e-4 between successive
 resolutions) agrees with meep's within 3e-4. At 45 degrees meep is not yet in its asymptotic range (uncertain
-to about 5e-3); both `subpixel_full` versions are within that from 20 nm on.
+to about 5e-3); `subpixel_full` is within that uncertainty from 20 nm on.
 
 ## Stability (`results/stability.json`)
 

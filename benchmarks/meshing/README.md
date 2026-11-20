@@ -1,10 +1,10 @@
 # Adaptive meshing (`bf.mesh`) accuracy-per-cell benchmarks
 
-Drivers and results comparing `bf.mesh` against `fdtdx`'s `UniformGrid` across six photonic simulations on `voxelizer="greens"`, each under both subpixel averaging modes: `averaging="subpixel"` (the diagonal of the averaged tensor, bifrost's default) and `averaging="subpixel_full"` (the complete tensor). The rotated anisotropic crystal slab runs only under `"subpixel_full"`, since `"subpixel"` rejects materials with off-diagonal permittivity. All GPU runs executed in isolated worker subprocesses (float32) on an NVIDIA L40S, except the `"subpixel_full"` `directional_coupler` `uniform-20` and `mesh-16` grids, which need more than 48 GB and ran on an NVIDIA H200 (each row records its `gpu`).
+Drivers and results comparing `bf.mesh` against `fdtdx`'s `UniformGrid` across six photonic simulations on `voxelizer="greens"`, each under both subpixel averaging modes: `averaging="subpixel"` (the diagonal of the averaged tensor, bifrost's default) and `averaging="subpixel_full"` (the complete tensor). The rotated anisotropic crystal slab runs only under `"subpixel_full"`, since `"subpixel"` rejects materials with off-diagonal permittivity. All GPU runs executed in isolated worker subprocesses (float32) with `XLA_PYTHON_CLIENT_PREALLOCATE=false` and `XLA_PYTHON_CLIENT_MEM_FRACTION=0.97` on an NVIDIA L40S, except the `"subpixel_full"` `directional_coupler` `uniform-20` and `mesh-16` grids (originally timed on NVIDIA H200) and the four largest `"subpixel_full"` `peak_gb` measurements (`elevator_coupler` `uniform-16`, `directional_coupler` `mesh-14` / `uniform-20` / `mesh-16`, recorded with `peak_gb_gpu: "NVIDIA B200"`).
 
 ## Reproducing
 
-Run the full sweep for each averaging mode on a GPU node from the repository root; `--bench <name>` restricts a run to one benchmark and `--kind <k1,k2,...>` to a subset of its grids:
+Run the full sweep for each averaging mode on a GPU node from the repository root; `--bench <name>` restricts a run to one benchmark and `--kind <k1,k2,...>` to a subset of its grids (`--platform-allocator` switches large grids to `XLA_PYTHON_CLIENT_ALLOCATOR=platform`, omitting `peak_gb`):
 
 ```bash
 python benchmarks/meshing/accuracy_per_cell.py --averaging subpixel
@@ -12,7 +12,7 @@ python benchmarks/meshing/accuracy_per_cell.py --averaging subpixel_full
 python benchmarks/meshing/plot_accuracy_per_cell.py
 ```
 
-Rows are keyed by `(bench, kind, averaging)`, and existing rows are skipped, so an interrupted sweep resumes where it stopped. The script imports existing `voxelizer="greens"` rows of both averaging modes for `directional_coupler` (`benchmarks/greens/results/dc_convergence.json`) and `sin_bend` (`benchmarks/greens/results/bend_convergence.json`), executes all remaining configurations in clean subprocesses, and writes `benchmarks/meshing/results/accuracy_per_cell.json`. Under `"subpixel_full"` without `tidy3d_extras`, mode sources and monitors are solved on the diagonal of the averaged tensor while the FDTD update uses the complete tensor (`_apply_stack_safe` in `benchmarks/greens/dc_convergence_compare.py`). `plot_accuracy_per_cell.py` renders `docs/images/adaptive_meshing_raw.png`, `benchmarks/meshing/results/adaptive_meshing_raw.png`, and `benchmarks/meshing/results/adaptive_meshing_accuracy.png`.
+Rows are keyed by `(bench, kind, averaging)`, and existing rows are skipped, so an interrupted sweep resumes where it stopped. The script imports existing `voxelizer="greens"` rows of both averaging modes for `directional_coupler` (`benchmarks/greens/results/dc_convergence.json`) and `sin_bend` (`benchmarks/greens/results/bend_convergence.json`), executes all remaining configurations in clean subprocesses, and writes `benchmarks/meshing/results/accuracy_per_cell.json`. Under `"subpixel_full"` without `tidy3d_extras`, mode sources and monitors are solved on the diagonal of the averaged tensor while the FDTD update uses the complete tensor (`_apply_stack_safe` in `benchmarks/greens/dc_convergence_compare.py`). `plot_accuracy_per_cell.py` renders `docs/images/adaptive_meshing_raw.png`, `docs/images/adaptive_meshing_vram.png`, `benchmarks/meshing/results/adaptive_meshing_raw.png`, `benchmarks/meshing/results/adaptive_meshing_vram.png`, and `benchmarks/meshing/results/adaptive_meshing_accuracy.png`.
 
 ## Benchmarks
 

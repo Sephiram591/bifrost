@@ -1,33 +1,34 @@
-"""Opt-in wall-clock timing of the steps that build a :class:`~bifrost.stack.StackDevice`.
+"""Opt-in wall-clock timing of the steps that build a `StackDevice`.
 
 Off by default. When off, every timed call costs one global lookup and adds
-nothing to traced code. Turn it on with :func:`record_timings`::
+nothing to traced code. Turn it on with `record_timings`:
 
-    with record_timings() as timings:
-        device = StackDevice.from_layer_stack(...)
-        objects, arrays, *_ = fdtdx.place_objects(...)
-        arrays, *_ = apply_stack(arrays, objects, params, key)
-    print(timings.table())
+```python
+with record_timings() as timings:
+    device = StackDevice.from_layer_stack(...)
+    objects, arrays, *_ = fdtdx.place_objects(...)
+    arrays, *_ = apply_stack(arrays, objects, params, key)
+print(timings.table())
+```
 
-Steps nest (``write/weights/source_sdfs``). Each record is classified:
+Steps nest (`write/weights/source_sdfs`). Each record is classified:
 
-- **traced:** the step ran while JAX traced a function for ``jax.jit`` (or
-  ``lax.scan`` and the like): its wall time is tracing time, which is part of
+- **traced:** the step ran while JAX traced a function for `jax.jit` (or
+  `lax.scan` and the like): its wall time is tracing time, which is part of
   compiling.
 - **eager:** the step ran on concrete values, also under eager autodiff
-  (``jax.grad`` or ``jax.value_and_grad`` without ``jit``, whose tracers carry
+  (`jax.grad` or `jax.value_and_grad` without `jit`, whose tracers carry
   concrete primals). Its outputs (their primals) are waited for
-  (``jax.block_until_ready``) at the step's end, outside any trace, so the
+  (`jax.block_until_ready`) at the step's end, outside any trace, so the
   wall time includes the device work. JAX compile events (tracing, lowering
-  and XLA compilation, from ``jax.monitoring``) that happen while the step is
+  and XLA compilation, from `jax.monitoring`) that happen while the step is
   open are its compile time; the rest is run time. The backward pass of an
-  eager ``jax.grad`` runs after the steps returned and belongs to no step: time
-  the whole call with :func:`timed_step` to see it.
+  eager `jax.grad` runs after the steps returned and belongs to no step: time
+  the whole call with `timed_step` to see it.
 
-Work outside every step is not lost: compile events that fire while no step is
-open are summed in :attr:`StepTimings.outside_compile` (lowering and XLA
-compilation of jitted callers), and the timing plugin reports each test's time
-outside the steps.
+Work outside every step is also tracked: compile events that fire while no step is
+open are summed in `StepTimings.outside_compile` (lowering and XLA
+compilation of jitted callers).
 
 Timing never changes results or gradients: it only reads the clock, waits for
 eager outputs, and listens to JAX's monitoring events.
@@ -60,7 +61,7 @@ COMPILE_EVENTS = (
 
 @dataclass
 class StepRecord:
-    """Accumulated time of one step (one key of :attr:`StepTimings.steps`)."""
+    """Accumulated time of one step (one key of `StepTimings.steps`)."""
 
     #: calls of the step
     calls: int = 0
@@ -340,7 +341,7 @@ def record_timings(timings: StepTimings | None = None) -> Iterator[StepTimings]:
         timings: recorder to add to (default: a new one).
 
     Yields:
-        The recorder; its :attr:`StepTimings.steps` fill as the steps run.
+        The recorder; its `StepTimings.steps` fill as the steps run.
     """
     global _ACTIVE, _NEXT_ENTRY_ID
     _ensure_listener()
@@ -374,7 +375,7 @@ def active() -> StepTimings | None:
 
 
 class _Step:
-    """Context manager of :func:`timed_step`; ``done(value)`` names the outputs to wait for."""
+    """Context manager of `timed_step`; `done(value)` names the outputs to wait for."""
 
     __slots__ = ("_frame", "_timings", "_value")
 

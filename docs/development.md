@@ -1,8 +1,11 @@
 # Development
 
 Setup and the `make` targets are under [Contributor installation](installation.md#contributor-installation). Run the
-simulation tests on a GPU node. To time the geometry steps and the FDTD solve, run pytest with `FDTDX_TIMINGS=<name>`
-(see [Timing the geometry steps](guide/diagnostics.md#timing-the-geometry-steps)).
+simulation tests on a GPU node. To time the geometry steps and the FDTD solve across tests, run pytest with
+`FDTDX_TIMINGS=<name>` (or `--fdtdx-timings=<name>`; see [Timing the geometry steps](guide/diagnostics.md#timing-the-geometry-steps)).
+The plugin (`tests/fdtdx_timing_plugin.py`, including `fdtdx.place_objects` and `fdtdx.run_fdtd` forward/gradient timings)
+prints a summary table and writes `<name>.json` (or `<name>.<worker>.json` under `pytest-xdist`) under
+`.scratch/fdtdx_work/timings/`.
 
 ## Conventions
 
@@ -13,7 +16,7 @@ simulation tests on a GPU node. To time the geometry steps and the FDTD solve, r
 
 ## Releases
 
-Version in `pyproject.toml` and `bifrost/__init__.py`; record the release in the [changelog](changelog.md). Docs deploy
+Bump the version in `pyproject.toml` and `bifrost/__init__.py`, and record the release in the [changelog](changelog.md). Docs deploy
 from `main` through the `pages` workflow.
 
 ## Maintenance
@@ -49,8 +52,8 @@ clearing the field leaves it empty.
 ## The widget demo
 
 The [Widget Demo](live-demo.md) wraps a [marimo](https://marimo.io) notebook around the standalone
-[Explorer demo](demo/index.html) (`docs/demo/index.html`), which is the viewer's own front end playing back a
-precomputed result with no Python. Its pieces:
+[Explorer demo](demo/index.html) (`docs/demo/index.html`), which runs the viewer's own front end on a
+precomputed result without a Python backend. Its pieces live in:
 
 | Piece | Where |
 | --- | --- |

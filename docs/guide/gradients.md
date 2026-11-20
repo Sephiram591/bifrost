@@ -84,13 +84,14 @@ of polygons, and of vertices per polygon, on every layer.
 
 ## What the derivatives are
 
-They are the derivatives of the discretized simulation, not of the physical device; through a whole fdtdx solve they
-agree with its finite differences to 1e-3. Averaging puts an interface's material into the voxel it crosses, so a
-response is piecewise smooth in an interface's position, with a kink where the interface crosses a sample voxel's side.
-At high contrast its slope inside one voxel can be far from the physical one, while its values and its slope over a
-voxel follow them. In the anisotropic slab test (`benchmarks/subpixel/em_slab.py --grad`, contrast about 9),
-d|t|^2/d(thickness) is 0.13 at 20 nm and 0.59 at 10 nm, against 0.82 from the transfer matrix, while |t|^2 is within
-0.6 %. Refine the grid where the optimum depends on a gradient with respect to an interface's position.
+They are the derivatives of the discretized simulation, not of the continuum device; across a full fdtdx solve they
+agree with finite differences of the simulation to 1e-3. Subpixel averaging blends an interface's material across the
+voxel it crosses, so a response is piecewise smooth in an interface's position, with a slope kink where the interface
+crosses a sample voxel's face. At high refractive-index contrast, the derivative inside a single voxel can differ from
+the continuum slope even while the objective value itself is already close: for example, across a high-contrast dielectric
+slab (`ε` contrast ~9, `benchmarks/subpixel/em_slab.py --grad`), `d|t|^2/d(thickness)` is 0.13 at 20 nm and 0.59 at
+10 nm against 0.82 from the exact transfer matrix, while `|t|^2` is already within 0.6 %. Refine the grid where an
+optimum is sensitive to the position of a high-contrast interface.
 
 Where a surface lies exactly on a voxel face (a thickness or `zmin` that is a whole number of cells from the box's
 bottom, at some Yee position), the voxel fractions have a kink: the derivative there is the mean of the two one-sided
@@ -103,32 +104,11 @@ refine where an interface whose position you optimize can move.
 
 ## Polygon topology
 
-The device takes a few things from the vertices it is built with, once, and indexes later vertices with them by polygon
-and vertex: which corners lie inside another polygon's edge (T-junctions, such as a taper on the side of an MMI), which
-edges are seams between abutting polygons (left out of the distance), the order of the polygons, which way each one runs,
-and where each port extension meets the polygons on the port face. A parameter change that breaks one of these would
-silently give a wrong geometry: a taper moved off an MMI side leaves a bump on that side, two abutting polygons moved
-apart keep the gap between them filled, and a component that lists two polygons of the same size in the other order
-hands each one the other's topology.
+When a device is built, `StackDevice` extracts combinatorial topology from the initial vertices and uses it to index later parameter updates by polygon and vertex: T-junctions (where a corner lies on another polygon's edge, such as a taper meeting an MMI side), seams between abutting polygons, polygon ordering and orientation, and where port extensions meet polygons at port faces. Any parameter update that breaks these relationships would corrupt the geometry—for instance, pulling a taper off an MMI side, opening a gap between abutting polygons, or reordering polygons.
 
-So whenever the component is concrete (not traced), `pack` calls `stack.check_topology(component)`, which raises
-`ValueError` naming each layer and what changed in it. Traced components, inside `jax.grad` or `jax.jit`, are never
-checked, so the check costs nothing in the objective. Round-off, layout snapping and moves that keep the topology, such
-as a taper sliding along an MMI side or abutting polygons moving together, pass. `pack(component, check=False)` skips
-the check.
+Whenever `component` is concrete (outside `jax.jit` or `jax.grad`), `pack` runs `stack.check_topology(component)` and raises a `ValueError` naming any layer whose topology changed. Traced components inside `jax.grad` or `jax.jit` skip the check, so it adds zero overhead inside optimization loops. Small numerical noise, layout snapping, and topology-preserving moves (such as sliding a taper along an MMI side or moving abutting polygons together) pass; pass `pack(component, check=False)` to skip the concrete check explicitly.
 
-All of this uses one distance, the device's `topology_tol`: a corner this close to another polygon's edge lies on it,
-vertices this close to each other coincide, and a vertex this close to a port face is on it. The default is 2 database
-units of the layout (`gf.kcl.dbu`, so 2 nm), because snapping to the 1 nm grid can move a corner of a rotated component
-up to about 1.4 nm off the slanted edge it lies on; float32 round-off of the coordinates (2 epsilons times the largest
-one, about 1.2 nm at 5000 µm from the origin) is added, whatever the device's `dtype`. A corner within it bends the
-other polygon's edge through itself, by at most that distance, instead of leaving a slit between the polygons. The
-check, a new device (`from_layer_stack`) and `retopologize` all use the same tolerance, so whatever the check accepts, a
-device built for the new vertices would also have. Moves smaller than it (a taper 1 nm off an MMI side, a waveguide end
-1 nm short of an extended port's face) count as keeping the topology. Abutting edges whose corners are up to that far
-apart but not at the same point (which snapping does not produce from corners that coincide) are a seam too: a voxel
-whose center falls in the gap between them, if there is one, is filled as if it were far outside. Pass
-`topology_tol=...` (µm) to `from_layer_stack` to change it.
+All topology checks share one distance tolerance, `topology_tol`: vertices within `topology_tol` of an edge lie on it, vertices within `topology_tol` of each other coincide, and vertices within `topology_tol` of a port face lie on it. The default is 2 database units (`gf.kcl.dbu`, typically 2 nm) plus `float32` coordinate round-off (`2 * eps * max_coord`, about 1.2 nm at 5000 µm from the origin), which accommodates 1 nm grid snapping on rotated edges (`sqrt(2)` nm) without leaving slits between polygons. Pass `topology_tol=...` (µm) to `from_layer_stack` to override it.
 
 The check also reports polygons on a stack layer that had none when the device was built: the levels read such a layer
 as empty, and a level that needs it (e.g. a slab level of a device built from a strip waveguide) was not drawn at all.

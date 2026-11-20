@@ -1,23 +1,23 @@
-"""Material permittivity tensors and their subpixel averages for :mod:`bifrost.stack`.
+"""Material permittivity tensors and their subpixel averages for `bifrost.stack`.
 
 Pure matrix routines, independent of the stack's geometry:
 
 - the material tensor contract: every material's relative permittivity as a
   real, symmetric, positive-definite 3 x 3 matrix in simulation coordinates
-  (fdtdx's row-major 9-tuple), checked once (:func:`material_tensors`);
+  (fdtdx's row-major 9-tuple), checked once (`material_tensors`);
 - the planar (laminate) average of anisotropic materials of Kottke,
   Farjadpour and Johnson, Phys. Rev. E 77, 036611 (2008), Section VI
-  (:func:`laminate`), written with the projectors onto the interface normal
+  (`laminate`), written with the projectors onto the interface normal
   and onto its plane, so that it needs no tangent frame;
 - the junction closure: the effective tensor of a voxel's own arrangement of
-  materials from the periodic cell problem ``div(A (e_i + grad phi_i)) = 0``
-  on a grid of sub-cells (:func:`periodic_cell_tensor`), and the weight that
+  materials from the periodic cell problem `div(A (e_i + grad phi_i)) = 0`
+  on a grid of sub-cells (`periodic_cell_tensor`), and the weight that
   blends it with the laminate where a voxel's interfaces are close to one
-  plane (:func:`junction_weight`).
+  plane (`junction_weight`).
 
-Tensors are (..., 3, 3) arrays. Rows and columns are x, y, z of the
+Tensors are `(..., 3, 3)` arrays. Rows and columns are x, y, z of the
 simulation; nothing here rotates a material: a crystal whose principal axes are
-rotated by R relative to the simulation axes has the tensor ``R @ eps @ R.T``.
+rotated by R relative to the simulation axes has the tensor `R @ eps @ R.T`.
 """
 
 import math
@@ -131,7 +131,7 @@ def material_tensors(materials: Mapping[str, Any], names: Sequence[str], ignore:
         (M, 3, 3) float64 array.
 
     Raises:
-        ValueError: see :func:`check_permittivity`.
+        ValueError: see `check_permittivity`.
     """
     out = []
     for name in names:
@@ -150,7 +150,7 @@ def tensor_contrast(a: np.ndarray, b: np.ndarray, scale: float) -> float:
 
 
 def contrast_matrix(eps: np.ndarray) -> np.ndarray:
-    """(M, M) pairwise contrasts :func:`tensor_contrast`, scaled by the largest Frobenius norm of the materials.
+    """(M, M) pairwise contrasts (`tensor_contrast`), scaled by the largest Frobenius norm of the materials.
 
     Zero exactly between materials with equal tensors, so that an interface
     between them is not an interface.
@@ -200,10 +200,12 @@ def laminate(eps: Any, fractions: Array, normal: Array) -> Array:
 
     In a frame Q whose first axis is the interface normal n, the continuous
     components (normal D, tangential E) and the averaged ones (normal E,
-    tangential D) are related by ``tau(Q^T eps Q)``, so for layers of volume
-    fractions f_m::
+    tangential D) are related by `tau(Q^T eps Q)`, so for layers of volume
+    fractions f_m:
 
-        eps_eff = Q tau^-1(sum_m f_m tau(Q^T eps_m Q)) Q^T
+    ```text
+    eps_eff = Q tau^-1(sum_m f_m tau(Q^T eps_m Q)) Q^T
+    ```
 
     with, for a local tensor [[a, b^T], [b, C]] (a = n.eps n, b its normal /
     tangential coupling, C its tangential block), ``tau = [[-1/a, b^T/a],
@@ -631,7 +633,7 @@ def subcell_direction_blend(
 ) -> tuple[Array, Array, Array]:
     """Eigenvalue-free blend between leading-normal laminate and axis laminates for a sub-cell.
 
-    Computes ``lambda_1`` via :func:`principal_direction` and the second eigenvalue via the
+    Computes `lambda_1` via `principal_direction` and the second eigenvalue via the
     3x3 Frobenius trace/norm identity without ``eigvalsh``, preventing ``NaN`` gradients at
     repeated eigenvalues (e.g. 90-degree corners).
 

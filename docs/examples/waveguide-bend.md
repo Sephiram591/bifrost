@@ -1,7 +1,6 @@
 # Waveguide bend
 
-A 90° silicon waveguide bend: the script that [Getting started](../getting-started.md) walks through step by step, and
-the result in the [Widget Demo](../live-demo.md) (or standalone [Explorer demo](../demo/index.html)).
+This example simulates a 90° silicon waveguide bend—the same script walked through step by step in [Getting started](../getting-started.md), with its precomputed output available in the [Widget Demo](../live-demo.md) and standalone [Explorer demo](../demo/index.html).
 
 ## The script
 

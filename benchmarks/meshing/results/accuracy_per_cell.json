@@ -514,7 +514,7 @@
     "total_mid": 0.9901771329634057,
     "setup_s": 113.08,
     "run_s": 473.75,
-    "peak_gb": null,
+    "peak_gb": 22.614,
     "summary": "mesh of 'stack': 2493 x 342 x 125 = 106,575,750 cells\n  x: 2493 cells, 17.25 to 17.25 nm, largest ratio 1.000, PML cells 29 / 29 (mirror-symmetric)\n  y: 342 cells, 17.25 to 22.97 nm, largest ratio 1.250, PML cells 22 / 22 (mirror-symmetric)\n  z: 125 cells, 16.67 to 22.96 nm, largest ratio 1.250, PML cells 22 / 22 (mirror-symmetric, faces centered at -0.1, 0.1 um)\n  time step 32.5 as, 12,307 steps\n  fields (E and H, 32-bit): 2.56 GB\n  starting geometry: 0 of 832 vertices in cells wider than their target (largest cell / target 1.000)",
     "bench": "directional_coupler",
     "source": "benchmarks/greens/results/dc_convergence.json"
@@ -644,7 +644,7 @@
     "total_mid": 0.9897890770004271,
     "setup_s": 102.03,
     "run_s": 344.05,
-    "peak_gb": null,
+    "peak_gb": 19.053,
     "summary": null,
     "bench": "directional_coupler",
     "source": "benchmarks/greens/results/dc_convergence.json"
@@ -1034,7 +1034,7 @@
     "total_mid": 0.9919791921645039,
     "setup_s": 65.16,
     "run_s": 78.29,
-    "peak_gb": null,
+    "peak_gb": 5.839,
     "summary": "mesh of 'stack': 1558 x 214 x 79 = 26,339,548 cells\n  x: 1558 cells, 27.6 to 27.6 nm, largest ratio 1.000, PML cells 19 / 19 (mirror-symmetric)\n  y: 214 cells, 27.6 to 36.84 nm, largest ratio 1.250, PML cells 14 / 14 (mirror-symmetric)\n  z: 79 cells, 25 to 36.64 nm, largest ratio 1.250, PML cells 14 / 14 (mirror-symmetric, faces centered at -0.1, 0.1 um)\n  time step 50.8 as, 7,874 steps\n  fields (E and H, 32-bit): 0.632 GB\n  starting geometry: 0 of 832 vertices in cells wider than their target (largest cell / target 1.000)",
     "bench": "directional_coupler",
     "source": "benchmarks/greens/results/dc_convergence.json"
@@ -1164,7 +1164,7 @@
     "total_mid": 0.9916511268814212,
     "setup_s": 76.09,
     "run_s": 155.59,
-    "peak_gb": null,
+    "peak_gb": 9.695,
     "summary": "mesh of 'stack': 1870 x 257 x 94 = 45,175,460 cells\n  x: 1870 cells, 22.99 to 22.99 nm, largest ratio 1.000, PML cells 22 / 22 (mirror-symmetric)\n  y: 257 cells, 23 to 30.46 nm, largest ratio 1.250, PML cells 17 / 17 (mirror-symmetric)\n  z: 94 cells, 22.22 to 30.55 nm, largest ratio 1.250, PML cells 17 / 17 (mirror-symmetric, faces centered at -0.1, 0.1 um)\n  time step 43.34 as, 9,230 steps\n  fields (E and H, 32-bit): 1.08 GB\n  starting geometry: 0 of 832 vertices in cells wider than their target (largest cell / target 1.000)",
     "bench": "directional_coupler",
     "source": "benchmarks/greens/results/dc_convergence.json"
@@ -1294,7 +1294,7 @@
     "total_mid": 0.9904386515899093,
     "setup_s": 99.61,
     "run_s": 289.81,
-    "peak_gb": null,
+    "peak_gb": 15.319,
     "summary": "mesh of 'stack': 2181 x 300 x 110 = 71,973,000 cells\n  x: 2181 cells, 19.72 to 19.72 nm, largest ratio 1.000, PML cells 26 / 26 (mirror-symmetric)\n  y: 300 cells, 19.72 to 26.32 nm, largest ratio 1.236, PML cells 19 / 19 (mirror-symmetric)\n  z: 110 cells, 18.18 to 26.32 nm, largest ratio 1.250, PML cells 19 / 19 (mirror-symmetric, faces centered at -0.1, 0.1 um)\n  time step 36.53 as, 10,949 steps\n  fields (E and H, 32-bit): 1.73 GB\n  starting geometry: 0 of 832 vertices in cells wider than their target (largest cell / target 1.000)",
     "bench": "directional_coupler",
     "source": "benchmarks/greens/results/dc_convergence.json"
@@ -1315,7 +1315,7 @@
     "phase_rad": 0.5073720121027407,
     "setup_s": 12.56,
     "run_s": 1.2,
-    "peak_gb": 0.613,
+    "peak_gb": 0.615,
     "summary": null,
     "source": "benchmarks/greens/results/bend_convergence.json"
   },
@@ -1335,7 +1335,7 @@
     "phase_rad": 1.1487296817291555,
     "setup_s": 13.2,
     "run_s": 4.04,
-    "peak_gb": 1.915,
+    "peak_gb": 1.617,
     "summary": null,
     "source": "benchmarks/greens/results/bend_convergence.json"
   },
@@ -1355,7 +1355,7 @@
     "phase_rad": 1.7074893575290049,
     "setup_s": 14.87,
     "run_s": 29.97,
-    "peak_gb": 6.708,
+    "peak_gb": 3.453,
     "summary": null,
     "source": "benchmarks/greens/results/bend_convergence.json"
   },
@@ -1375,7 +1375,7 @@
     "phase_rad": 1.9442850792329303,
     "setup_s": 17.49,
     "run_s": 92.4,
-    "peak_gb": 16.197,
+    "peak_gb": 6.456,
     "summary": null,
     "source": "benchmarks/greens/results/bend_convergence.json"
   },
@@ -1395,7 +1395,7 @@
     "phase_rad": 1.3385437121015273,
     "setup_s": 13.7,
     "run_s": 2.73,
-    "peak_gb": 1.321,
+    "peak_gb": 1.178,
     "summary": "mesh of 'stack': 185 x 185 x 59 = 2,019,275 cells\n  x: 185 cells, 64.71 to 86.66 nm, largest ratio 1.250, PML cells 16 / 12 (aligned)\n  y: 185 cells, 64.71 to 86.66 nm, largest ratio 1.250, PML cells 12 / 16\n  z: 59 cells, 62.5 to 125 nm, largest ratio 1.250, PML cells 12 / 8 (faces centered at 0, 0.75 um)\n  time step 121.9 as, 4,101 steps\n  fields (E and H, 32-bit): 0.0485 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
     "source": "benchmarks/greens/results/bend_convergence.json"
   },
@@ -1415,7 +1415,7 @@
     "phase_rad": 1.4093457400464622,
     "setup_s": 13.88,
     "run_s": 7.41,
-    "peak_gb": 2.565,
+    "peak_gb": 1.756,
     "summary": "mesh of 'stack': 246 x 246 x 77 = 4,659,732 cells\n  x: 246 cells, 48.53 to 66.67 nm, largest ratio 1.250, PML cells 21 / 15 (aligned)\n  y: 246 cells, 48.53 to 66.67 nm, largest ratio 1.250, PML cells 15 / 21\n  z: 77 cells, 46.87 to 95.59 nm, largest ratio 1.250, PML cells 15 / 11 (faces centered at 0, 0.75 um)\n  time step 91.44 as, 5,468 steps\n  fields (E and H, 32-bit): 0.112 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
     "source": "benchmarks/greens/results/bend_convergence.json"
   },
@@ -1435,7 +1435,7 @@
     "phase_rad": 1.9786417327966315,
     "setup_s": 14.92,
     "run_s": 23.67,
-    "peak_gb": 5.236,
+    "peak_gb": 2.728,
     "summary": "mesh of 'stack': 307 x 307 x 96 = 9,047,904 cells\n  x: 307 cells, 38.83 to 53.67 nm, largest ratio 1.250, PML cells 26 / 19 (aligned)\n  y: 307 cells, 38.83 to 53.67 nm, largest ratio 1.250, PML cells 19 / 26\n  z: 96 cells, 37.5 to 76.92 nm, largest ratio 1.250, PML cells 19 / 13 (faces centered at 0, 0.75 um)\n  time step 73.15 as, 6,835 steps\n  fields (E and H, 32-bit): 0.217 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
     "source": "benchmarks/greens/results/bend_convergence.json"
   },
@@ -1455,7 +1455,7 @@
     "phase_rad": 1.8641437367210378,
     "setup_s": 15.77,
     "run_s": 49.58,
-    "peak_gb": 8.713,
+    "peak_gb": 4.024,
     "summary": "mesh of 'stack': 369 x 369 x 114 = 15,522,354 cells\n  x: 369 cells, 32.36 to 44.16 nm, largest ratio 1.250, PML cells 31 / 23 (aligned)\n  y: 369 cells, 32.36 to 44.16 nm, largest ratio 1.250, PML cells 23 / 31\n  z: 114 cells, 31.25 to 63.93 nm, largest ratio 1.250, PML cells 23 / 16 (faces centered at 0, 0.75 um)\n  time step 60.96 as, 8,202 steps\n  fields (E and H, 32-bit): 0.373 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
     "source": "benchmarks/greens/results/bend_convergence.json"
   },
@@ -2285,7 +2285,7 @@
     "neff_fdtd": 2.381429084257756,
     "setup_s": 52.17,
     "run_s": 122.48,
-    "peak_gb": null,
+    "peak_gb": 8.482,
     "summary": null
   },
   {
@@ -3833,7 +3833,7 @@
     "T_min": 0.8680049872242898,
     "setup_s": 160.24,
     "run_s": 102.94,
-    "peak_gb": null,
+    "peak_gb": 5.013,
     "summary": null
   },
   {
@@ -3927,7 +3927,7 @@
     "T_min": 0.8640285877688539,
     "setup_s": 247.04,
     "run_s": 267.27,
-    "peak_gb": null,
+    "peak_gb": 10.289,
     "summary": null
   },
   {
@@ -4095,7 +4095,7 @@
     "T": 0.5364069471247657,
     "setup_s": 76.11,
     "run_s": 121.52,
-    "peak_gb": null,
+    "peak_gb": 7.397,
     "summary": null
   },
   {
@@ -4123,7 +4123,7 @@
     "T": 0.5355264672986084,
     "setup_s": 116.19,
     "run_s": 289.85,
-    "peak_gb": null,
+    "peak_gb": 13.655,
     "summary": null
   },
   {
@@ -4291,7 +4291,7 @@
     "T": 0.5340913024209606,
     "setup_s": 78.35,
     "run_s": 132.64,
-    "peak_gb": null,
+    "peak_gb": 6.715,
     "summary": "mesh of 'stack': 1117 x 188 x 136 = 28,559,456 cells\n  x: 1117 cells, 17.19 to 17.19 nm, largest ratio 1.000, PML cells 30 / 30\n  y: 188 cells, 17.19 to 23.47 nm, largest ratio 1.204, PML cells 22 / 22 (mirror-symmetric)\n  z: 136 cells, 15.71 to 33.96 nm, largest ratio 1.250, PML cells 22 / 15 (faces centered at -0.21, -0.1, 0, 0.19 um)\n  time step 31.75 as, 12,598 steps\n  fields (E and H, 32-bit): 0.685 GB\n  starting geometry: 0 of 20 vertices in cells wider than their target (largest cell / target 1.000)"
   },
   {
@@ -4320,7 +4320,7 @@
     "phase_rad": 1.742605904347604,
     "setup_s": 24.83,
     "run_s": 227.05,
-    "peak_gb": null,
+    "peak_gb": 12.255,
     "summary": null
   },
   {
@@ -5099,7 +5099,7 @@
     "total_mid": 0.9905230633147609,
     "setup_s": 121.09,
     "run_s": 1123.57,
-    "peak_gb": null,
+    "peak_gb": 27.585,
     "summary": null,
     "bench": "directional_coupler",
     "source": "benchmarks/greens/results/dc_convergence.json"
@@ -5359,7 +5359,7 @@
     "total_mid": 0.9919910668252007,
     "setup_s": 101.36,
     "run_s": 540.96,
-    "peak_gb": null,
+    "peak_gb": 15.862,
     "summary": "mesh of 'stack': 1558 x 214 x 79 = 26,339,548 cells\n  x: 1558 cells, 27.6 to 27.6 nm, largest ratio 1.000, PML cells 19 / 19 (mirror-symmetric)\n  y: 214 cells, 27.6 to 36.84 nm, largest ratio 1.250, PML cells 14 / 14 (mirror-symmetric)\n  z: 79 cells, 25 to 36.64 nm, largest ratio 1.250, PML cells 14 / 14 (mirror-symmetric, faces centered at -0.1, 0.1 um)\n  time step 50.8 as, 7,874 steps\n  fields (E and H, 32-bit): 0.632 GB\n  starting geometry: 0 of 832 vertices in cells wider than their target (largest cell / target 1.000)",
     "bench": "directional_coupler",
     "source": "benchmarks/greens/results/dc_convergence.json"
@@ -5489,7 +5489,7 @@
     "total_mid": 0.9916763975453127,
     "setup_s": 120.89,
     "run_s": 1223.41,
-    "peak_gb": null,
+    "peak_gb": 27.333,
     "summary": "mesh of 'stack': 1870 x 257 x 94 = 45,175,460 cells\n  x: 1870 cells, 22.99 to 22.99 nm, largest ratio 1.000, PML cells 22 / 22 (mirror-symmetric)\n  y: 257 cells, 23 to 30.46 nm, largest ratio 1.250, PML cells 17 / 17 (mirror-symmetric)\n  z: 94 cells, 22.22 to 30.55 nm, largest ratio 1.250, PML cells 17 / 17 (mirror-symmetric, faces centered at -0.1, 0.1 um)\n  time step 43.34 as, 9,230 steps\n  fields (E and H, 32-bit): 1.08 GB\n  starting geometry: 0 of 832 vertices in cells wider than their target (largest cell / target 1.000)",
     "bench": "directional_coupler",
     "source": "benchmarks/greens/results/dc_convergence.json"
@@ -5619,10 +5619,11 @@
     "total_mid": 0.9904673303463469,
     "setup_s": 161.77,
     "run_s": 2353.2,
-    "peak_gb": null,
+    "peak_gb": 43.317,
     "summary": "mesh of 'stack': 2181 x 300 x 110 = 71,973,000 cells\n  x: 2181 cells, 19.72 to 19.72 nm, largest ratio 1.000, PML cells 26 / 26 (mirror-symmetric)\n  y: 300 cells, 19.72 to 26.32 nm, largest ratio 1.236, PML cells 19 / 19 (mirror-symmetric)\n  z: 110 cells, 18.18 to 26.32 nm, largest ratio 1.250, PML cells 19 / 19 (mirror-symmetric, faces centered at -0.1, 0.1 um)\n  time step 36.53 as, 10,949 steps\n  fields (E and H, 32-bit): 1.73 GB\n  starting geometry: 0 of 832 vertices in cells wider than their target (largest cell / target 1.000)",
     "bench": "directional_coupler",
-    "source": "benchmarks/greens/results/dc_convergence.json"
+    "source": "benchmarks/greens/results/dc_convergence.json",
+    "peak_gb_gpu": "NVIDIA B200"
   },
   {
     "bench": "sin_bend",
@@ -5800,7 +5801,7 @@
     "phase_rad": 1.7362929015064201,
     "setup_s": 69.04,
     "run_s": 1308.25,
-    "peak_gb": null,
+    "peak_gb": 32.186,
     "summary": null,
     "source": "benchmarks/greens/results/bend_convergence.json"
   },
@@ -6735,7 +6736,7 @@
     "T_min": 0.8498281611068774,
     "setup_s": 145.26,
     "run_s": 476.9,
-    "peak_gb": null,
+    "peak_gb": 12.342,
     "summary": null,
     "gpu": "NVIDIA L40S"
   },
@@ -6830,7 +6831,7 @@
     "T_min": 0.854868408316007,
     "setup_s": 229.04,
     "run_s": 1310.06,
-    "peak_gb": null,
+    "peak_gb": 25.746,
     "summary": null,
     "gpu": "NVIDIA L40S"
   },
@@ -7624,10 +7625,11 @@
     "total_mid": 0.9898372642768714,
     "setup_s": 140.18,
     "run_s": 1198.89,
-    "peak_gb": null,
+    "peak_gb": 53.87,
     "summary": null,
     "bench": "directional_coupler",
-    "gpu": "NVIDIA H200"
+    "gpu": "NVIDIA H200",
+    "peak_gb_gpu": "NVIDIA B200"
   },
   {
     "name": "mesh-16:greens:subpixel_full",
@@ -7754,10 +7756,11 @@
     "total_mid": 0.9902053148840597,
     "setup_s": 153.01,
     "run_s": 1650.33,
-    "peak_gb": null,
+    "peak_gb": 64.136,
     "summary": "mesh of 'stack': 2493 x 342 x 125 = 106,575,750 cells\n  x: 2493 cells, 17.25 to 17.25 nm, largest ratio 1.000, PML cells 29 / 29 (mirror-symmetric)\n  y: 342 cells, 17.25 to 22.97 nm, largest ratio 1.250, PML cells 22 / 22 (mirror-symmetric)\n  z: 125 cells, 16.67 to 22.96 nm, largest ratio 1.250, PML cells 22 / 22 (mirror-symmetric, faces centered at -0.1, 0.1 um)\n  time step 32.5 as, 12,307 steps\n  fields (E and H, 32-bit): 2.56 GB\n  starting geometry: 0 of 832 vertices in cells wider than their target (largest cell / target 1.000)",
     "bench": "directional_coupler",
-    "gpu": "NVIDIA H200"
+    "gpu": "NVIDIA H200",
+    "peak_gb_gpu": "NVIDIA B200"
   },
   {
     "name": "mesh-6:greens:subpixel_full",
@@ -8059,7 +8062,7 @@
     "T": 0.5372089789955518,
     "setup_s": 95.1,
     "run_s": 627.1,
-    "peak_gb": null,
+    "peak_gb": 18.53,
     "summary": null,
     "gpu": "NVIDIA L40S"
   },
@@ -8088,9 +8091,10 @@
     "T": 0.5360506351478493,
     "setup_s": 134.11,
     "run_s": 1929.44,
-    "peak_gb": null,
+    "peak_gb": 36.181,
     "summary": null,
-    "gpu": "NVIDIA L40S"
+    "gpu": "NVIDIA L40S",
+    "peak_gb_gpu": "NVIDIA B200"
   },
   {
     "bench": "elevator_coupler",
@@ -8262,7 +8266,7 @@
     "T": 0.5346757206945715,
     "setup_s": 101.86,
     "run_s": 697.73,
-    "peak_gb": null,
+    "peak_gb": 17.316,
     "summary": "mesh of 'stack': 1117 x 188 x 136 = 28,559,456 cells\n  x: 1117 cells, 17.19 to 17.19 nm, largest ratio 1.000, PML cells 30 / 30\n  y: 188 cells, 17.19 to 23.47 nm, largest ratio 1.204, PML cells 22 / 22 (mirror-symmetric)\n  z: 136 cells, 15.71 to 33.96 nm, largest ratio 1.250, PML cells 22 / 15 (faces centered at -0.21, -0.1, 0, 0.19 um)\n  time step 31.75 as, 12,598 steps\n  fields (E and H, 32-bit): 0.685 GB\n  starting geometry: 0 of 20 vertices in cells wider than their target (largest cell / target 1.000)",
     "gpu": "NVIDIA L40S"
   },
@@ -8502,7 +8506,7 @@
     "neff_fdtd": 2.381550027451107,
     "setup_s": 54.2,
     "run_s": 581.47,
-    "peak_gb": null,
+    "peak_gb": 20.905,
     "summary": null,
     "gpu": "NVIDIA L40S"
   },

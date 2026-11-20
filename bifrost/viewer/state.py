@@ -609,16 +609,15 @@ def export_styles(editor: ViewerState, result: ViewerState) -> None:
 
 
 def rebox_stack(device: Any, boundary_offset: Any) -> Any:
-    """A copy of ``device`` with the box moved by ``boundary_offset`` (spec R13).
+    """Returns a copy of `device` with its simulation box offset by `boundary_offset`.
 
-    The public form of the re-box :meth:`ViewerState.rebox` applies to its own
-    device: ``boundary_offset`` is ``(x+, x-, y+, y-, z+, z-)`` in µm off the
-    box the device was built with. Also used by the launch-code emitter (spec
-    R14 mode 3), so a viewer-edited offset is reproduced by the emitted script.
+    `boundary_offset` is `(x+, x-, y+, y-, z+, z-)` in um relative to the box
+    `device` was built with. Used by `ViewerState.rebox` and by the viewer's
+    launch-script emitter so edited box bounds are preserved in exported code.
 
     Raises:
-        ValueError: if the offset is not 6 finite numbers, or moves a face
-            past its opposite (an empty box).
+        ValueError: If `boundary_offset` is not 6 finite numbers or moves a face
+            past its opposite face.
     """
     offset = tuple(float(v) for v in boundary_offset)
     if len(offset) != 6 or not all(math.isfinite(v) for v in offset):

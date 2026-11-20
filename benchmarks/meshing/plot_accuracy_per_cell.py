@@ -1,15 +1,16 @@
-"""Plot accuracy-vs-cell-count curves across six simulations for both subpixel averaging modes.
+"""Plot accuracy and simulated convergence curves across six simulations for both subpixel averaging modes.
 
-Writes two figures: the error against each benchmark's reference (``adaptive_meshing_accuracy.png``) and
-the measured quantity itself, with no reference subtracted (``adaptive_meshing_raw.png``). Solid filled
-markers are ``averaging="subpixel"``; dashed hollow markers are ``averaging="subpixel_full"``."""
+Writes three figures: the error against each benchmark's reference (``adaptive_meshing_accuracy.png``),
+the measured quantity itself against grid cell count (``adaptive_meshing_raw.png``), and the same
+measured quantity against peak GPU VRAM (``adaptive_meshing_vram.png``). Solid filled markers are
+``averaging="subpixel"``; dashed hollow markers are ``averaging="subpixel_full"``."""
 
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import matplotlib
 
@@ -100,6 +101,7 @@ def _annotate_points(
     pts: list[tuple[float, float, str, tuple[int, int], str, str]],
     *,
     yscale_floor: float | None = 1e-7,
+    fontsize: float = 7.5,
 ) -> None:
     for x, y, text, offset, ha, va in pts:
         y_pos = max(y, yscale_floor) if yscale_floor is not None else y
@@ -110,7 +112,7 @@ def _annotate_points(
             xytext=offset,
             ha=ha,
             va=va,
-            fontsize=7.5,
+            fontsize=fontsize,
             color=MUTED,
         )
 
@@ -299,12 +301,21 @@ def make_figure(src: Path, dsts: list[Path]) -> None:
     _finish(fig, axes, dsts)
 
 
-def make_raw_figure(src: Path, dsts: list[Path]) -> None:
-    """Actual simulated quantities (effective index, transmission, splitting ratio) against cell count."""
+def _make_value_figure(src: Path, dsts: list[Path], *, x_axis: Literal["cells", "vram"]) -> None:
+    """Actual simulated quantities (effective index, transmission, splitting ratio) against cells or peak VRAM."""
     rows = json.loads(src.read_text())
     _setup_rc()
     fig, axes = plt.subplots(2, 3, figsize=(12.2, 8.0), facecolor=SURFACE)
-    mb = lambda r: r["total_cells"] / 1e6  # noqa: E731
+    if x_axis == "cells":
+        fx = lambda r: r["total_cells"] / 1e6  # noqa: E731
+        xlabel = "total cells (millions)"
+        x_margin = 0.08
+    elif x_axis == "vram":
+        fx = lambda r: r.get("peak_gb")  # noqa: E731
+        xlabel = "peak VRAM (GB)"
+        x_margin = 0.15
+    else:
+        raise ValueError(f"Unknown x_axis {x_axis!r}")
     panels = (
         (axes[0, 0], "(a) Sloped SOI strip: mode solver", "sloped_guide", "n_eff (mode solver)", lambda r: r["neff_mode"]),
         (axes[0, 1], "(b) Sloped SOI strip: FDTD phase slope", "sloped_guide", "n_eff (FDTD)", lambda r: r["neff_fdtd"]),
@@ -368,35 +379,86 @@ def make_raw_figure(src: Path, dsts: list[Path]) -> None:
         ],
     }
 
+    vram_end_annotations: dict[str, list[tuple[str, tuple[int, int], str, str, str]]] = {
+        "sloped_guide_mode": [
+            ("mesh-8", (-5, 4), "right", "bottom", "ppw 8"),
+            ("mesh-34", (0, -9), "center", "top", "ppw 34"),
+            ("uniform-64", (-5, 4), "right", "bottom", "64 nm"),
+            ("uniform-12.5", (0, -9), "center", "top", "12.5 nm"),
+        ],
+        "sloped_guide_fdtd": [
+            ("mesh-8", (-5, 4), "right", "bottom", "ppw 8"),
+            ("mesh-34", (-2, -9), "center", "top", "ppw 34"),
+            ("uniform-64", (-5, 4), "right", "bottom", "64 nm"),
+            ("uniform-12.5", (0, -9), "center", "top", "12.5 nm"),
+        ],
+        "soi_bragg": [
+            ("mesh-8", (-5, 4), "right", "bottom", "ppw 8"),
+            ("mesh-26", (8, 7), "left", "bottom", "ppw 26"),
+            ("uniform-64", (-5, 4), "right", "bottom", "64 nm"),
+            ("uniform-12.5", (5, 4), "left", "bottom", "12.5 nm"),
+        ],
+        "elevator_coupler": [
+            ("mesh-6", (6, -1), "left", "center", "ppw 6"),
+            ("mesh-18", (0, -9), "center", "top", "ppw 18"),
+            ("uniform-50", (-5, 4), "right", "bottom", "50 nm"),
+            ("uniform-16", (-2, 14), "center", "bottom", "16 nm"),
+        ],
+        "directional_coupler": [
+            ("mesh-6", (6, 2), "left", "bottom", "ppw 6"),
+            ("mesh-16", (0, -9), "center", "top", "ppw 16"),
+            ("uniform-50", (-5, 4), "right", "bottom", "50 nm"),
+            ("uniform-20", (0, 8), "center", "bottom", "20 nm"),
+        ],
+        "sin_bend": [
+            ("mesh-12", (-5, -8), "right", "top", "ppw 12"),
+            ("mesh-24", (0, -9), "center", "top", "ppw 24"),
+            ("uniform-60", (-5, 3), "right", "bottom", "60 nm"),
+            ("uniform-24", (0, -9), "center", "top", "24 nm"),
+        ],
+    }
+
     for idx, (ax, title, bench, ylabel, fy) in enumerate(panels):
-        _style_ax(ax, title, "total cells (millions)", ylabel)
+        _style_ax(ax, title, xlabel, ylabel)
         ax.xaxis.set_major_locator(ticker.LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
         ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:g}"))
         ax.set_yscale("linear")
         ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=5))
         ax.yaxis.set_major_formatter(ticker.ScalarFormatter(useOffset=False))
-        ax.margins(x=0.08, y=0.14)
+        ax.margins(x=x_margin, y=0.14)
         for avg in AVERAGINGS:
             rr = _by_bench(rows, bench, avg)
-            u = [r for k, r in rr.items() if k.startswith("uniform-") and _uniform_nm(k) <= coarse[bench] and fy(r) is not None]
-            m = [r for k, r in rr.items() if k.startswith("mesh-")]
-            ms = [r for k, r in rr.items() if k.startswith("meshsub-")]
+            keep = lambda r: fx(r) is not None and fy(r) is not None  # noqa: E731
+            u = [r for k, r in rr.items() if k.startswith("uniform-") and _uniform_nm(k) <= coarse[bench] and keep(r)]
+            m = [r for k, r in rr.items() if k.startswith("mesh-") and keep(r)]
+            ms = [r for k, r in rr.items() if k.startswith("meshsub-") and keep(r)]
             kw: dict[str, Any] = {"yscale_floor": None, "show_avg": show_avg}
-            if not show_avg:
+            if not show_avg or x_axis == "vram":
                 kw["label_ends"] = False
-            _series(ax, u, mb, fy, color=UNIF, marker="o", label="UniformGrid", avg=avg, **kw)
-            _series(ax, m, mb, fy, color=MESH, marker="s", label=mesh_label, avg=avg, **kw)
-            _series(ax, ms, mb, fy, color=MESH_SUB, marker="^", label="bf.mesh + material_cells", avg=avg, label_ends=False, yscale_floor=None, show_avg=show_avg)
-        if not show_avg:
+            _series(ax, u, fx, fy, color=UNIF, marker="o", label="UniformGrid", avg=avg, **kw)
+            _series(ax, m, fx, fy, color=MESH, marker="s", label=mesh_label, avg=avg, **kw)
+            _series(ax, ms, fx, fy, color=MESH_SUB, marker="^", label="bf.mesh + material_cells", avg=avg, label_ends=False, yscale_floor=None, show_avg=show_avg)
+        if not show_avg or x_axis == "vram":
             ann_key = ("sloped_guide_mode", "sloped_guide_fdtd")[idx] if bench == "sloped_guide" else bench
             rr_sub = _by_bench(rows, bench, "subpixel")
+            spec_map = annotations if not show_avg else vram_end_annotations
             pts = []
-            for kind, off, ha, va, text in annotations[ann_key]:
-                if kind in rr_sub and fy(rr_sub[kind]) is not None:
+            for kind, off, ha, va, text in spec_map[ann_key]:
+                if kind in rr_sub and fx(rr_sub[kind]) is not None and fy(rr_sub[kind]) is not None:
                     r = rr_sub[kind]
-                    pts.append((mb(r), fy(r), text, off, ha, va))
-            _annotate_points(ax, pts, yscale_floor=None)
+                    pts.append((fx(r), fy(r), text, off, ha, va))
+            _annotate_points(ax, pts, yscale_floor=None, fontsize=7.5 if not show_avg else 7.2)
     _finish(fig, axes, dsts, show_avg=show_avg)
+
+
+def make_raw_figure(src: Path, dsts: list[Path]) -> None:
+    """Actual simulated quantities (effective index, transmission, splitting ratio) against cell count."""
+    _make_value_figure(src, dsts, x_axis="cells")
+
+
+def make_vram_figure(src: Path, dsts: list[Path]) -> None:
+    """Actual simulated quantities (effective index, transmission, splitting ratio) against peak GPU VRAM."""
+    _make_value_figure(src, dsts, x_axis="vram")
 
 
 def main() -> None:
@@ -420,9 +482,19 @@ def main() -> None:
             root / "benchmarks/meshing/results/adaptive_meshing_raw.png",
         ],
     )
+    parser.add_argument(
+        "--vram-out",
+        type=Path,
+        nargs="+",
+        default=[
+            root / "docs/images/adaptive_meshing_vram.png",
+            root / "benchmarks/meshing/results/adaptive_meshing_vram.png",
+        ],
+    )
     args = parser.parse_args()
     make_figure(args.src, args.out)
     make_raw_figure(args.src, args.raw_out)
+    make_vram_figure(args.src, args.vram_out)
 
 
 if __name__ == "__main__":

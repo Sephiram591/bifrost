@@ -1,33 +1,29 @@
 # API reference
 
-Import as `import bifrost as bf`. For `Component`, cells, routing and PDKs see
-[gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx) (the JAX port of gdsfactory) and the
-[gdsfactory API reference](https://gdsfactory.github.io/gdsfactory/api/).
+Import the package as `import bifrost as bf`. For `Component`, parametric cells, routing, and PDKs, see [gdsfactoryx](https://github.com/Sephiram591/gdsfactoryx) (the JAX port of gdsfactory) and the [gdsfactory API reference](https://gdsfactory.github.io/gdsfactory/api/).
 
-| Name | What it is |
+| Name | Description |
 | --- | --- |
-| [`bf.StackDevice`][bifrost.stack.StackDevice] | a component and its layer stack as one fdtdx object; places sources and monitors on ports |
-| [`bf.StackOptions`][bifrost.stack.StackOptions] | the geometry options that trade accuracy for time |
-| [`bf.TopRoughness`][bifrost.stack.TopRoughness] | a random rough top surface for one level |
-| [`bf.apply_stack`][bifrost.stack.apply_stack] | writes the stacks into the permittivity arrays, in place of `fdtdx.apply_params` |
-| [`bf.init_stack_params`][bifrost.stack.init_stack_params] | the stacks' differentiable parameters (vertices, heights, thicknesses) |
-| [`bf.StackDiagnosticWarning`][bifrost.stack.StackDiagnosticWarning] | the warning for features the grid does not resolve |
-| [`bf.ModePlaneSource`][bifrost.stack.ModePlaneSource] | `fdtdx.ModePlaneSource` normalized to `min_spacing**2` across graded port planes |
-| [`bf.ModeOverlapDetector`][bifrost.stack.ModeOverlapDetector] | `fdtdx.ModeOverlapDetector` normalized to `min_spacing**2` across graded port planes |
-| [`bf.mesh`][bifrost.meshing.mesh] | a device's graded grid from its geometry, the band and where it may move |
-| [`bf.Refine`][bifrost.meshing.Refine] | where `bf.mesh` refines: the geometry's motion (dilation, z padding) and the tails |
-| [`bf.Mesh`][bifrost.meshing.Mesh] | `bf.mesh`'s result: the edges, the fdtdx grid and boundaries, a summary |
-| [`bf.CoarseVertices`][bifrost.meshing.CoarseVertices] | `StackDevice.coarse_vertices`' report: vertices in cells wider than their target |
-| [`bf.axis_edges`][bifrost.grids.axis_edges] | continuous cell edges of one axis within their targets, PMLs and centered faces |
-| [`bf.lattice_edges`][bifrost.grids.lattice_edges] | exact cell edges of one axis on a lattice of quanta, within their targets |
-| [`bf.graded_edges`][bifrost.grids.graded_edges] | cell edges of a graded axis, for `StackDevice.rectilinear_grid` |
-| [`bf.AxisEdges`][bifrost.grids.AxisEdges] | the cell edges, PML counts and alignment returned by `axis_edges` and `lattice_edges` |
-| [`bf.jit`][bifrost.jitting.jit] | `jax.jit` with the XLA option gradients through fdtdx's time loop need |
-| [`bf.compiler_options`][bifrost.jitting.compiler_options] | those options merged with your own, for another jit wrapper |
-| [`bf.COMPILER_OPTIONS`][bifrost.jitting.COMPILER_OPTIONS] | the XLA compiler options `bf.jit` adds (`simplify-conditional` disabled) |
-| [`bf.record_timings`][bifrost.timing.record_timings] | times the geometry steps |
-| [`bf.view`][bifrost.viewer.widget.view] | the 3D viewer widget for a `StackDevice` |
+| [`bf.StackDevice`][bifrost.stack.StackDevice] | Component and `LayerStack` packaged as one differentiable fdtdx object with port-attached sources and monitors |
+| [`bf.StackOptions`][bifrost.stack.StackOptions] | Discretization and subpixel accuracy options that trade accuracy for build/solve time |
+| [`bf.TopRoughness`][bifrost.stack.TopRoughness] | Gaussian random-field top-surface roughness for a stack level |
+| [`bf.apply_stack`][bifrost.stack.apply_stack] | Writes `StackDevice` layers into simulation permittivity arrays in place of `fdtdx.apply_params` |
+| [`bf.init_stack_params`][bifrost.stack.init_stack_params] | Returns differentiable stack parameters (polygon vertices, heights, thicknesses, sidewall angles) |
+| [`bf.StackDiagnosticWarning`][bifrost.stack.StackDiagnosticWarning] | Warning emitted when features or gaps are narrower than the grid resolves |
+| [`bf.ModePlaneSource`][bifrost.stack.ModePlaneSource] | `fdtdx.ModePlaneSource` subclass with port-area-invariant power normalization on graded grids |
+| [`bf.ModeOverlapDetector`][bifrost.stack.ModeOverlapDetector] | `fdtdx.ModeOverlapDetector` subclass with port-area-invariant overlap normalization on graded grids |
+| [`bf.mesh`][bifrost.meshing.mesh] | Generates an adaptive non-uniform grid from device geometry, wavelength band, and `Refine` bounds |
+| [`bf.Refine`][bifrost.meshing.Refine] | Configuration for moving-boundary dilation, z padding, evanescent tails, explicit boxes, and material targets |
+| [`bf.Mesh`][bifrost.meshing.Mesh] | Output of `bf.mesh` holding axis edges, `fdtdx` grid and boundary configs, and a summary helper |
+| [`bf.CoarseVertices`][bifrost.meshing.CoarseVertices] | Report from `StackDevice.coarse_vertices` counting vertices outside their target cell resolution |
+| [`bf.axis_edges`][bifrost.grids.axis_edges] | Places continuous 1D cell edges along an axis meeting target cell widths, PMLs, and centered interfaces |
+| [`bf.lattice_edges`][bifrost.grids.lattice_edges] | Places 1D cell edges restricted to whole multiples of a discrete `quantum` step |
+| [`bf.graded_edges`][bifrost.grids.graded_edges] | Builds smoothly graded 1D cell edges with optional `snap` coordinates for `StackDevice.rectilinear_grid` |
+| [`bf.AxisEdges`][bifrost.grids.AxisEdges] | Structured result (edges, PML cell counts, alignment, symmetry, centered faces) from `axis_edges` / `lattice_edges` |
+| [`bf.jit`][bifrost.jitting.jit] | `jax.jit` wrapper adding the XLA options needed for checkpointed `fdtdx` gradients |
+| [`bf.compiler_options`][bifrost.jitting.compiler_options] | Merges bifrost's XLA compiler flags with custom `jax.jit` `compiler_options` |
+| [`bf.COMPILER_OPTIONS`][bifrost.jitting.COMPILER_OPTIONS] | XLA compiler flags added by `bf.jit` (`simplify-conditional` disabled) |
+| [`bf.record_timings`][bifrost.timing.record_timings] | Context manager for recording wall, trace, compile, and run times of stack geometry steps |
+| [`bf.view`][bifrost.viewer.widget.view] | Launches the interactive 3D/2D viewer widget for a `StackDevice` |
 
-The modules: [bf.stack](stack.md), [bf.geometry](geometry.md), [bf.grids](grids.md), [bf.meshing](meshing.md),
-[bf.jitting](jitting.md),
-[bf.subpixel and bf.timing](subpixel-timing.md) and [bf.viewer](viewer.md).
+Modules: [bf.stack](stack.md), [bf.geometry](geometry.md), [bf.grids](grids.md), [bf.meshing](meshing.md), [bf.jitting](jitting.md), [bf.subpixel and bf.timing](subpixel-timing.md), and [bf.viewer](viewer.md).

@@ -213,22 +213,18 @@ def _default_component(params: dict[str, Any]) -> str | None:
 
 @dataclass
 class ObjectSpec:
-    """A source or detector as data, not a live fdtdx object (spec D11).
+    """Data description of a source or detector before placing into fdtdx.
 
     Attributes:
-        type: a key of :data:`TYPES`.
-        port: the port name the object sits on, or ``"None"`` for absolute
-            placement (spec R18).
-        params: the editable parameters (``port_offset``, ``port_padding``,
-            ``level``, ``direction``, ``wavelengths``, the absolute-placement
-            keys and any type-specific extras). Absent keys fall back to the
-            settings (spec R13).
-        id: a stable identity for update/remove/selection. Assigned by
-            :class:`~bifrost.viewer.state.ViewerState`; empty until then.
-        glyph: an override for the wire glyph (spec D18). Set on adopted
-            foreign detectors, whose glyph is derived from their placed
-            ``grid_slice`` rather than a port frame; never sent through
-            ``to_wire`` — the wire glyph travels in ``state["glyphs"]``.
+        type: Source or detector type key in `TYPES`.
+        port: Port name the object sits on, or `"None"` for absolute placement.
+        params: Editable parameters (`port_offset`, `port_padding`, `level`,
+            `direction`, `wavelengths`, absolute-placement keys, and
+            type-specific extras). Omitted keys fall back to `SimSettings`.
+        id: Stable identifier assigned by `ViewerState`, or `""` before
+            registration.
+        glyph: Wireframe glyph override derived from `grid_slice` for loaded
+            detectors without a port frame; omitted from `to_wire`.
     """
 
     type: str
@@ -239,27 +235,25 @@ class ObjectSpec:
 
     @property
     def category(self) -> str:
-        """``"source"`` or ``"detector"``."""
+        """`"source"` or `"detector"`."""
         return TYPES[self.type].category
 
     @property
     def name(self) -> str:
-        """The object's name (``params['name']`` or ``<port>_<type>``)."""
+        """The object name (`params['name']` or `<port>_<type>`)."""
         return str(self.params.get("name") or f"{self.port}_{self.type}")
 
     @property
     def absolute(self) -> bool:
-        """Whether this spec is placed absolutely (``port == "None"``, R18)."""
+        """Whether this spec uses absolute placement (`port == "None"`)."""
         return self.port == "None"
 
     def field_params(self) -> dict[str, Any]:
-        """The detector's display settings with defaults filled in (spec R15).
+        """Returns detector display settings with defaults populated.
 
-        Only a detector has these; a source returns an empty dict. Absent keys
-        fall back to the defaults, so the browser always gets a complete set.
-        An unpicked component defaults to ``|E|`` (see
-        :func:`_default_component`); one set to None — "(none)" picked — stays
-        None. The outline defaults off.
+        Sources return an empty dict. Unset `field_component` defaults to `"|E|"`
+        while an explicit `None` (`"(none)"` in the UI) stays `None`; outline
+        defaults to `False`.
         """
         if self.category != "detector":
             return {}
@@ -280,7 +274,7 @@ class ObjectSpec:
         }
 
     def to_wire(self) -> dict[str, Any]:
-        """The spec as JSON for the browser (spec D5)."""
+        """Serializes this spec to JSON-compatible form for the browser UI."""
         return {"id": self.id, "type": self.type, "port": self.port, "params": dict(self.params)}
 
     @classmethod
@@ -304,12 +298,11 @@ class ObjectSpec:
         return cls(type=type_name, port=port, params=params, id=str(data.get("id") or ""))
 
 
-#: the permittivity averagings a :class:`SimSettings` accepts (spec R13): the
-#: values of :data:`bifrost.stack.Averaging`, repeated here so that
-#: importing this module does not import the simulation stack (spec C3)
+#: Valid permittivity averaging modes for `SimSettings`: matches `Averaging`
+#: (`"inverse"`, `"subpixel"`, `"subpixel_full"`).
 AVERAGINGS: tuple[str, ...] = ("inverse", "subpixel", "subpixel_full")
 
-#: the meshing modes a :class:`SimSettings` accepts
+#: Valid meshing modes for `SimSettings`.
 MESHING_TYPES: tuple[str, ...] = ("adaptive", "uniform")
 
 
@@ -325,38 +318,37 @@ def _finite_float(name: str, raw: Any) -> float:
 
 @dataclass
 class SimSettings:
-    """The setup-wide simulation settings (spec R13).
+    """Setup-wide simulation settings for the viewer.
 
     Attributes:
-        wavelength_um: the default wavelength, in µm, for new sources/detectors.
-        pulse_width_frac: the Gaussian pulse's spectral width as a fraction of
-            the center frequency; ``0`` means a single-frequency (CW) run.
-        port_padding: ``(lateral, vertical)`` — a new plane extends this far past
-            the port's width and the level's height on each side, in units of the
-            mean wavelength of the source or detector (the settings' wavelength
-            for one with none of its own); negative values shrink the plane.
-        pml_thickness: the PML thickness, in grid cells (uniform meshing).
-        resolution_um: the grid resolution, in µm (uniform meshing).
-        time_s: the simulation time, in seconds.
-        boundary_offset: ``(x+, x-, y+, y-, z+, z-)`` in µm — how far the
-            simulation box's faces move off the geometry's bounding box (the
-            ``StackDevice`` box, spec R13). Each value moves its face along the
-            axis, positive towards +x, +y or +z, so ``(1, -1, 0, 0, 0, 0)``
-            grows the box by 1 µm on each x side; the geometry itself does not
-            change.
-        meshing: ``"adaptive"`` (``bf.mesh`` + ``bf.Refine``, default) or
-            ``"uniform"`` (``fdtdx.core.grid.UniformGrid``).
-        pml_um: the PML thickness, in µm (adaptive meshing).
-        ppw: target grid cells per wavelength in each material (adaptive meshing,
-            default ``15.0``).
-        global_dilation: lateral evanescent tail past boundaries in decay
-            lengths (``bf.Refine.global_dilation``, adaptive meshing).
-        global_z_padding: vertical evanescent tail above and below level faces
-            in decay lengths (``bf.Refine.global_z_padding``, adaptive meshing).
-        mesh_growth: maximum cell-size ratio between neighbouring cells
-            (``bf.mesh(..., growth=...)``, adaptive meshing).
-        dilation_layers: per-source-layer lateral dilation ``((layer, um), ...)``
-            passed to ``bf.Refine.dilation`` (adaptive meshing).
+        wavelength_um: Default wavelength in um for new sources and detectors.
+        pulse_width_frac: Gaussian pulse spectral width as a fraction of center
+            frequency; `0` selects a single-frequency (CW) run.
+        port_padding: `(lateral, vertical)` padding extending each new plane past
+            the port width and level height on each side, in multiples of the
+            object's mean wavelength (or `wavelength_um` if unset); negative
+            values shrink the plane.
+        pml_thickness: PML thickness in grid cells when `meshing == "uniform"`.
+        resolution_um: Uniform grid resolution in um when `meshing == "uniform"`.
+        time_s: Total simulation duration in seconds.
+        boundary_offset: `(x+, x-, y+, y-, z+, z-)` in um specifying how far each
+            simulation box face moves relative to the `StackDevice` bounding box.
+            Positive shifts move in the `+x`, `+y`, or `+z` direction, so
+            `(1, -1, 0, 0, 0, 0)` expands the box by 1 um on each x side without
+            changing the device geometry.
+        meshing: `"adaptive"` (`bf.mesh` + `bf.Refine`, default) or `"uniform"`
+            (`fdtdx.core.grid.UniformGrid`).
+        pml_um: PML thickness in um when `meshing == "adaptive"`.
+        ppw: Target grid cells per wavelength in each material when
+            `meshing == "adaptive"` (default `15.0`).
+        global_dilation: Lateral evanescent tail past boundaries in decay
+            lengths (`bf.Refine.global_dilation`) for adaptive meshing.
+        global_z_padding: Vertical evanescent tail above and below level faces
+            in decay lengths (`bf.Refine.global_z_padding`) for adaptive meshing.
+        mesh_growth: Maximum cell-size ratio between neighboring cells
+            (`bf.mesh(..., growth=...)`) for adaptive meshing.
+        dilation_layers: Per-source-layer lateral dilation `((layer, um), ...)`
+            passed to `bf.Refine.dilation` for adaptive meshing.
     """
 
     wavelength_um: float = 1.55
@@ -368,39 +360,34 @@ class SimSettings:
     boundary_offset: tuple[float, float, float, float, float, float] = (
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     )
-    #: the number of decades below a plane's maximum that ``logabs`` floors at
-    #: (spec D16, Q22). One value for every detector's overlay; the bottom of the
-    #: ``logabs`` color ramp, so a true zero maps to the floor, not to ``-inf``.
+    #: Number of decades below a plane's peak mapped to the bottom of the
+    #: `logabs` color ramp so zeros map to the floor instead of `-inf`.
     log_range: float = 6.0
-    #: how the device averages the permittivity at material interfaces (spec
-    #: R13), one of :data:`AVERAGINGS`: ``"subpixel"`` (Kottke, the diagonal of
-    #: the averaged tensor), ``"subpixel_full"`` (the full tensor, with the
-    #: off-diagonal entries oblique and sloped walls need; about 5x the time
-    #: per step and 1.8x the memory) or ``"inverse"`` (fdtdx's isotropic
-    #: inverse average). The viewer seeds it from the device's own
-    #: ``averaging`` and places the device with it.
+    #: Interface permittivity averaging mode: `"subpixel"` (diagonal Kottke
+    #: tensor), `"subpixel_full"` (full Kottke tensor for oblique or sloped walls),
+    #: or `"inverse"` (isotropic inverse average). Seeded from the device's
+    #: `averaging` setting.
     averaging: str = "subpixel"
-    #: whether a run the user stops keeps its partial result (spec D17). When
-    #: False (the default) a stopped run is discarded and the previous result
-    #: stays on screen; when True its detectors' partial fields are shown.
+    #: Whether stopping an in-flight run keeps partial detector fields (`True`)
+    #: or discards them and keeps the previous result (`False`, default).
     keep_partial: bool = False
-    #: meshing mode: ``"adaptive"`` (``bf.mesh``) or ``"uniform"``
+    #: Meshing mode: `"adaptive"` (`bf.mesh`) or `"uniform"`.
     meshing: str = "adaptive"
-    #: PML thickness in µm when ``meshing == "adaptive"``
+    #: PML thickness in um when `meshing == "adaptive"`.
     pml_um: float = 1.0
-    #: cells per wavelength when ``meshing == "adaptive"``
+    #: Cells per wavelength when `meshing == "adaptive"`.
     ppw: float = 15.0
-    #: lateral evanescent tail in decay lengths (``Refine.global_dilation``)
+    #: Lateral evanescent tail in decay lengths (`Refine.global_dilation`).
     global_dilation: float = 3.0
-    #: vertical evanescent tail in decay lengths (``Refine.global_z_padding``)
+    #: Vertical evanescent tail in decay lengths (`Refine.global_z_padding`).
     global_z_padding: float = 3.0
-    #: maximum cell-size ratio between neighbouring cells (``bf.mesh(..., growth=...)``)
+    #: Maximum cell-size ratio between neighboring cells (`bf.mesh(..., growth=...)`).
     mesh_growth: float = 1.25
-    #: per-source-layer dilation in µm (``Refine.dilation``)
+    #: Per-source-layer dilation in um (`Refine.dilation`).
     dilation_layers: tuple[tuple[str, float], ...] = ()
 
     def to_wire(self) -> dict[str, Any]:
-        """The settings as JSON for the browser (spec R13)."""
+        """Serializes settings to JSON-compatible form for the browser UI."""
         return {
             "wavelength_um": float(self.wavelength_um),
             "pulse_width_frac": float(self.pulse_width_frac),
@@ -531,12 +518,11 @@ class SimSettings:
 
 
 class RunResult(NamedTuple):
-    """The outcome of a mode-1 run (spec R14, Q20).
+    """The outcome of a viewer simulation run.
 
-    ``arrays`` is the fdtdx :class:`ArrayContainer`; detector results are read
-    from ``arrays.detector_states`` keyed by detector name. ``objects`` is the
-    placed :class:`ObjectContainer`, so ``objects[name].compute_overlap(...)``
-    works as in the reference example.
+    `arrays` is the fdtdx `ArrayContainer`; detector results are read from
+    `arrays.detector_states` keyed by detector name. `objects` is the placed
+    `ObjectContainer`, so `objects[name].compute_overlap(...)` works directly.
     """
 
     objects: Any
@@ -545,11 +531,10 @@ class RunResult(NamedTuple):
 
 
 class RunStopped(Exception):
-    """A mode-1 run ended because the user asked it to stop (spec D17).
+    """Raised when an in-flight viewer run is stopped and partial results are discarded.
 
-    Raised when a cancelled run's partial result is being *discarded* (the
-    default). When the settings say to keep the partial run, :func:`run` returns
-    its :class:`RunResult` instead, and the widget adopts the partial fields.
+    When `SimSettings.keep_partial` is True, stopping returns a `RunResult`
+    holding partial detector fields instead of raising `RunStopped`.
     """
 
 

@@ -1,10 +1,10 @@
 """Cell edges for non-uniform rectilinear grids.
 
-:func:`axis_edges` places the cell edges of one axis in continuous coordinates: every cell and dual cell
-within its target, neighbouring cells within ``growth``, uniform cells under each PML, and planar
-interfaces in the exact middle of their cells. :func:`graded_edges` places smoothly graded edges with
-given coordinates on cell edges, and :func:`lattice_edges` places edges on an explicit discrete lattice of
-whole quanta. :meth:`bifrost.StackDevice.rectilinear_grid` turns such edges into the fdtdx grid of a
+`axis_edges` places the cell edges of one axis in continuous coordinates: every cell and dual cell
+within its target, neighbouring cells within `growth`, uniform cells under each PML, and planar
+interfaces in the exact middle of their cells. `graded_edges` places smoothly graded edges with
+given coordinates on cell edges, and `lattice_edges` places edges on an explicit discrete lattice of
+whole quanta. `bifrost.StackDevice.rectilinear_grid` turns such edges into the fdtdx grid of a
 device's box.
 
 The smallest cell sets the time step of the whole simulation, so refining saves cells and memory, not
@@ -142,19 +142,19 @@ def graded_edges(
 
 
 class AxisEdges(NamedTuple):
-    """The cell edges of one axis, from :func:`axis_edges` or :func:`lattice_edges`."""
+    """The cell edges of one axis, from `axis_edges` or `lattice_edges`."""
 
-    #: (n + 1,) strictly increasing edges (um), the first ``lo`` and the last ``hi``
+    #: (n + 1,) strictly increasing edges (um), the first `lo` and the last `hi`
     edges: np.ndarray
     #: uniform cells under the PML at the lower and at the upper end
     pml_cells: tuple[int, int]
     #: the smallest cell (um): this axis's share of the time step
     min_cell: float
-    #: the cells of the finest target's width (outside the PMLs) start at whole multiples of it from ``lo``
+    #: the cells of the finest target's width (outside the PMLs) start at whole multiples of it from `lo`
     aligned: bool
     #: the edges are mirror-symmetric about the middle of the axis
     symmetric: bool
-    #: the ``centers`` (um) that lie in the middle of a cell
+    #: the `centers` (um) that lie in the middle of a cell
     centered: tuple[float, ...] = ()
 
 
@@ -191,9 +191,9 @@ def lattice_edges(
 
     Among all such edges the result has the largest smallest cell (which sets this axis's share of the time
     step), then the fewest cells, then the cells closest to their targets (the least sum of squared log
-    ratios). Each of ``centers`` (e.g. a planar interface) lies in the middle of a cell, within half a
-    quantum, no edge on it: with subpixel averaging an interface there gives a markedly smaller second-order
-    error than one on an edge (a third on the coupler of ``benchmarks/rectilinear``, faces normal to the axis).
+    ratios). Each of `centers` (e.g. a planar interface) lies in the middle of a cell, within half a
+    quantum, no edge on it: with subpixel averaging an interface there avoids asymmetric dual-cell
+    averaging error and cuts discretization error substantially compared to placing it on a cell edge.
     For them the smallest cell may come out up to 20 % below the largest possible one (two faces a fractional
     number of cells apart need some cells narrower than the rest: a layer 4 cells thick or more fits); the
     most centers that fit are met, the rest dropped with a warning, as are those under a PML. With ``symmetric``, mirror-symmetric targets, PMLs and centers give
@@ -1927,7 +1927,7 @@ def axis_edges(
             ``np.float64``), so growth and PML margins survive conversion to centered metres.
 
     Returns:
-        :class:`AxisEdges` ``(edges, pml_cells, min_cell, aligned, symmetric, centered)``.
+        `AxisEdges` `(edges, pml_cells, min_cell, aligned, symmetric, centered)`.
     """
     lo, hi, spacing, growth = float(lo), float(hi), float(spacing), float(growth)
     if not (math.isfinite(lo) and math.isfinite(hi) and hi > lo):

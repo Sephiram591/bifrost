@@ -228,14 +228,10 @@ def _validate_stack_options(
 
 @dataclasses.dataclass(frozen=True)
 class StackOptions:
-    """Geometry features of a :class:`StackDevice` that cost time, all on by default.
+    """Geometry features of a `StackDevice`, all enabled by default for maximum accuracy.
 
-    Each field is the StackDevice field of the same name; pass the options to
-    :meth:`StackDevice.from_layer_stack` (``options=``), or the fields one by
-    one as before. The defaults are the most accurate settings. What each
-    option buys is in docs/guide/options.md and what it costs in
-    docs/validation.md ("Geometry option costs"). ``StackOptions.fast()`` turns
-    off the ones that are not needed for a quick look at a device.
+    Pass `options=` to `StackDevice.from_layer_stack` or override individual fields directly as keyword arguments
+    (not both). `StackOptions.fast()` turns off the slower accuracy features for quick previews of a device.
     """
 
     #: "subpixel": Kottke averaging along the normal of each voxel's own model, the
@@ -310,29 +306,31 @@ def _homogenize_diag_from_d6(
 class StackDevice(StaticMultiMaterialObject):
     """A component with its LayerStack as one differentiable fdtdx object.
 
-    Build it with :meth:`from_layer_stack`, get the matching volume with
-    :meth:`get_simulation_volume` and sources / detectors on the component's
-    ports with the ``create_*_at`` methods. Merge :func:`init_stack_params` into
-    the fdtdx params, update the vertices with :meth:`pack` and apply the device
-    with :func:`apply_stack`. Parameters (all in stack units, um / degrees)::
+    Build it with `from_layer_stack`, get the matching volume with
+    `get_simulation_volume`, and add sources and detectors on the component's
+    ports with the `create_*_at` methods. Merge `init_stack_params` into
+    the fdtdx params, update the vertices with `pack`, and apply the device
+    with `apply_stack`. Parameters (all in stack units, um / degrees):
 
-        params[name] = {
-            "vertices/<layer>": (E, 2),  # one per source layer with polygons
-            "zmin/<level>": (),
-            "thickness/<level>": (),
-            "sidewall_angle/<level>": (),
-        }
+    ```text
+    params[name] = {
+        "vertices/<layer>": (E, 2),  # one per source layer with polygons
+        "zmin/<level>": (),
+        "thickness/<level>": (),
+        "sidewall_angle/<level>": (),
+    }
+    ```
 
-    The device box is overwritten on every :func:`apply_stack` (permittivity,
+    The device box is overwritten on every `apply_stack` (permittivity,
     conductivity and, in dispersive simulations, all pole coefficients):
-    everything not covered by a level is ``background``. fdtdx Devices are
+    everything not covered by a level is `background`. fdtdx Devices are
     applied afterwards and win where they overlap.
 
     The polygon topology (T-junctions, seams, polygon order and orientation,
     where the port extensions meet the polygons) is taken from the vertices the
-    device is built with, within ``topology_tol``, and indexes any later
-    vertices. :meth:`pack` checks that it still fits (:meth:`check_topology`)
-    and :meth:`retopologize` takes it from new vertices.
+    device is built with, within `topology_tol`, and indexes any later
+    vertices. `pack` checks that it still fits (`check_topology`)
+    and `retopologize` takes it from new vertices.
 
     Attributes:
         levels: compiled levels in the box.
@@ -352,15 +350,15 @@ class StackDevice(StaticMultiMaterialObject):
             (None: 2 database units of the layout), plus float32 round-off.
         ports: the component's ports.
         roughness: top-surface roughness per level.
-        noise_seed: roughness seed when no ``noise_key`` is passed.
-        averaging: "subpixel" (Kottke, along the normal of each voxel's own
-            model; the diagonal of the averaged tensor), "subpixel_full" (with
+        noise_seed: roughness seed when no `noise_key` is passed.
+        averaging: `"subpixel"` (Kottke, along the normal of each voxel's own
+            model; the diagonal of the averaged tensor), `"subpixel_full"` (with
             its off-diagonal entries: exact first-order interface correction
             also at walls oblique to the grid; 9-component arrays, and fdtdx's
             fully anisotropic update in the whole simulation, ~5x slower per
-            step and ~1.8x the memory) or "inverse".
-        subpixel_normal: "voxel" (the normal of each voxel's own model) or
-            "gradient" (finite differences of the mean eps; cheaper, less exact).
+            step and ~1.8x the memory) or `"inverse"`.
+        subpixel_normal: `"voxel"` (the normal of each voxel's own model) or
+            `"gradient"` (finite differences of the mean eps; cheaper, less exact).
         yee_staggered: sample each E component at its own Yee position.
         level_margin: how far (um) outside the box a level may start and still
             be drawn, so that zmin / thickness / roughness can move it in.
@@ -374,34 +372,34 @@ class StackDevice(StaticMultiMaterialObject):
             model (None: sized when the device is placed; 0: none).
         diagnostics: warn when the device is placed about parts of a level
             and gaps narrower than the grid resolves, and overlapping polygons
-            a level shrinks (:meth:`diagnose`).
-        derived_shapes: "exact" draws each derived level as the offset of the
+            a level shrinks (`diagnose`).
+        derived_shapes: `"exact"` draws each derived level as the offset of the
             exact polygons of its layer expression (built from
-            ``source_vertices``, see ``derived_layers``); "composite" draws the
+            `source_vertices`, see `derived_layers`); `"composite"` draws the
             min / max of its layers' offset distances.
         derived_layers: the exact shapes of the derived levels.
-        dtype: floating-point precision of the simulation, ``jnp.float32``
-            (default) or ``jnp.float64``. :meth:`get_simulation_config` builds
-            the ``fdtdx.SimulationConfig`` in it, the device refuses a config of
-            another dtype, and the parameters, the detectors of the ``create_*_at``
-            methods and the arrays :func:`apply_stack` hands back follow it.
-            :func:`apply_stack` casts PML coefficients to ``dtype`` so ``float32``
-            runs cleanly even when JAX's 64-bit mode is on, whereas ``float64``
-            requires JAX's 64-bit mode enabled (``jax.config.update("jax_enable_x64", True)``).
-        junction_cells: ``(nx, ny, nz)`` sub-cell grid per junction voxel in
-            ``"subpixel_full"`` averaging (default ``(4, 4, 4)``).
+        dtype: floating-point precision of the simulation, `jnp.float32`
+            (default) or `jnp.float64`. `get_simulation_config` builds
+            the `fdtdx.SimulationConfig` in it, the device refuses a config of
+            another dtype, and the parameters, the detectors of the `create_*_at`
+            methods and the arrays `apply_stack` hands back follow it.
+            `apply_stack` casts PML coefficients to `dtype` so `float32`
+            runs cleanly even when JAX's 64-bit mode is on, whereas `float64`
+            requires JAX's 64-bit mode enabled (`jax.config.update("jax_enable_x64", True)`).
+        junction_cells: `(nx, ny, nz)` sub-cell grid per junction voxel in
+            `"subpixel_full"` averaging (default `(4, 4, 4)`).
         junction_voxels: junction voxels per sample grid solved with the periodic
-            cell closure in ``"subpixel_full"`` averaging (None: sized when the
+            cell closure in `"subpixel_full"` averaging (None: sized when the
             device is placed; 0: laminate everywhere).
-        interface_failure: ``"raise"`` or ``"warn"`` when ``"subpixel_full"`` hits
+        interface_failure: `"raise"` or `"warn"` when `"subpixel_full"` hits
             capacity overflow or a failed cell solve.
-        dropped_levels: ``(name, zmin, zmax)`` of nonempty levels outside the
+        dropped_levels: `(name, zmin, zmax)` of nonempty levels outside the
             device box at construction, checked against grid sampling when placed.
         grid_frame: cell-edge coordinates and uniformity flags captured when the
             device is placed on a grid (None before placement).
     """
 
-    #: compiled levels (see :meth:`from_layer_stack`)
+    #: compiled levels (see `from_layer_stack`)
     levels: tuple[_Level, ...] = frozen_field()
     #: (param key, layer index) per source layer with polygons
     source_layers: tuple[tuple[str, int], ...] = frozen_field()
@@ -423,14 +421,14 @@ class StackDevice(StaticMultiMaterialObject):
     source_extensions: tuple[tuple[tuple[str, float, _FaceEnd, _FaceEnd], ...], ...] = frozen_field(
         default=()
     )
-    #: (port, length, layer indices it may continue) per port in ``extend_ports``,
+    #: (port, length, layer indices it may continue) per port in `extend_ports`,
     #: to find the extensions again from new polygons (empty: the layers that
-    #: have extensions in ``source_extensions``)
+    #: have extensions in `source_extensions`)
     extended_ports: tuple[tuple[str, float, tuple[int, ...]], ...] = frozen_field(default=())
     #: (layer index, (level, nominal bottom, top) of each level in the box that reads
     #: it) per stack layer without polygons when the device was built: the levels
     #: read it as empty, and those that need it are not drawn, so polygons on it
-    #: need a new device (:meth:`check_topology` reports them)
+    #: need a new device (`check_topology` reports them)
     empty_layers: tuple[tuple[int, tuple[tuple[str, float, float], ...]], ...] = frozen_field(default=())
     #: distance (um) within which a vertex lies on an edge of another polygon (a
     #: T-junction, split so that the partly shared edge is a seam), two vertices
@@ -443,11 +441,11 @@ class StackDevice(StaticMultiMaterialObject):
     #: abutting edges whose ends are this close but apart are a seam too, and a
     #: voxel centered in the gap between them, if any, is filled as if far outside
     topology_tol: float | None = frozen_field(default=None)
-    #: the component's ports, for the ``create_*_at`` methods
+    #: the component's ports, for the `create_*_at` methods
     ports: tuple[_Port, ...] = frozen_field(default=())
-    #: top-surface roughness per level, sampled with ``noise_key``
+    #: top-surface roughness per level, sampled with `noise_key`
     roughness: Sequence["TopRoughness"] = field(default=())
-    #: seed used for the roughness when no ``noise_key`` is passed
+    #: seed used for the roughness when no `noise_key` is passed
     noise_seed: int = frozen_field(default=0)
     #: "subpixel" (Kottke, along the interface normal of each voxel's own model:
     #: the flux of its interfaces and its vertical profile; the diagonal of the
@@ -457,10 +455,10 @@ class StackDevice(StaticMultiMaterialObject):
     averaging: Averaging = frozen_field(default="subpixel")
     #: normal of "subpixel" averaging: "voxel" (from each voxel's own sub-cell model:
     #: exact for straight interfaces, also slanted, thin and sloped ones) or
-    #: "gradient" (from finite differences of the voxel-mean eps, as before the
-    #: voxel model: errors up to 15-33 degrees at slanted walls, but cheaper)
+    #: "gradient" (from finite differences of the voxel-mean eps: errors up to
+    #: 15-33 degrees at slanted walls, but cheaper)
     subpixel_normal: Literal["voxel", "gradient"] = frozen_field(default="voxel")
-    #: with 3-component permittivity arrays (e.g. ``averaging="subpixel"``),
+    #: with 3-component permittivity arrays (e.g. `averaging="subpixel"`),
     #: sample each E component's materials at its own Yee position (half a cell
     #: apart); otherwise all components use the voxel center, a first-order error
     yee_staggered: bool = frozen_field(default=True)
@@ -477,28 +475,27 @@ class StackDevice(StaticMultiMaterialObject):
     xy_subsamples: int = frozen_field(default=1)
     #: edges per step in the signed distance computation
     edge_chunk: int = frozen_field(default=64)
-    #: in voxel columns near polygon corners and crossings of layer edges, paint
-    #: the exact local geometry with up to this many split lines; 0 means one
-    #: half-plane per level everywhere, as before (bit-identical). Cost grows
-    #: about as 2^M + 1
+    #: in voxel columns near polygon corners and crossings of layer edges (under
+    #: `voxelizer="legacy"`), paint the exact local geometry with up to this many
+    #: split lines; 0 means one half-plane per level everywhere. Cost grows about as 2^M + 1
     corner_lines: int = frozen_field(default=2)
     #: static number of columns per lateral sample grid painted with the corner
-    #: model; None sizes it in place_on_grid. Candidates beyond it (raster
-    #: order) keep the half-plane result
+    #: model (under `voxelizer="legacy"`); None sizes it in place_on_grid.
+    #: Candidates beyond it (raster order) keep the half-plane result
     corner_columns: int | None = frozen_field(default=None)
     #: when the device is placed, warn (StackDiagnosticWarning) about parts of a
     #: level and gaps narrower than the grid resolves, and about overlapping
-    #: polygons a level shrinks; :meth:`diagnose` returns them as data
+    #: polygons a level shrinks; `diagnose` returns them as data
     diagnostics: bool = frozen_field(default=True)
     #: "exact": a derived level (and / or / not / xor of layers, or one layer whose
     #: polygons overlap) is drawn from the exact polygons of its boolean, built
     #: once as copies of layer vertices and crossings of layer edges, so its
     #: offset is the offset of that shape; "composite": from the min / max of its
-    #: layers' distances, as before (slivers where edges of its layers coincide,
-    #: sharp grown corners of an and, slits where an or of overlapping parts shrinks)
+    #: layers' distances (which leaves slivers where edges coincide, sharp grown
+    #: corners of an and, and slits where an or of overlapping parts shrinks)
     derived_shapes: Literal["exact", "composite"] = frozen_field(default="exact")
-    #: the exact shapes of the derived levels (with ``derived_shapes="exact"``),
-    #: built from ``source_vertices``; part of the frozen topology (:meth:`check_topology`)
+    #: the exact shapes of the derived levels (with `derived_shapes="exact"`),
+    #: built from `source_vertices`; part of the frozen topology (`check_topology`)
     derived_layers: tuple[_DerivedShape, ...] = frozen_field(default=())
     #: averaging="subpixel_full": sub-cells of the junction closure along x, y, z (see StackOptions)
     junction_cells: tuple[int, int, int] = frozen_field(default=(4, 4, 4))
@@ -515,7 +512,7 @@ class StackDevice(StaticMultiMaterialObject):
     #: (name, nominal bottom, top in um) of the levels from_layer_stack left out as outside the box
     #: (beyond level_margin and a small slack); place_on_grid warns when the grid samples one of them
     dropped_levels: tuple[tuple[str, float, float], ...] = frozen_field(default=())
-    #: the static grid frame (:class:`_Frame`), set by place_on_grid from the resolved grid
+    #: the static grid frame (`_Frame`), set by place_on_grid from the resolved grid
     grid_frame: _Frame | None = frozen_field(default=None, repr=False)
 
     def __post_init__(self) -> None:
@@ -589,7 +586,7 @@ class StackDevice(StaticMultiMaterialObject):
         Args:
             component: the component; polygons and ports are read with gradients
                 stopped.
-            layer_stack: a :class:`~gdsfactory.technology.LayerStack`.
+            layer_stack: a `gdsfactory.technology.LayerStack`.
             materials: fdtdx materials by ``LayerLevel.material``; needed for
                 ``background`` and every level that is drawn.
             background: material (key of ``materials``) where no level is.
@@ -618,7 +615,7 @@ class StackDevice(StaticMultiMaterialObject):
             levels: levels that may be drawn (default: every level with a
                 material and nonzero thickness).
             fill_layers: layers that cover the whole plane (default: WAFER).
-            options: the geometry features (:class:`StackOptions`; default: all
+            options: the geometry features (`StackOptions`; default: all
                 on, the most accurate). Its fields are StackDevice fields, which
                 can also be passed one by one in ``kwargs``, but not both.
             **kwargs: other StackDevice fields (``name``, ``roughness``,
@@ -903,7 +900,7 @@ class StackDevice(StaticMultiMaterialObject):
 
     @property
     def options(self) -> StackOptions:
-        """The device's geometry features as a :class:`StackOptions`."""
+        """The device's geometry features as a `StackOptions`."""
         return StackOptions(**{f.name: getattr(self, f.name) for f in dataclasses.fields(StackOptions)})
 
     @timed("derived_shapes")
@@ -973,21 +970,21 @@ class StackDevice(StaticMultiMaterialObject):
         Args:
             component: a component with the polygon topology of the one the
                 device was built from (the same number of polygons and vertices
-                per polygon on every source layer, see :meth:`check_topology`)
+                per polygon on every source layer, see `check_topology`)
                 and the extended ports.
             check: if the component is concrete (not traced), check that its
                 vertices still fit the device's topology
-                (:meth:`check_topology`). Traced components are never checked.
+                (`check_topology`). Traced components are never checked.
 
         Returns:
-            ``{"vertices/<layer>": (E, 2)}``, differentiable with respect to the
+            `{"vertices/<layer>": (E, 2)}`, differentiable with respect to the
             parameters the component was built from; the extensions follow their
             ports and the polygon edges they continue. Which vertices and edges
             an extension continues is fixed when the device is built.
 
         Raises:
             ValueError: if the number of polygons or vertices changed or, with
-                ``check``, the topology no longer fits (:meth:`retopologize`
+                `check`, the topology no longer fits (`retopologize`
                 gives a device for the new vertices) or the component has
                 polygons on a stack layer the device was built without.
         """
@@ -1081,33 +1078,33 @@ class StackDevice(StaticMultiMaterialObject):
           elsewhere (a vertex left the face, an edge no longer crosses it, or
           the layer reaches the face in more, fewer or other places), and
           polygons on a stack layer that had none when the device was built
-          (``empty_layers``): the levels read it as empty and those that need
-          it are not drawn, so only :meth:`from_layer_stack` builds a device
+          (`empty_layers`): the levels read it as empty and those that need
+          it are not drawn, so only `from_layer_stack` builds a device
           for them.
 
         Relations are found with the device's topology tolerance
-        (``topology_tol``, 2 database units by default, plus float32 round-off;
-        computed from the new vertices for them), as :meth:`retopologize` and
-        :meth:`from_layer_stack` find them: what held for the device's vertices
+        (`topology_tol`, 2 database units by default, plus float32 round-off;
+        computed from the new vertices for them), as `retopologize` and
+        `from_layer_stack` find them: what held for the device's vertices
         counts as kept while it holds within it, and what holds within it now
         but did not is new. So layout snapping, round-off and moves that keep
         the topology (a taper sliding along an MMI side, abutting polygons
         moving together) pass, and when the check passes, a device built for
         the new vertices has the same T-junctions, seams and extensions: the
         device's edges bend through the new vertices by at most the tolerance.
-        Traced vertices (inside ``jax.grad`` or ``jax.jit``) are not checked,
+        Traced vertices (inside `jax.grad` or `jax.jit`) are not checked,
         so this costs nothing in a differentiated objective.
 
         Args:
-            vertices: a component, packed like :meth:`pack` does (its ports
+            vertices: a component, packed like `pack` does (its ports
                 locate the port faces), or device parameters with
-                ``vertices/<layer>`` entries (um; other entries are ignored),
-                such as the output of :meth:`pack` or ``params[name]``. Port
+                `vertices/<layer>` entries (um; other entries are ignored),
+                such as the output of `pack` or `params[name]`. Port
                 extensions and new layers are only checked with a component.
 
         Raises:
             ValueError: if the topology no longer fits, naming each layer and what
-                changed in it (:meth:`retopologize` gives a device for the new
+                changed in it (`retopologize` gives a device for the new
                 vertices), if the component has polygons on a layer the device
                 was built without, or if the parameters have none of the
                 device's layers, or another number of vertices.
@@ -1132,27 +1129,27 @@ class StackDevice(StaticMultiMaterialObject):
     def retopologize(self, vertices: Any) -> Self:
         """A copy of the device with the polygon topology of new vertices.
 
-        When :meth:`pack` or :meth:`check_topology` reports that new vertices no
+        When `pack` or `check_topology` reports that new vertices no
         longer fit the device's topology, this gives the device built for them:
-        its ``source_vertices`` (and :meth:`init_params`) are the new vertices,
+        its `source_vertices` (and `init_params`) are the new vertices,
         so their T-junctions, seams, polygon order and orientations are found
-        again, within the same tolerance as the check uses (``topology_tol``):
+        again, within the same tolerance as the check uses (`topology_tol`):
         whatever the check counts as kept, this keeps; the exact shapes of the
-        derived levels (``derived_layers``) are built again from them too.
+        derived levels (`derived_layers`) are built again from them too.
         Everything else is kept:
         the box, the levels and source layers, the materials, the other fields
         and the placement of a placed device, whose budgets of corner columns
         and junction voxels only grow if the new vertices need more. Swap it into the placed
-        objects and refresh its parameters, e.g. ``objects = objects.copy();
-        objects[name] = objects[name].retopologize(c)`` and ``params[name] =
-        {**params[name], **objects[name].pack(c)}``.
+        objects and refresh its parameters, e.g. `objects = objects.copy();
+        objects[name] = objects[name].retopologize(c)` and `params[name] =
+        {**params[name], **objects[name].pack(c)}`.
 
         Args:
-            vertices: a component, read like :meth:`from_layer_stack` does: its
+            vertices: a component, read like `from_layer_stack` does: its
                 polygons may also differ in number and size, the ports are read
                 again and the port extensions are found again from its polygons
                 and ports, on the layers they may continue. Or device parameters
-                with every ``vertices/<layer>`` entry (um) and the device's
+                with every `vertices/<layer>` entry (um) and the device's
                 number of vertices per layer: the polygon sizes and the
                 extensions' face ends are kept (use a component when those
                 change).
@@ -1161,13 +1158,13 @@ class StackDevice(StaticMultiMaterialObject):
             The new device.
 
         Raises:
-            TypeError: if the vertices are traced (inside ``jax.grad`` or
-                ``jax.jit``).
+            TypeError: if the vertices are traced (inside `jax.grad` or
+                `jax.jit`).
             KeyError: if an extended port is not among the component's ports, or
                 the parameters lack a layer's vertices.
             ValueError: if a source layer has no polygons left, the component
                 has polygons on a stack layer the device was built without
-                (``empty_layers``: only :meth:`from_layer_stack` adds the levels
+                (`empty_layers`: only `from_layer_stack` adds the levels
                 and source layers for them), or the parameters have another
                 number of vertices.
         """
@@ -1515,8 +1512,8 @@ class StackDevice(StaticMultiMaterialObject):
           narrower than about twice the shrink). Grows are exact.
 
         The checks run on concrete numpy data with KLayout (never tracers).
-        :meth:`place_on_grid` warns with the message of every finding (a
-        :class:`StackDiagnosticWarning`) unless ``diagnostics`` is False.
+        `place_on_grid` warns with the message of every finding (a
+        `StackDiagnosticWarning`) unless `diagnostics` is False.
 
         Args:
             resolution: grid cell size (um); default: the placed device's.
@@ -2422,7 +2419,7 @@ class StackDevice(StaticMultiMaterialObject):
         """Volume fraction of every material in every voxel.
 
         Args:
-            params: device parameters (defaults: :meth:`init_params`).
+            params: device parameters (defaults: `init_params`).
             noise_key: PRNG key for the roughness.
             apply_roughness: if False, the nominal geometry.
             shift: offset (cells) of the sampled voxels from the grid's voxels,
@@ -2485,7 +2482,7 @@ class StackDevice(StaticMultiMaterialObject):
         voxel (see :func:`_lateral_samples`).
 
         Args:
-            params: device parameters (defaults: :meth:`init_params`).
+            params: device parameters (defaults: `init_params`).
             noise_key: PRNG key for the roughness.
             apply_roughness: if False, the nominal geometry.
             shift: offset (cells) of the sampled voxels from the grid's voxels.
@@ -2686,7 +2683,7 @@ class StackDevice(StaticMultiMaterialObject):
         junction closure needs to paint the voxel again (:func:`_junction_tensor`).
 
         Args:
-            params: device parameters (defaults: :meth:`init_params`).
+            params: device parameters (defaults: `init_params`).
             noise_key: PRNG key for the roughness.
             apply_roughness: if False, the nominal geometry.
             shift: offset (cells) of the sampled voxels from the grid's voxels.
@@ -3065,11 +3062,11 @@ class StackDevice(StaticMultiMaterialObject):
     ) -> Self:
         """fdtdx hook: aligns pole slots, requests anisotropic arrays (subpixel), sizes corner columns, diagnoses.
 
-        Without ``corner_columns``, the corner model gets 1.5 times the most
+        Without `corner_columns`, the corner model gets 1.5 times the most
         candidate columns of any sample grid at the initial parameters, plus 64,
         rounded up to a multiple of 64 (at most every column). With
-        ``diagnostics``, every finding of :meth:`diagnose` at the grid's
-        resolution is a :class:`StackDiagnosticWarning`.
+        `diagnostics`, every finding of `diagnose` at the grid's
+        resolution is a `StackDiagnosticWarning`.
 
         Args:
             grid_slice_tuple: the device's grid slices.
@@ -3080,8 +3077,8 @@ class StackDevice(StaticMultiMaterialObject):
             The placed device.
 
         Raises:
-            ValueError: if ``config.dtype`` is not the device's ``dtype``
-                (:meth:`get_simulation_config` builds one that is).
+            ValueError: if `config.dtype` is not the device's `dtype`
+                (`get_simulation_config` builds one that is).
             RuntimeError: if a float64 device is placed with JAX's 64-bit mode off.
         """
         self._check_precision(config)
@@ -3269,11 +3266,10 @@ class StackDevice(StaticMultiMaterialObject):
     def get_material_mapping(self) -> Array:
         """fdtdx hook: the nominal geometry rounded to the dominant material.
 
-        Only used by fdtdx to paint the initial arrays; :func:`apply_stack`
-        overwrites them with the mixed materials. It is computed without the
-        corner model (``corner_lines=0``), which only refines the fractions of
-        corner voxels: compiling the corner pass for this one rounding cost the
-        first placement of a device 42 s of GPU autotuning at 260x180x90 voxels.
+        Used by fdtdx only to populate initial material-index arrays; `apply_stack`
+        overwrites the permittivity arrays afterward. Under `voxelizer="legacy"`,
+        this initial pass skips the corner model (`corner_lines=0`) so placement
+        avoids compiling the corner pass solely for dominant-material rounding.
 
         Returns:
             (nx, ny, nz) material indices in fdtdx's order.
@@ -3294,20 +3290,20 @@ class StackDevice(StaticMultiMaterialObject):
     ) -> Any:
         """Writes the mixed inverse permittivity, conductivity and pole coefficients.
 
-        With ``averaging="subpixel_full"`` (9-component arrays) row c of the
+        With `averaging="subpixel_full"` (9-component arrays) row c of the
         inverse of the voxel's complete effective permittivity tensor is
-        written at E_c's Yee position (:meth:`write_with_status`): the
+        written at E_c's Yee position (`write_with_status`): the
         materials' full tensors, Kottke's anisotropic laminate along the
         voxel's interface normal where its interfaces are parallel, and the
         junction closure where they are not. Other averagings take each E
         component's diagonal entry of a diagonally anisotropic material (a
-        material with off-diagonal entries needs "subpixel_full"), and write
+        material with off-diagonal entries needs `"subpixel_full"`), and write
         the diagonal and zero off-diagonal entries into 9-component arrays
         (made by another object).
 
         Args:
             arrays: fdtdx ArrayContainer.
-            params: device parameters (default: :meth:`init_params`).
+            params: device parameters (default: `init_params`).
             noise_key: PRNG key for the roughness.
             apply_roughness: if False, the nominal geometry.
 
@@ -3439,25 +3435,25 @@ class StackDevice(StaticMultiMaterialObject):
         noise_key: Array | None = None,
         apply_roughness: bool = True,
     ) -> tuple[Any, dict[str, Array]]:
-        """:meth:`write`, with the status of the interface model (``averaging="subpixel_full"``).
+        """`write`, returning the interface model's coverage status (`averaging="subpixel_full"`).
 
-        Every E component c is sampled at its own Yee position (``yee_staggered``): the inverse of the
-        voxel's complete effective permittivity there (:meth:`_complete_tensor`) is computed whole, and
+        Every E component c is sampled at its own Yee position (`yee_staggered`): the inverse of the
+        voxel's complete effective permittivity there is computed whole, and
         its row c written, all three entries (so the nine entries of a voxel come from three
         positions; each is a row of a symmetric positive-definite tensor of its own position). The
         materials' full tensors enter (scalars, diagonals and off-diagonal entries alike); a voxel of one
         material gets the exact inverse of its tensor. Conductivity and pole strengths are mixed linearly,
         as with the other averagings.
 
-        Coverage failures (junction voxels beyond ``junction_voxels``, corner candidates beyond
-        ``corner_columns``, a cell problem solved with a relative residual above 1e-4) are never kept
-        silently: with ``interface_failure="raise"`` they raise where the result is concrete, and make the
-        box NaN under tracing (so the result cannot be accepted); with ``"warn"`` they warn and keep the
+        Coverage failures (junction voxels beyond `junction_voxels`, corner candidates beyond
+        `corner_columns`, a cell problem solved with a relative residual above 1e-4) are never kept
+        silently: with `interface_failure="raise"` they raise where the result is concrete, and make the
+        box NaN under tracing (so the result cannot be accepted); with `"warn"` they warn and keep the
         laminate or half-plane result. The other averagings return an empty status.
 
         Args:
             arrays: fdtdx ArrayContainer.
-            params: device parameters (default: :meth:`init_params`).
+            params: device parameters (default: `init_params`).
             noise_key: PRNG key for the roughness.
             apply_roughness: if False, the nominal geometry.
 
@@ -3608,11 +3604,11 @@ class StackDevice(StaticMultiMaterialObject):
     def interface_status(
         self, params: dict[str, Array] | None = None, noise_key: Array | None = None, apply_roughness: bool = True
     ) -> dict[str, Any]:
-        """The interface model's status for these parameters, as numbers (``averaging="subpixel_full"``).
+        """The interface model's status for these parameters, as numbers (`averaging="subpixel_full"`).
 
         Computes every Yee position's interfaces (no arrays are written) and returns the counts of
-        :meth:`write_with_status`: junction voxels, those beyond ``junction_voxels``, corner columns beyond
-        ``corner_columns``, voxels of corner columns the corner model does not certify, and the closure's
+        `write_with_status`: junction voxels, those beyond `junction_voxels`, corner columns beyond
+        `corner_columns`, voxels of corner columns the corner model does not certify, and the closure's
         largest residual. Use it to check coverage before an optimization, or after one at its final
         parameters.
         """
@@ -3646,29 +3642,31 @@ class StackDevice(StaticMultiMaterialObject):
     def coarse_vertices(self, params: dict[str, Array], mesh: Any) -> Any:
         """How many vertices sit in grid cells wider than their target, per source layer.
 
-        The target of a layer's vertices is the cell :func:`bifrost.mesh` asks of the materials that meet
-        there: ``lambda / (n ppw)`` of the levels reading the layer and of their lateral neighbours, the
+        The target of a layer's vertices is the cell `bifrost.mesh` asks of the materials that meet
+        there: `lambda / (n ppw)` of the levels reading the layer and of their lateral neighbours, the
         smallest. A vertex counts along x or y where the cell holding it (the wider one on an edge) is wider
         than that, and along z where a level reading its layer, at its current zmin and thickness, spans a
         z cell wider than the level's own target. Vertices outside the box are counted apart.
 
         A diagnostic only: nothing limits the parameters, and a vertex that leaves its dilation shows up
-        here. It runs under ``jax.jit`` (the mesh is static) and costs a search per vertex, so it can leave
-        an optimizer's objective as auxiliary output::
+        here. It runs under `jax.jit` (the mesh is static) and costs a search per vertex, so it can leave
+        an optimizer's objective as auxiliary output:
 
-            loss, report = objective(p)  # report = stack.coarse_vertices(p["stack"], mesh)
-            print(report)                # a table, on concrete values
+        ```python
+        loss, report = objective(p)  # report = stack.coarse_vertices(p["stack"], mesh)
+        print(report)                # a table, on concrete values
+        ```
 
-        It does not check how the device is painted: :meth:`interface_status` reports the corner and
+        It does not check how the device is painted: `interface_status` reports the corner and
         junction coverage.
 
         Args:
-            params: the device's parameters (``{"vertices/<layer>": ..., "zmin/<level>": ...,
-                "thickness/<level>": ...}``), concrete or traced.
-            mesh: the :class:`bifrost.Mesh` the device runs on (a placed device must be on its grid).
+            params: the device's parameters (`{"vertices/<layer>": ..., "zmin/<level>": ...,
+                "thickness/<level>": ...}`), concrete or traced.
+            mesh: the `bifrost.Mesh` the device runs on (a placed device must be on its grid).
 
         Returns:
-            A :class:`bifrost.meshing.CoarseVertices`.
+            A `bifrost.meshing.CoarseVertices`.
         """
         from ..meshing import coarse_vertices
 
@@ -3792,11 +3790,13 @@ class StackDevice(StaticMultiMaterialObject):
         y_um: Sequence[float] | None = None,
         z_um: Sequence[float] | None = None,
     ) -> fdtdx.core.grid.RectilinearGrid:
-        """An fdtdx ``RectilinearGrid`` over this device's box (the simulation volume of
-        :meth:`get_simulation_volume`), from cell edges in stack coordinates::
+        """An fdtdx `RectilinearGrid` over this device's box (the simulation volume of
+        `get_simulation_volume`), from cell edges in stack coordinates:
 
-            z = bf.graded_edges(z0, z1, 0.06, fine=[(-0.05, 0.3, 0.02)], snap=[0.0, 0.22])
-            config = stack.get_simulation_config(time=..., grid=stack.rectilinear_grid(0.06, z_um=z))
+        ```python
+        z = bf.graded_edges(z0, z1, 0.06, fine=[(-0.05, 0.3, 0.02)], snap=[0.0, 0.22])
+        config = stack.get_simulation_config(time=..., grid=stack.rectilinear_grid(0.06, z_um=z))
+        ```
 
         Any axis may be graded. Its edges are in stack coordinates, from the box's lower face to
         its upper one (the box after ``boundary_offset``, which need not be symmetric).
@@ -3873,14 +3873,16 @@ class StackDevice(StaticMultiMaterialObject):
         )
 
     def get_simulation_config(self, **kwargs: Any) -> SimulationConfig:
-        """The ``fdtdx.SimulationConfig`` for this device, in the device's precision.
+        """The `fdtdx.SimulationConfig` for this device, in the device's precision.
 
-        Sets ``dtype`` from :attr:`dtype` and passes everything else on to
-        ``fdtdx.SimulationConfig``, so the precision is chosen once, on the
-        device (a ``RectilinearGrid``'s edges are converted to it too)::
+        Sets `dtype` from `dtype` and passes everything else on to
+        `fdtdx.SimulationConfig`, so the precision is chosen once, on the
+        device (a `RectilinearGrid`'s edges are converted to it too):
 
-            stack = bf.StackDevice.from_layer_stack(..., dtype=jnp.float64)
-            config = stack.get_simulation_config(time=100e-15, grid=UniformGrid(spacing=50e-9))
+        ```python
+        stack = bf.StackDevice.from_layer_stack(..., dtype=jnp.float64)
+        config = stack.get_simulation_config(time=100e-15, grid=UniformGrid(spacing=50e-9))
+        ```
 
         Args:
             **kwargs: the ``fdtdx.SimulationConfig`` arguments (``time``,
@@ -3987,7 +3989,7 @@ class StackDevice(StaticMultiMaterialObject):
         two in-plane extents as width and height.
 
         ``level`` sets the plane's height: a level name puts the plane at the
-        middle of that level's z span, and :data:`Z_CENTER_LEVEL` (or ``None``)
+        middle of that level's z span, and `Z_CENTER_LEVEL` (or ``None``)
         at the volume's own mid-height. For the ``"xy"`` plane, whose normal is
         z, that *is* the plane's position; for ``"xz"`` / ``"yz"`` it moves the
         plane's in-plane vertical center.
@@ -3997,7 +3999,7 @@ class StackDevice(StaticMultiMaterialObject):
             port_offset: shift (um) along ``"in"`` (``-normal``); negative moves toward
                 the outward direction (``+normal``). Note: absolute viewer placement
                 with ``port="None"`` keeps ``"in"`` along ``+axis``.
-            level: a level name, :data:`Z_CENTER_LEVEL`, or ``None`` for the
+            level: a level name, `Z_CENTER_LEVEL`, or ``None`` for the
                 volume's mid-height.
 
         Returns:
@@ -4040,7 +4042,7 @@ class StackDevice(StaticMultiMaterialObject):
             level: level whose z span is used (default: the union of the levels
                 that draw the port's layer). For a :data:`PLANE_PORTS` name it
                 sets the plane's height: a level's span middle, or
-                :data:`Z_CENTER_LEVEL` / ``None`` for the volume's mid-height.
+                `Z_CENTER_LEVEL` / ``None`` for the volume's mid-height.
             port_offset: shift (um) along the port's injection direction (into
                 the component); negative moves out of it.
 
@@ -4263,7 +4265,7 @@ class StackDevice(StaticMultiMaterialObject):
         Args:
             port: port name; the plane is centered on it (in z on the middle of
                 the port's level) and normal to it, or ``"xy"``, ``"xz"``,
-                ``"yz"`` (:data:`PLANE_PORTS`) for a full-volume cross-section.
+                ``"yz"`` (`PLANE_PORTS`) for a full-volume cross-section.
             port_padding: (lateral, vertical): the plane extends this far past the
                 port's width and the level's height on each side, in units of the
                 mean wavelength of this object's wave characters.
@@ -4273,7 +4275,7 @@ class StackDevice(StaticMultiMaterialObject):
             filter_pol: only "te" or "tm" modes (default: all).
             direction: "in" launches into the component, "out" away from it.
             level: level whose height and middle set the plane's z (default:
-                the levels that draw the port's layer), or :data:`Z_CENTER_LEVEL`
+                the levels that draw the port's layer), or `Z_CENTER_LEVEL`
                 (``"z_center"``) for the stack's vertical middle.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
@@ -4315,7 +4317,7 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it, or
-                ``"xy"``, ``"xz"``, ``"yz"`` (:data:`PLANE_PORTS`) for a
+                ``"xy"``, ``"xz"``, ``"yz"`` (`PLANE_PORTS`) for a
                 full-volume cross-section.
             port_padding: (lateral, vertical): the plane extends this far past the
                 port's width and the level's height on each side, in units of the
@@ -4328,7 +4330,7 @@ class StackDevice(StaticMultiMaterialObject):
             fixed_H_polarization_vector: H polarization (alternative to E).
             direction: "in" launches into the component, "out" away from it.
             level: level whose height and middle set the plane's z, or
-                :data:`Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
+                `Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             name: object name (default ``<port>_gaussian_source``).
@@ -4374,7 +4376,7 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it, or
-                ``"xy"``, ``"xz"``, ``"yz"`` (:data:`PLANE_PORTS`) for a
+                ``"xy"``, ``"xz"``, ``"yz"`` (`PLANE_PORTS`) for a
                 full-volume cross-section.
             port_padding: (lateral, vertical): the plane extends this far past the
                 port's width and the level's height on each side, in units of the
@@ -4386,7 +4388,7 @@ class StackDevice(StaticMultiMaterialObject):
             fixed_H_polarization_vector: H polarization (alternative to E).
             direction: "in" launches into the component, "out" away from it.
             level: level whose height and middle set the plane's z, or
-                :data:`Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
+                `Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             name: object name (default ``<port>_uniform_source``).
@@ -4430,7 +4432,7 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it, or
-                ``"xy"``, ``"xz"``, ``"yz"`` (:data:`PLANE_PORTS`) for a
+                ``"xy"``, ``"xz"``, ``"yz"`` (`PLANE_PORTS`) for a
                 full-volume cross-section.
             port_padding: (lateral, vertical): the plane extends this far past the
                 port's width and the level's height on each side, in units of the
@@ -4442,7 +4444,7 @@ class StackDevice(StaticMultiMaterialObject):
             fixed_H_polarization_vector: H polarization (alternative to E).
             direction: "in" launches into the component, "out" away from it.
             level: level whose height and middle set the plane's z, or
-                :data:`Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
+                `Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             name: object name (default ``<port>_hard_source``).
@@ -4486,7 +4488,7 @@ class StackDevice(StaticMultiMaterialObject):
         Args:
             port: port name; the dipole sits at its center, in z at the middle
                 of the port's level, or ``"xy"``, ``"xz"``, ``"yz"``
-                (:data:`PLANE_PORTS`) to center on the stack.
+                (`PLANE_PORTS`) to center on the stack.
             wave_character: wavelength / frequency.
             polarization: dipole axis, 0 / 1 / 2 or "x" / "y" / "z".
             temporal_profile: pulse shape (default: fdtdx's single frequency).
@@ -4495,7 +4497,7 @@ class StackDevice(StaticMultiMaterialObject):
             source_type: "electric" or "magnetic".
             amplitude: dipole amplitude.
             level: level whose middle sets the dipole's z, or
-                :data:`Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
+                `Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the dipole out, e.g. into a port extension.
             name: object name (default ``<port>_dipole_source``).
@@ -4553,7 +4555,7 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it, or
-                ``"xy"``, ``"xz"``, ``"yz"`` (:data:`PLANE_PORTS`) for a
+                ``"xy"``, ``"xz"``, ``"yz"`` (`PLANE_PORTS`) for a
                 full-volume cross-section.
             port_padding: (lateral, vertical): the plane extends this far past the
                 port's width and the level's height on each side, in units of the
@@ -4566,7 +4568,7 @@ class StackDevice(StaticMultiMaterialObject):
             direction: "out" measures the mode leaving the component, "in" the
                 mode entering it.
             level: level whose height and middle set the plane's z, or
-                :data:`Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
+                `Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             name: object name (default ``<port>_mode_detector``).
@@ -4605,7 +4607,7 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it, or
-                ``"xy"``, ``"xz"``, ``"yz"`` (:data:`PLANE_PORTS`) for a
+                ``"xy"``, ``"xz"``, ``"yz"`` (`PLANE_PORTS`) for a
                 full-volume cross-section.
             port_padding: (lateral, vertical): the plane extends this far past the
                 port's width and the level's height on each side, in units of
@@ -4615,7 +4617,7 @@ class StackDevice(StaticMultiMaterialObject):
             direction: "out" counts power leaving the component as positive,
                 "in" power entering it.
             level: level whose height and middle set the plane's z, or
-                :data:`Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
+                `Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             wavelength_um: the wavelength (um) whose multiple the padding is; required
@@ -4656,7 +4658,7 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it, or
-                ``"xy"``, ``"xz"``, ``"yz"`` (:data:`PLANE_PORTS`) for a
+                ``"xy"``, ``"xz"``, ``"yz"`` (`PLANE_PORTS`) for a
                 full-volume cross-section.
             port_padding: (lateral, vertical): the plane extends this far past the
                 port's width and the level's height on each side, in units of the
@@ -4667,7 +4669,7 @@ class StackDevice(StaticMultiMaterialObject):
             scaling_mode: "continuous" or "pulse" normalization (default:
                 fdtdx's, "continuous").
             level: level whose height and middle set the plane's z, or
-                :data:`Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
+                `Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             name: object name (default ``<port>_phasor_detector``).
@@ -4705,7 +4707,7 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it, or
-                ``"xy"``, ``"xz"``, ``"yz"`` (:data:`PLANE_PORTS`) for a
+                ``"xy"``, ``"xz"``, ``"yz"`` (`PLANE_PORTS`) for a
                 full-volume cross-section.
             port_padding: (lateral, vertical): the plane extends this far past the
                 port's width and the level's height on each side, in units of
@@ -4713,7 +4715,7 @@ class StackDevice(StaticMultiMaterialObject):
             components: field components (default: fdtdx's, all six).
             reduce_volume: sum over the plane.
             level: level whose height and middle set the plane's z, or
-                :data:`Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
+                `Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             wavelength_um: the wavelength (um) whose multiple the padding is; required
@@ -4752,7 +4754,7 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it, or
-                ``"xy"``, ``"xz"``, ``"yz"`` (:data:`PLANE_PORTS`) for a
+                ``"xy"``, ``"xz"``, ``"yz"`` (`PLANE_PORTS`) for a
                 full-volume cross-section.
             port_padding: (lateral, vertical): the plane extends this far past the
                 port's width and the level's height on each side, in units of
@@ -4760,7 +4762,7 @@ class StackDevice(StaticMultiMaterialObject):
             reduce_volume: sum over the plane.
             aggregate: aggregation over time, e.g. "mean" (default: none).
             level: level whose height and middle set the plane's z, or
-                :data:`Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
+                `Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             wavelength_um: the wavelength (um) whose multiple the padding is; required
@@ -4798,7 +4800,7 @@ class StackDevice(StaticMultiMaterialObject):
 
         Args:
             port: port name; the plane is centered on it and normal to it, or
-                ``"xy"``, ``"xz"``, ``"yz"`` (:data:`PLANE_PORTS`) for a
+                ``"xy"``, ``"xz"``, ``"yz"`` (`PLANE_PORTS`) for a
                 full-volume cross-section.
             port_padding: (lateral, vertical): the plane extends this far past the
                 port's width and the level's height on each side, in units of the
@@ -4807,7 +4809,7 @@ class StackDevice(StaticMultiMaterialObject):
             orders: diffraction orders (m, n) to record.
             direction: "out" for orders leaving the component, "in" entering it.
             level: level whose height and middle set the plane's z, or
-                :data:`Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
+                `Z_CENTER_LEVEL` (``"z_center"``) for the stack's vertical middle.
             port_offset: shift (um) along the port's injection direction (into the
                 component); negative moves the plane out, e.g. into a port extension.
             name: object name (default ``<port>_diffractive_detector``).
@@ -4900,7 +4902,7 @@ def pole_slots(materials: dict[str, fdtdx.Material]) -> tuple[Pole, ...]:
     """The shared pole slots of aligned materials.
 
     Args:
-        materials: materials after :func:`align_material_poles`.
+        materials: materials after `align_material_poles`.
 
     Returns:
         The poles of the slots (empty if no material is dispersive).
@@ -4981,10 +4983,10 @@ def init_stack_params(objects: Any) -> dict[str, dict[str, Array]]:
     """Initial parameters of all StackDevices.
 
     Args:
-        objects: fdtdx ObjectContainer (from ``fdtdx.place_objects``).
+        objects: fdtdx ObjectContainer (from `fdtdx.place_objects`).
 
     Returns:
-        ``{device name: device params}``; merge it into fdtdx's params.
+        `{device name: device params}`; merge it into fdtdx's params.
     """
     return {o.name: o.init_params() for o in stack_devices(objects)}
 
@@ -5020,45 +5022,42 @@ def apply_stack(
     apply_roughness: bool = True,
     **transform_kwargs: Any,
 ) -> tuple[Any, Any, dict[str, Any]]:
-    """``fdtdx.apply_params`` that also applies every :class:`StackDevice`.
+    """`fdtdx.apply_params` that also applies every `StackDevice`.
 
-    Stacks are written first, then ``fdtdx.apply_params`` applies the regular
-    devices. ``transform_kwargs`` are forwarded to ``fdtdx.apply_params``.
-    Last, the objects whose ``apply`` reads the materials (sources and mode
-    detectors: their modes, impedances and time offsets) and that overlap a
+    Stacks are written first, then `fdtdx.apply_params` applies regular
+    devices. `transform_kwargs` are forwarded to `fdtdx.apply_params`.
+    Finally, objects whose `apply` reads the materials (sources and mode
+    detectors: their modes, impedances, and time offsets) and that overlap a
     stack are applied again with the final permittivity and pole coefficients.
-    fdtdx applies objects that overlap none of its own ``Device`` objects once,
-    in ``place_objects``, on the initial painting (each voxel's dominant
-    material, see :meth:`StackDevice.get_material_mapping`), and
-    ``fdtdx.apply_params`` (0.6.3) re-applies only those overlapping a
-    ``Device``; without this step a mode source would launch the mode of that
-    painting, not of the stack, and scatter where it is injected. An object
-    is skipped while its materials match a previous solve in a bounded LRU
-    cache keyed by configuration and compact content digests (under ``jax.grad``
-    by the primal values), so repeated calls with unchanged parameters solve no
-    modes. ``info["stack_reapplied"]`` and ``info["stack_reused"]`` name the
-    objects.
+    fdtdx applies objects that do not overlap one of its own `Device` objects
+    once in `place_objects` on the initial staircased material painting (see
+    `StackDevice.get_material_mapping`); this final pass ensures mode sources
+    and detectors see the subpixel-averaged materials. An object is skipped when
+    its materials match a previous solve in a bounded LRU cache keyed by
+    configuration and compact content digests (under `jax.grad`, by primal
+    values), so repeated calls with unchanged parameters do not re-solve modes.
+    `info["stack_reapplied"]` and `info["stack_reused"]` name the objects.
 
     In dispersive simulations with mode or plane-wave sources, fdtdx 0.6.2
-    builds the sources' dispersive filter with numpy, so this call (like
-    ``fdtdx.apply_params``) cannot run inside ``jax.jit``; ``jax.grad`` works.
+    builds the sources' dispersive filter with NumPy, so this call (like
+    `fdtdx.apply_params`) cannot run inside `jax.jit`; `jax.grad` works.
 
-    The returned objects also have their PML coefficients in the stacks'
-    ``dtype``: when 64-bit JAX mode is active, fdtdx 0.6.3 derives them as
-    float64 and float32 simulations would otherwise fail in ``fdtdx.run_fdtd``.
-    No ``jax.enable_x64(False)`` is needed around the run, for either dtype.
+    The returned objects also have their PML coefficients cast to the stacks'
+    `dtype`, avoiding dtype mismatches in `fdtdx.run_fdtd` when 64-bit JAX mode
+    is enabled. No `jax.enable_x64(False)` is needed around the run for either
+    dtype.
 
     Args:
         arrays: fdtdx ArrayContainer.
         objects: fdtdx ObjectContainer.
-        params: fdtdx params including the stacks' (:func:`init_stack_params`).
-        key: PRNG key for ``fdtdx.apply_params``.
-        noise_key: PRNG key for the roughness (default: each device's seed).
-        apply_roughness: if False, the nominal geometry.
-        **transform_kwargs: forwarded to ``fdtdx.apply_params``.
+        params: fdtdx params including the stacks' (`init_stack_params`).
+        key: PRNG key for `fdtdx.apply_params`.
+        noise_key: PRNG key for roughness (default: each device's seed).
+        apply_roughness: if False, use the nominal geometry without roughness.
+        **transform_kwargs: forwarded to `fdtdx.apply_params`.
 
     Returns:
-        (arrays, objects, info) as ``fdtdx.apply_params`` returns them.
+        `(arrays, objects, info)` as returned by `fdtdx.apply_params`.
     """
     stacks = stack_devices(objects)
     if stacks:

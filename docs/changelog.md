@@ -2,72 +2,31 @@
 
 ## Unreleased
 
-- [Automatic meshing](guide/simulation-setup.md#automatic-meshing): `bf.mesh(stack, band, refine=bf.Refine(...))`
-  builds a device's graded grid from its geometry, the band and where the geometry may move (`dilation` per layer or
-  per vertex, `z_padding` per level): cells of `lambda / (n ppw)` wherever a material is or may come to be, an
-  evanescent tail of 3 decay lengths past every boundary toward a lower index, narrow parts and gaps, explicit
-  regions. `bf.axis_edges` places each axis's edges in continuous real coordinates (`quantum=None` by default; pass a
-  float `quantum` to use `bf.lattice_edges` on a discrete lattice): every cell and dual cell within its target, a
-  growth limit, the largest smallest cell, then the fewest cells, uniform PML cells, mirror symmetry, and smooth LP+QP
-  grading.
-  The `Mesh` gives the fdtdx grid and boundaries and a summary; `StackDevice.coarse_vertices` counts, under jit, the
-  vertices that left the cells refined for them. On the inverse-design bend it is more than 20 times closer to the
-  uniform 40 nm grid than the hand-set graded grid, with about as many cells. By default (`center_faces=True`) every static
-  level's bottom and top material interface sits in the middle of a z cell (skipping faces moved by `Refine.z_padding`
-  so step-0 vertical derivatives stay off dual-cell kinks), which on the directional coupler leaves a third of the
-  error of faces on cell edges; `bf.axis_edges(..., centers=...)` and `bf.lattice_edges(..., centers=...)` center any
-  coordinates.
-- [Graded grids](guide/simulation-setup.md#graded-grids): a `StackDevice` runs on an fdtdx `RectilinearGrid` whose
-  cells differ along any axis (every averaging). Fill fractions stay exact, each field component averages over the dual
-  cells between cell centers along the axes it is staggered on, and `averaging="subpixel_full"` solves a junction
-  voxel's cell problem on its own box (`bf.subpixel.periodic_cell_tensor(..., sides=...)`). Where the x and y cells
-  differ, a voxel is painted as a rectangle with Euclidean normals and round corners; on graded x or y every column on
-  its own (half-planes, corner model, sub-samples and junctions), with roughness drawn on an even lattice and
-  interpolated to the columns, and finite-difference normals from the distances between cell centers. `bf.graded_edges` places graded edges (fine regions, a growth limit,
-  interfaces on edges, uniform cells under the PML), `StackDevice.rectilinear_grid` builds the grid over the box, and
-  the `create_*_at` methods take `grid=` to give port planes whole cells there. Uniform grids are unchanged, bit for bit.
-- `bf.ModePlaneSource` and `bf.ModeOverlapDetector` (returned by `create_mode_plane_source_at` and
-  `create_mode_overlap_detector_at`): on a non-uniform `RectilinearGrid`, normalize launched mode fields and overlap
-  area weights against the simulation-wide `min_spacing**2` instead of each port plane's own `mean(face_area)`, removing
-  `fdtdx`'s `mean(A_in) / mean(A_out)` bias between port planes of different paddings, widths, or orientations (such as
-  90-degree bends with non-identical x/y grading). Uniform grids are unchanged, bit for bit.
-- The viewer adopts results recorded on non-uniform grids (detectors at their physical extent, from the grid's
-  edges) and draws their field planes resampled onto an even grid at each graded axis's finest cell.
-- `averaging="subpixel_full"`: a junction sub-cell whose two largest face directions weigh nearly the same (a polygon
-  corner in it) blends its laminate toward a direction-free one instead of switching it between the walls' normals at
-  round-off, so the written tensor is continuous there (a corner on a cell's corner made it jump by about 2e-3, and
-  finite differences did not converge). Other sub-cells keep their laminate exactly; the closure's accuracy against
-  the finite-element reference (`benchmarks/subpixel/validate_closure.py`) is unchanged.
-- `place_on_grid` warns when a level that `from_layer_stack` left out (outside the box by more than `level_margin` and
-  a 0.1 um slack) is sampled by a coarse cell at the box's face; build the device with a larger `level_margin` then.
+- [Automatic meshing](guide/simulation-setup.md#automatic-meshing): `bf.mesh(stack, band, refine=bf.Refine(...))` builds a graded simulation grid from the device geometry, wavelength band, and optimization motion bounds (`Refine.dilation` per layer or per vertex, `Refine.z_padding` per level):
+  - Refines materials to `lambda / (n ppw)` where they exist or may move, extends fine grids by 3 evanescent decay lengths past lower-index boundaries, resolves narrow features and gaps (`feature_cells`), and supports explicit refinement regions (`Refine.regions`) and substrate coarsening (`Refine.material_cells`).
+  - Places continuous real-valued cell edges along each axis (`bf.axis_edges`, or discrete multiples via `bf.lattice_edges` when `quantum` is set), satisfying dual-cell targets, neighbor `growth` limits, uniform PML regions, mirror symmetry, and mid-cell centering of static horizontal interfaces (`center_faces=True`).
+  - Returns `Mesh` (`mesh.grid`, `mesh.boundary`, `mesh.summary()`) alongside `StackDevice.coarse_vertices` for tracking moving vertices under `jax.jit`.
+- Exact Green's-theorem grid-line voxelizer (`voxelizer="greens"`, now the default) with unified Kottke homogenization and dynamic junction handling, eliminating static corner-column and junction capacities.
+- [Graded grids](guide/simulation-setup.md#graded-grids): `StackDevice` supports `fdtdx.core.grid.RectilinearGrid` with non-uniform cells along any axis across all averaging modes (`"subpixel"`, `"subpixel_full"`, and `"inverse"`), using `bf.graded_edges`, `StackDevice.rectilinear_grid`, and `grid=` on port factory methods.
+- `bf.ModePlaneSource` and `bf.ModeOverlapDetector` (returned by `create_mode_plane_source_at` and `create_mode_overlap_detector_at`) normalize launched mode fields and overlap area weights against the simulation-wide `min_spacing**2` on non-uniform `RectilinearGrid`s, removing port-area bias across planes of different sizes, paddings, or orientations.
+- Viewer support for non-uniform grids, adaptive meshing controls (defaulting to adaptive `ppw=15` with per-layer dilation sub-cards), and client-side MP4 video export via WebCodecs and `wrap_video`.
+- `averaging="subpixel_full"`: junction sub-cells whose two dominant interface directions carry nearly equal weight blend smoothly toward axis-weighted laminates so the homogenized tensor and its derivatives stay continuous across corner crossings.
+- `place_on_grid` warns when a level excluded during `from_layer_stack` (beyond `level_margin + 0.1` µm) is sampled by a coarse cell at a box face.
 
 ## 0.2.0
 
-- [Inverse design](guide/inverse-design.md) guide and example (`examples/guide/inverse_design.py`): the width on each
-  side of an air-clad silicon nitride bend, at 70 stations, optimized for TE0 transmission through the simulation
-  (56 % to 99.5 %; the uniform bend converts most of the rest to TE1).
-- `bf.jit`: `jax.jit` with an XLA option (`simplify-conditional` disabled) for gradients through fdtdx's checkpointed
-  time loop, which plain `jax.jit` compiles into a backward loop that computes a time step's VJP on every iteration.
-  The inverse-design example compiles its whole optimization step with it.
-- Dependencies: gdsfactoryx 9.51.0.post2 or newer, whose geometry traces under `jax.jit`, so a whole objective that
-  builds a component can be compiled, and whose GDS output, reference names and cross-section names match upstream
-  gdsfactory's.
-- Installation docs are backend-neutral: bifrost runs on any JAX backend; set JAX up with the
-  [JAX installation guide](https://docs.jax.dev/en/latest/installation.html).
-- The viewer design spec moved out of the documentation site to `design/viewer-spec.md` in the repository.
+- [Inverse design](guide/inverse-design.md) guide and example (`examples/guide/inverse_design.py`): optimizes the inner and outer width profile of an air-clad silicon nitride bend across 70 stations for TE0 transmission (raising transmission from 56 % to 99.3 % at `ppw=20`).
+- `bf.jit`: wraps `jax.jit` with XLA's `simplify-conditional` pass disabled so gradients through fdtdx's checkpointed time loop avoid evaluating a time step's VJP on forward recomputation iterations.
+- Requires `gdsfactoryx >= 9.51.0.post2`, supporting traceable geometry inside `jax.jit` and matching upstream gdsfactory GDS output and naming conventions.
+- Backend-neutral installation docs: bifrost works with any JAX accelerator backend configured per the [JAX installation guide](https://docs.jax.dev/en/latest/installation.html).
+- Moved the viewer design specification out of the documentation site to `design/viewer-spec.md` in the repository.
 
 ## 0.1.0
 
-First release on PyPI, as `bifrost-photonics` (the import is still `import bifrost as bf`); the fdtdx stack and viewer
-moved here from gdsfactoryx.
+Initial release on PyPI as `bifrost-photonics` (`import bifrost as bf`), separating the fdtdx stack integration and 3D viewer from `gdsfactoryx`.
 
-- `bf.StackDevice`: a gdsfactory component and its `LayerStack` voxelized into one differentiable fdtdx object, with
-  sources and monitors placed on ports: sidewalls, derived layers, exact corners, subpixel and full-tensor averaging,
-  roughness, dispersive and anisotropic materials, diagnostics and timing.
-- `StackDevice(dtype=...)`: the whole simulation in float32 (default) or float64.
-- `bf.view`: the 3D viewer widget for setting up, running and inspecting a simulation, with a precomputed
-  [Widget Demo](live-demo.md) and standalone [Explorer demo](demo/index.html).
-- Examples: the [waveguide bend](examples/waveguide-bend.md) tutorial, and the
-  [elevator](examples/elevator-coupler.md) and [directional](examples/directional-coupler.md) couplers compared with
-  MEEP.
-- Dependencies: fdtdx (required, no extra), gdsfactoryx from PyPI, tidy3d 2.12 or newer.
+- `bf.StackDevice`: voxelizes a gdsfactory component and its `LayerStack` into one differentiable fdtdx object with port-attached sources and detectors, sidewalls, derived layers, corner handling, subpixel and full-tensor averaging, roughness, dispersive and anisotropic materials, diagnostics, and timing.
+- `StackDevice(dtype=...)`: supports `jnp.float32` (default) or `jnp.float64` precision across the simulation.
+- `bf.view`: interactive 3D/2D viewer widget with precomputed [Widget Demo](live-demo.md) and standalone [Explorer demo](demo/index.html).
+- Examples: [waveguide bend](examples/waveguide-bend.md), [elevator coupler](examples/elevator-coupler.md), and [directional coupler](examples/directional-coupler.md) benchmarked against MEEP.
+- Dependencies: `fdtdx` (required), `gdsfactoryx` from PyPI, and `tidy3d >= 2.12`.

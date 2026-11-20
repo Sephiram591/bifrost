@@ -945,6 +945,11 @@ def main() -> None:
     parser.add_argument("--bench", default="all")
     parser.add_argument("--kind", default=None, help="one kind (worker), or a comma-separated subset to run")
     parser.add_argument("--averaging", default="subpixel", choices=AVERAGINGS)
+    parser.add_argument(
+        "--platform-allocator",
+        action="store_true",
+        help="Use XLA_PYTHON_CLIENT_ALLOCATOR=platform for the largest grids (omits JAX peak_gb stats)",
+    )
     args = parser.parse_args()
 
     if args.worker:
@@ -978,11 +983,14 @@ def main() -> None:
             print(f"Skipping ({bench}, {kind}, {args.averaging})", flush=True)
             continue
         env = os.environ.copy()
-        if use_platform:
+        if args.platform_allocator and use_platform:
             env.pop("XLA_PYTHON_CLIENT_PREALLOCATE", None)
+            env.pop("XLA_PYTHON_CLIENT_MEM_FRACTION", None)
             env["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
         else:
+            env.pop("XLA_PYTHON_CLIENT_ALLOCATOR", None)
             env["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+            env["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.97"
         proc = subprocess.run(
             [sys.executable, __file__, "--worker", "--bench", bench, "--kind", kind, "--averaging", args.averaging],
             capture_output=True,

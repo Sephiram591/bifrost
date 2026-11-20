@@ -25,7 +25,7 @@ pip install "bifrost-photonics @ git+https://github.com/Sephiram591/bifrost.git"
     so the two overwrite each other's files and upstream gdsfactory in the same environment breaks bifrost. Remove an
     existing upstream gdsfactory first (`pip uninstall -y gdsfactory`). If `import gdsfactory` raises an error saying
     both distributions are installed, run `pip uninstall -y gdsfactory gdsfactoryx && pip install gdsfactoryx`. Your
-    code does not change: `import gdsfactory as gf` works as before.
+    code does not change: `import gdsfactory as gf` works unchanged.
 
 ## Check the installation
 
@@ -64,12 +64,12 @@ pip install -e ".[dev,docs]"
 
 | Command | What it does |
 | --- | --- |
-| `make test` | the Python tests (`pytest tests`) |
-| `make test-js` | the viewer's JavaScript tests and typecheck |
-| `make test-docs` | checks of the docs and the widget demo, including browser tests (run `playwright install chromium` once first) |
-| `make test-hardware` | the tutorial's full simulations (needs a GPU) |
-| `make viewer-js` | rebuilds the viewer bundle in `bifrost/viewer/static/` after editing `js/viewer/*.ts` |
-| `make docs` | builds this documentation with strict checks |
-| `make docs-serve` | serves it at `localhost:8080` |
+| `make test` | Run the Python tests (`pytest tests`) |
+| `make test-js` | Run the viewer's JavaScript tests and typecheck |
+| `make test-docs` | Check the docs and widget demo, including browser tests (run `playwright install chromium` once first) |
+| `make test-hardware` | Run the tutorial's full simulations (requires a GPU) |
+| `make viewer-js` | Rebuild the viewer bundle in `bifrost/viewer/static/` after editing `js/viewer/*.ts` |
+| `make docs` | Build this documentation with strict checks |
+| `make docs-serve` | Serve the documentation locally at `localhost:8080` |
 
-Conventions: [Contributing and tests](development.md).
+See [Contributing and tests](development.md) for project conventions.

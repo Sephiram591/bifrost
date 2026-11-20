@@ -18,14 +18,14 @@ PLANE_PORTS: dict[str, int] = {"yz": 0, "xz": 1, "xy": 2}
 
 
 def detector_plane_own_positions(axis: int) -> tuple[float, float, float]:
-    """The ``own_positions`` that put a detector plane's samples on its target.
+    """The `own_positions` that put a detector plane's samples on its target.
 
-    fdtdx records every detector field at ``(i·Δx, j·Δy, (k+½)·Δz)`` (see
-    ``fdtdx.core.physics.curl.interpolate_fields``): x and y samples lie on a
+    fdtdx records every detector field at `(i·Δx, j·Δy, (k+½)·Δz)` (see
+    `fdtdx.core.physics.curl.interpolate_fields`): x and y samples lie on a
     cell's lower edge, z samples at its centre. A one-cell-thick plane is placed
     by anchoring a point of the object on the target, and fdtdx picks the cell
-    whose anchor is nearest, so the anchor must be the sampled one: ``-1`` (the
-    lower edge) along a normal that is x or y, ``0`` (the centre) along z. The
+    whose anchor is nearest, so the anchor must be the sampled one: `-1` (the
+    lower edge) along a normal that is x or y, `0` (the centre) along z. The
     in-plane axes keep the centre, which centres the many-cell plane on the
     target.
 
@@ -33,8 +33,8 @@ def detector_plane_own_positions(axis: int) -> tuple[float, float, float]:
         axis: the plane's normal axis (0 = x, 1 = y, 2 = z).
 
     Returns:
-        ``own_positions`` for ``place_relative_to``, in fdtdx's ``-1 .. 1``
-        convention (``-1`` lower side, ``0`` centre).
+        `own_positions` for `place_relative_to`, in fdtdx's `-1 .. 1`
+        convention (`-1` lower side, `0` centre).
     """
     positions = [0.0, 0.0, 0.0]
     if axis in (0, 1):
@@ -42,10 +42,10 @@ def detector_plane_own_positions(axis: int) -> tuple[float, float, float]:
     return positions[0], positions[1], positions[2]
 
 
-#: The ``level`` value naming the simulation volume's own z center, offered
-#: alongside the level names so a source or detector can be pinned to the
-#: volume's mid-height instead of a level's span (spec R12). ``None`` means the
-#: same for a plane port, and a port's own level union otherwise.
+#: The `level` value naming the simulation volume's vertical middle, offered
+#: alongside level names so a source or detector can be pinned to the volume's
+#: mid-height instead of a level's span. `None` has the same meaning for a
+#: plane port, and selects a port's own level union otherwise.
 Z_CENTER_LEVEL: str = "z_center"
 
 
@@ -62,16 +62,16 @@ def plane_extents(
 ) -> tuple[float, float]:
     """The in-plane size of a source or detector plane on a port, in um.
 
-    The plane extends ``port_padding`` mean wavelengths past the port's width and
+    The plane extends `port_padding` mean wavelengths past the port's width and
     the level's height on each side, so each extent is the port's plus twice the
     padding.
 
     Args:
         width_um: the port's width.
         height_um: the level's height.
-        port_padding: ``(lateral, vertical)``, each finite and possibly negative (a
+        port_padding: `(lateral, vertical)`, each finite and possibly negative (a
             negative padding shrinks the plane inside the port), in units of the
-            mean of ``wavelengths_um``.
+            mean of `wavelengths_um`.
         wavelengths_um: the vacuum wavelengths of the object's wave characters.
             May be empty or None only when the padding is zero.
 
@@ -160,13 +160,13 @@ def _reference_face_area(config: SimulationConfig, calc_dtype: Any) -> Array:
 class ModePlaneSource(fdtdx.ModePlaneSource):
     """Waveguide mode source with port-independent power normalization on graded grids.
 
-    On a non-uniform ``RectilinearGrid``, ``fdtdx.core.physics.modes.compute_mode``
-    normalizes its fields with ``area_weights / mean(area_weights)``, leaving the
-    launched Poynting flux proportional to each source plane's own ``mean(face_area)``.
-    Rescaling ``_E`` and ``_H`` by ``sqrt(mean(face_area) / min_spacing**2)`` keeps field
-    magnitudes ``O(1)`` in ``float32``, preserves uniform grids bit for bit, and launches
-    the same physical power ``min_spacing**2`` regardless of the source plane's padding,
-    width, or orientation.
+    On a non-uniform `RectilinearGrid`, `fdtdx.core.physics.modes.compute_mode`
+    normalizes its fields with `area_weights / mean(area_weights)`, leaving the
+    launched Poynting flux proportional to each source plane's own `mean(face_area)`.
+    Rescaling `_E` and `_H` by `sqrt(mean(face_area) / min_spacing**2)` keeps field
+    magnitudes `O(1)` in `float32`, behaves identically to fdtdx on uniform grids,
+    and launches the same physical power `min_spacing**2` regardless of the source
+    plane's padding, width, or orientation.
     """
 
     def apply(

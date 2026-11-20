@@ -55,7 +55,7 @@ constant-index silicon for the core and silica for the cladding.
 
 `StackDevice.from_layer_stack` voxelizes the component through the stack. `background="clad"` fills everything the core
 does not. `extend_ports` continues both ports straight out by 2.5 µm, so the guide runs through the absorbing boundary
-instead of ending inside the simulation. `boundary_offset` sets the simulation size by offseting each face from the boundary of the GDS cell and the zrange_layers: the faces that hold a port stay put, the others
+instead of ending inside the simulation. `boundary_offset` sets the simulation size by offsetting each face from the boundary of the GDS cell and the zrange_layers: the faces that hold a port stay put, the others
 move out by 2.25 µm in x and y, and the box is 3.4 µm tall, 10 × 10 × 3.4 µm in all.
 
 ```python
@@ -128,9 +128,7 @@ and the movie. This exact result, precomputed, is in the [Widget Demo](live-demo
 
 ## Choosing the settings
 
-The same script on an NVIDIA L40S at four adaptive meshes, each in its own process (`scripts/bend_sweep.py` reproduces
-the table). The transmission moves by less than 0.2 %, so the script uses `ppw = 20` (`bf.mesh`'s default); a more
-sensitive device would need a finer grid.
+The table below compares the same script on an NVIDIA L40S across four adaptive mesh densities, each run in a fresh process (`scripts/bend_sweep.py` reproduces the table). Because the transmission moves by less than 0.2 %, the script uses `ppw = 20` (`bf.mesh`'s default); a more sensitive device would need a finer grid.
 
 | Points per wavelength (ppw) | Grid cells | Transmission | Wall time | Peak GPU memory |
 |---|---|---|---|---|

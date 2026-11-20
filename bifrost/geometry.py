@@ -1,24 +1,24 @@
-"""Shared geometry and dispersion helpers for :mod:`bifrost.stack`.
+"""Shared geometry and dispersion helpers for `bifrost.stack`.
 
-- :func:`pack_polygons` and :func:`signed_distance`: a pure-JAX (jit-safe)
+- `pack_polygons` and `signed_distance`: a pure-JAX (jit-safe)
   signed distance to the union of a layer's polygons, differentiable with
   respect to the vertices. Each polygon is filled by the nonzero winding rule,
   overlapping polygons merge without seams, and KLayout hole cut lines and seams
-  of abutting polygons are not treated as boundaries. :func:`split_t_junctions`
+  of abutting polygons are not treated as boundaries. `split_t_junctions`
   makes partly shared junction edges (a narrower taper on a waveguide, a taper
   on the side of an MMI) exactly shared, so they are seams too.
-  :func:`topology_changes` tells whether moved vertices still fit that static
-  topology. :func:`nearest_edges` finds the few boundary edges nearest to each
+  `topology_changes` tells whether moved vertices still fit that static
+  topology. `nearest_edges` finds the few boundary edges nearest to each
   point (for the exact fill at polygon corners).
-- :func:`derive_polygons` and :func:`run_recipe`: the exact polygons of a
+- `derive_polygons` and `run_recipe`: the exact polygons of a
   boolean of layers (and / or / not / xor), built once as a recipe whose
   vertices are copies of layer vertices or crossings of layer edges, and
   evaluated from traced vertices (jit-safe, differentiable).
-- :func:`gaussian_random_field`: Gaussian random fields for surface roughness.
-- :func:`align_material_poles` / :class:`SlotPole`: give all materials the same
+- `gaussian_random_field`: Gaussian random fields for surface roughness.
+- `align_material_poles` / `SlotPole`: give all materials the same
   dispersive pole slots, so that mixing materials in a voxel mixes only the pole
   strengths (exact susceptibility mixing in fdtdx >= 0.6.2).
-- :func:`warn_reversible_losses`: warns when fdtdx's reversible gradients meet
+- `warn_reversible_losses`: warns when fdtdx's reversible gradients meet
   lossy materials.
 """
 
@@ -143,12 +143,12 @@ def split_t_junctions(
     middle of the side of an MMI, the two polygons share only part of that edge,
     so the shared part is not recognized as a seam. Splitting the long edge at
     the corner makes the shared part an exactly coincident (reversed) edge, which
-    :func:`_edge_topology` then excludes from the distance. Inserted points lie
+    `_edge_topology` then excludes from the distance. Inserted points lie
     on their edges, so the filled region does not change.
 
     Static (numpy, from concrete vertices); the inserted points copy vertices, so
-    with ``vertices[index]`` they follow those vertices when they move, which is
-    right as long as they stay inside their edges (see :func:`topology_changes`).
+    with `vertices[index]` they follow those vertices when they move, which is
+    right as long as they stay inside their edges (see `topology_changes`).
     A vertex up to ``tol`` off an edge is inserted too: the edge then bends
     through it by at most ``tol``, where leaving it out would leave a slit
     between the polygons (layout snapping moves a vertex off a slanted edge it
@@ -404,7 +404,7 @@ def _boundary_links(
 class DerivedRecipe(NamedTuple):
     """The polygons of a boolean of layers, as frozen formulas of the layers' vertices.
 
-    Built once with numpy by :func:`derive_polygons`; :func:`run_recipe`
+    Built once with numpy by `derive_polygons`; `run_recipe`
     evaluates it from (traced) vertices. All rings of the result are glued into
     one polygon (outer rings counterclockwise, holes clockwise) by cut edges
     that run there and back between ring vertices: each cut pair is evaluated
@@ -787,7 +787,7 @@ def derive_polygons(
 
 
 def run_recipe(kind: np.ndarray, index: np.ndarray, frame: Any, pool: Any, xp: Any = jnp) -> Any:
-    """Evaluates the vertices of a :class:`DerivedRecipe` (jit-safe and differentiable).
+    """Evaluates the vertices of a `DerivedRecipe` (jit-safe and differentiable).
 
     Copies index the pool; crossings solve the two lines' normal equations in
     a local frame around their build position (small numbers, so float32
@@ -795,7 +795,7 @@ def run_recipe(kind: np.ndarray, index: np.ndarray, frame: Any, pool: Any, xp: A
     gradients stay finite for parallel lines and zero-length edges.
 
     Args:
-        kind: (D,) static kinds (see :class:`DerivedRecipe`).
+        kind: (D,) static kinds (see `DerivedRecipe`).
         index: (D, 4) static pool indices.
         frame: (D, 2) local frame origins (e.g. the build positions), in the
             pool's units.
@@ -981,9 +981,9 @@ def topology_changes(
     """What no longer fits when the static topology of ``frozen`` indexes ``current``.
 
     The topology of a layer's polygons is computed once, with numpy, from the
-    vertices a device is built with: the T-junctions (:func:`split_t_junctions`),
-    the seams left out of the distance (:func:`_edge_topology`) and the edges'
-    directions (:func:`_boundary_links`). Later vertices, e.g. of the component
+    vertices a device is built with: the T-junctions (`split_t_junctions`),
+    the seams left out of the distance (`_edge_topology`) and the edges'
+    directions (`_boundary_links`). Later vertices, e.g. of the component
     rebuilt with other parameters, are indexed with it, which is right only while
     they keep it. This compares, by vertex index:
 
@@ -1335,8 +1335,8 @@ def nearest_edges(
 ) -> tuple[Array, Array]:
     """The k nearest boundary edges of every point and their distances.
 
-    Pure JAX, safe under ``jit``. The edges are streamed in chunks like
-    :func:`signed_distance`, keeping the k nearest per point, so memory is
+    Pure JAX, safe under `jit`. The edges are streamed in chunks like
+    `signed_distance`, keeping the k nearest per point, so memory is
     ~ (chunk + k) * P. Equally near edges are ordered by edge index. Everything
     is under ``stop_gradient``: the result only selects edges, and callers
     rebuild differentiable distances from the selected edges.
@@ -1432,8 +1432,8 @@ def gaussian_random_field(
 class SlotPole(Pole):
     """A pole given directly by its ADE constants (omega_0, gamma, K).
 
-    Used by :func:`align_material_poles`: every material of a device gets the
-    same ordered slots, and a material that lacks a pole has ``strength = 0``
+    Used by `align_material_poles`: every material of a device gets the
+    same ordered slots, and a material that lacks a pole has `strength = 0`
     in that slot.
     """
 

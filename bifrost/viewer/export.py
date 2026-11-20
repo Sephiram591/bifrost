@@ -194,28 +194,27 @@ def export_demo(
     unchecked: Sequence[str] = (),
     manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Writes a viewer that holds a result (``load_result`` or ``run``) as demo files.
+    """Exports a viewer that holds a completed or loaded result to static demo files.
 
     Args:
-        viewer: a :class:`~bifrost.viewer.widget.Viewer` whose result world exists.
-        out_dir: the directory to write; created if missing.
-        section_step_um: the spacing of the stored 2D slices along each plane's normal. The
-            positions include the box center, which is where the field plane of a device
-            centered on its core sits.
-        field_defaults: how each detector's field is shown when the demo opens, by detector
-            name: any of the ``field_*`` display settings (``field_component``,
-            ``field_transform``, ``field_visible``, ...). A time-domain detector opens on the
-            frame with the most field energy (set ``field_freq`` to override).
-        unchecked: names of sources and detectors that open with their checkbox off (hidden, with
-            their field), in the editor's tabs and the Result tab alike.
-        manifest: extra entries for ``manifest.json`` (source revision, package versions,
-            simulation parameters).
+        viewer: A `Viewer` instance holding a run or loaded result.
+        out_dir: Output directory to write (created if missing).
+        section_step_um: Spacing of pre-rendered 2D cross-sections along each
+            plane's normal. Positions include the box center.
+        field_defaults: Initial display settings per detector name using
+            `field_*` keys (`field_component`, `field_transform`,
+            `field_visible`, ...). Time-domain detectors open on the frame with
+            peak field energy unless `field_freq` is set.
+        unchecked: Names of sources and detectors that open hidden (unchecked)
+            in both editor and Result tabs.
+        manifest: Extra metadata entries for `manifest.json` (source revision,
+            package versions, simulation parameters).
 
     Returns:
-        The manifest, also written to ``manifest.json``.
+        The manifest dictionary, also written to `manifest.json`.
 
     Raises:
-        ValueError: if the viewer holds no result.
+        ValueError: If `viewer` has no run or loaded result.
     """
     if viewer._result_state is None:
         raise ValueError("the viewer holds no result: call viewer.load_result(...) or viewer.run() first")

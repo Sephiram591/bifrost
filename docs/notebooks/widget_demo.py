@@ -84,8 +84,9 @@ def _(anywidget, mo, traitlets):
 def _(PROSE, mo):
     mo.md(
         """
-        The viewer on the result of the <a href="../../getting-started/" target="_top">bend tutorial</a>, in your browser with
-        no installation and no Python. Drag to orbit, scroll to zoom, and use the **Result** tab to choose what to display.
+        Explore the waveguide bend simulation from the <a href="../../getting-started/" target="_top">bend tutorial</a>
+        directly in your browser with no installation and no local Python. Drag to orbit, scroll to zoom, and use the
+        **Result** tab to choose what to display.
 
         <a href="index.html" target="_blank">Open the Widget Demo full screen</a> ·
         <a href="../index.html" target="_blank">open the Explorer demo without the notebook</a>
@@ -140,7 +141,7 @@ def _(PROSE, mo):
           the plane of the monitor that recorded it, and in a 2D slice only where the slice is that plane: the demo has
           no field volume.
         - **Run** is disabled and labeled "Precomputed demo"; the setup (sources, monitors, simulation settings) is
-          read-only, and saving a video needs Python, so it says so. Saving a PNG of the view works.
+          read-only, and video export requires a live Python kernel and is disabled here. Saving a PNG of the view works.
         """
     ).style(PROSE)
     return

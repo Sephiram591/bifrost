@@ -1,20 +1,20 @@
-"""Automatic non-uniform meshing of a :class:`~bifrost.StackDevice`'s box.
+"""Automatic non-uniform meshing of a `StackDevice`'s box.
 
-:func:`mesh` builds the cell edges of all three axes once, before a run or an optimization, from the
+`mesh` builds the cell edges of all three axes once, before a run or an optimization, from the
 device's geometry, the wavelength band and a statement of where the geometry may move
-(:class:`Refine`). The grid is then fixed, so an optimization on it compiles once.
+(`Refine`). The grid is then fixed, so an optimization on it compiles once.
 
-Every place a material is, or may come to be, asks for cells of at most ``lambda / (n ppw)`` there (its
+Every place a material is, or may come to be, asks for cells of at most `lambda / (n ppw)` there (its
 target); so do the evanescent tails past each boundary (a global dilation and z padding in units of the
-boundary's decay length ``l = lambda / (2 pi sqrt(n_high^2 - n_low^2))``), narrow parts and gaps of the
+boundary's decay length `l = lambda / (2 pi sqrt(n_high^2 - n_low^2))`), narrow parts and gaps of the
 starting geometry, and explicit regions. The grid is a tensor product, so an axis takes, at each
-coordinate, the smallest target anywhere in the plane through it; :func:`~bifrost.axis_edges` then
-places continuous real-valued edges along that axis (or :func:`~bifrost.lattice_edges` when an explicit
-``quantum`` is given).
+coordinate, the smallest target anywhere in the plane through it; `axis_edges` then
+places continuous real-valued edges along that axis (or `lattice_edges` when an explicit
+`quantum` is given).
 
 The mesher only learns where to refine: it never limits how the parameters may change. A vertex that
 moves past its dilation lands in cells coarser than its target, which
-:meth:`~bifrost.StackDevice.coarse_vertices` counts.
+`StackDevice.coarse_vertices` counts.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ _OCTAGON = 1.0 / math.cos(math.pi / 8)  # circumradius of the octagon around a u
 
 @dataclass(frozen=True)
 class Refine:
-    """Where :func:`mesh` refines beyond the starting geometry: the geometry's motion and the tails.
+    """Where `mesh` refines beyond the starting geometry: the geometry's motion and the tails.
 
     Only where to refine: nothing here limits how the parameters may change.
 
@@ -712,14 +712,14 @@ _REALIZED_RTOL = 1e-3
 
 @dataclass(frozen=True, eq=False)
 class Mesh:
-    """The cell edges :func:`mesh` built for a device's box.
+    """The cell edges `mesh` built for a device's box.
 
     Attributes:
         edges: per axis, the (n + 1,) cell edges (um, stack coordinates) from the box's lower face to its
             upper one.
-        pml_cells: PML cells at each face, in :data:`FACES` order (0 where the face has none).
-        boundaries: the boundary kind of each face, in :data:`FACES` order.
-        axes: per axis, the :class:`~bifrost.AxisEdges` (smallest cell, alignment, symmetry).
+        pml_cells: PML cells at each face, in `FACES` order (0 where the face has none).
+        boundaries: the boundary kind of each face, in `FACES` order.
+        axes: per axis, the `AxisEdges` (smallest cell, alignment, symmetry).
         growth: the largest ratio of neighbouring cells.
         stack: the device it was built for.
         geometry: the refinements it was built from (for plots and the coarse-vertex report).
@@ -820,50 +820,50 @@ def mesh(
     """Cell edges over a device's box, fine wherever its materials are or may come to be.
 
     Every place a level's material is, or may come to be (its shape, the bands of its moving layers, its
-    z padding), asks for cells of at most ``lambda / (n ppw)``; so do the evanescent tails past its
-    boundaries (``refine.global_dilation`` and ``global_z_padding``, in units of each boundary's decay
-    length), narrow parts and gaps of the starting geometry (``feature_cells`` cells across), and
-    ``refine.regions``. Each axis takes, at each coordinate, the smallest target anywhere in the plane
-    through it, and :func:`~bifrost.axis_edges` places continuous real-valued edges along it: maximizing
+    z padding), asks for cells of at most `lambda / (n ppw)`; so do the evanescent tails past its
+    boundaries (`refine.global_dilation` and `global_z_padding`, in units of each boundary's decay
+    length), narrow parts and gaps of the starting geometry (`feature_cells` cells across), and
+    `refine.regions`. Each axis takes, at each coordinate, the smallest target anywhere in the plane
+    through it, and `axis_edges` places continuous real-valued edges along it: maximizing
     the smallest cell, keeping cell counts minimal, smoothing transitions, and covering each PML with
-    uniform cells (or :func:`~bifrost.lattice_edges` on a discrete lattice when ``quantum`` is given). The
-    result is fixed: build it once, then run or optimize on ``mesh.grid``::
+    uniform cells (or `lattice_edges` on a discrete lattice when `quantum` is given). The
+    result is fixed: build it once, then run or optimize on `mesh.grid`:
 
-        m = bf.mesh(stack, (1.50, 1.60), refine=bf.Refine(dilation={"WG": 0.45}))
-        config = stack.get_simulation_config(time=..., grid=m.grid)
-        boundaries, constraints = fdtdx.boundary_objects_from_config(m.boundary, volume)
+    ```python
+    m = bf.mesh(stack, (1.50, 1.60), refine=bf.Refine(dilation={"WG": 0.45}))
+    config = stack.get_simulation_config(time=..., grid=m.grid)
+    boundaries, constraints = fdtdx.boundary_objects_from_config(m.boundary, volume)
+    ```
 
     Args:
         stack: the device (placed or not); its box is meshed.
         wavelength: wavelength (um), or the band (min, max).
-        ppw: cells per wavelength in each material. 20 (the default) gives the inverse-design bend's
-            transmission within 4e-4 of a uniform grid of the core's cells (benchmarks/rectilinear); a cladding or
-            a substrate that spans every plane caps the lateral cells everywhere, so coarsen it with
-            ``Refine.material_cells`` (13 to 14 cells per wavelength suffice there). 14 everywhere is about a
-            uniform grid of half again the core's cells: for fast optimizations.
-        refine: where the geometry may move, and the tails (:class:`Refine`); default ``Refine()``.
+        ppw: cells per wavelength in each material. 20 (the default) matches fine uniform grids accurately
+            across waveguide bends and couplers; a cladding or substrate that spans every plane caps the
+            lateral cells everywhere, so coarsen it with `Refine.material_cells` (13 to 14 cells per
+            wavelength suffice there). 14 offers a faster setting for initial optimizations.
+        refine: where the geometry may move, and the tails (`Refine`); default `Refine()`.
         boundaries: the kind of each face ("pml", "periodic", "pec", "pmc" or "bloch"), one for all or six
-            in :data:`FACES` order.
+            in `FACES` order.
         pml: PML thickness (um), one for all or six; uniform cells cover it at each PML face.
         growth: largest ratio of neighbouring cells.
-        quantum: default ``None`` places continuous real-valued edges via :func:`~bifrost.axis_edges` (any
-            box size is accepted). Passing a positive step (um, e.g. ``0.001``) places edges on whole
-            multiples of ``quantum`` via :func:`~bifrost.lattice_edges` and requires the box to divide it.
+        quantum: default `None` places continuous real-valued edges via `axis_edges` (any
+            box size is accepted). Passing a positive step (um, e.g. `0.001`) places edges on whole
+            multiples of `quantum` via `lattice_edges` and requires the box to divide it.
         min_cell: no target finer than this (um): protects the time step from thin films or narrow gaps.
         align_fine: put each axis's finest cells on the lattice of their own width from the box's face when
             compatible with maximizing the smallest cell and mirror symmetry.
         center_faces: put every static level face where the material changes at the exact middle of a z
-            cell (not on an edge): a markedly smaller error with subpixel averaging (a third, on the
-            coupler of benchmarks/rectilinear). The smallest z cell may come out up to 20 % below the largest
-            possible (two faces a fractional number of cells apart need some narrower cells); a face that still
-            finds no room is left off with a warning, and faces under a PML are left out. Faces moved by
-            ``Refine.z_padding`` are left uncentered so vertical derivatives do not start on a dual-cell
-            boundary.
+            cell (not on an edge), avoiding asymmetric dual-cell averaging error. The smallest z cell may
+            come out up to 20 % below the largest possible (two faces a fractional number of cells apart need
+            some narrower cells); a face that still finds no room is left off with a warning, and faces under
+            a PML are left out. Faces moved by `Refine.z_padding` are left uncentered so vertical derivatives
+            do not start on a dual-cell boundary.
         feature_cells: cells across the narrowest part or gap of each level (0: no such targets).
-        max_states: state budget forwarded to :func:`~bifrost.lattice_edges` when ``quantum`` is not ``None``.
+        max_states: state budget forwarded to `lattice_edges` when `quantum` is not `None`.
 
     Returns:
-        The :class:`Mesh`.
+        The `Mesh`.
 
     Raises:
         ValueError: on an explicit ``quantum`` that does not divide the box, an unknown boundary kind, a
@@ -1000,7 +1000,7 @@ _COARSE_RTOL = 1e-4
 
 @jax.tree_util.register_pytree_node_class
 class CoarseVertices:
-    """Vertices in cells wider than their target, per source layer (see :meth:`StackDevice.coarse_vertices`).
+    """Vertices in cells wider than their target, per source layer (see `StackDevice.coarse_vertices`).
 
     A pytree (the layer names are static), so it can leave a jitted function as auxiliary output; ``str()``
     of concrete values prints a table.
@@ -1082,7 +1082,7 @@ def _cell_width(edges: np.ndarray, widths: np.ndarray, x: Any) -> Any:
 
 def coarse_vertices(stack: Any, params: Mapping[str, Any], mesh: Mesh) -> CoarseVertices:
     """Per source layer, how many vertices sit in cells wider than their target (see
-    :meth:`bifrost.StackDevice.coarse_vertices`)."""
+    `StackDevice.coarse_vertices`)."""
     import jax.numpy as jnp
 
     geom = mesh.geometry

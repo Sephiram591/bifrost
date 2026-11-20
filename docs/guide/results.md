@@ -5,8 +5,7 @@ The example is a short simulation of a straight waveguide (about a minute on 8 C
 
 ## Run a short simulation
 
-The device and settings of [Simulation setup and ports](simulation-setup.md), plus two Poynting-flux monitors and a
-field monitor, run for 300 fs so the whole pulse crosses the guide:
+Using the straight-waveguide setup from [Simulation setup and ports](simulation-setup.md) with two Poynting-flux monitors and a field monitor, this example runs for 300 fs so the full pulse crosses the waveguide:
 
 ```python
 --8<-- "examples/guide/results.py:simulate"
@@ -66,7 +65,8 @@ cell with `viewer`. More in [Viewer](viewer.md).
 ## Troubleshooting
 
 - **The transmission is far from 1 for a straight guide.** The run was too short: the output monitor must see the whole
-  pulse. Make `time` longer than the pulse needs to cross the device (at 200 fs this script reported 0.87).
+  pulse. Increase `time` so the pulse finishes crossing the device (for example, shortening the run to 200 fs drops the
+  measured transmission in this script to 0.87).
 - **A monitor reports nothing, or the viewer shows no field for it.** The viewer draws monitors that record a plane (one
   cell thick along its normal), and not ones that sum over their volume (`reduce_volume=True`).
 - **The numbers are tiny or huge.** fdtdx's flux and amplitudes are in its own units; compare ratios, not absolute values.

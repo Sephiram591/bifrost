@@ -33,12 +33,7 @@ Run it on a GPU; on an NVIDIA L40S its 50 steps took 13489 s.
 
 ## The simulation
 
-As in [Gradients](gradients.md), with the source 1 µm and both monitors 0.5 µm out in the straight leads, clear of the
-moving edges: a monitor on the port itself would see the bend's edges move and change the mode it measures. The silica
-is a level on the `WAFER` layer that runs through the bottom of the box, under an air background (see
-[Adding a substrate](layer-stacks.md#adding-a-substrate)). The mode reaches into the silica, so the box is 4.8 µm tall
-and the source and monitor planes reach 0.5 wavelengths (0.78 µm) above and below the core, where the mode's field has
-fallen to about 3 %, still clear of the absorbing layers.
+This example places the source 1 µm and both monitors 0.5 µm out in the straight leads so they stay clear of the moving bend edges (a monitor directly on the port would see the bend edges move and distort the reference mode). The silica substrate sits on the `WAFER` layer across the bottom of the box under an air background (see [Adding a substrate](layer-stacks.md#adding-a-substrate)). Because the guided mode penetrates into the silica, the box is 4.8 µm tall and the source and monitor planes extend 0.5 wavelengths (0.78 µm) above and below the core, where the mode field decays to about 3 % while remaining clear of the absorbing boundaries.
 
 ```python
 --8<-- "examples/guide/inverse_design.py:simulation"
@@ -55,10 +50,7 @@ function's structure (144 vertices, no branch on a half-width) does not depend o
 trace it (see [the gdsfactoryx README](https://github.com/Sephiram591/gdsfactoryx#differentiability)). The arrays and
 parameters are arguments of the compiled function rather than constants captured by the trace.
 
-`bf.jit` is `jax.jit` with one XLA option: with plain `jax.jit`, XLA turns the conditional in the backward loop of
-fdtdx's checkpointed time loop into a select, and computes a time step's VJP on every iteration of that loop,
-recomputations of forward steps included (see [bf.jit](../api/jitting.md) for the backward-loop benchmark). Here
-the `ppw = 20` run took 13489 s on an NVIDIA L40S with `bf.jit`.
+[`bf.jit`][bifrost.jitting.jit] wraps `jax.jit` with an XLA compiler option disabling the `simplify-conditional` pass: under plain `jax.jit`, XLA turns the conditional inside fdtdx's checkpointed backward loop into a `select` and evaluates a time step's VJP on every iteration, including forward recomputations (see [`bf.jit`](../api/jitting.md) for the speedup). With `bf.jit`, the `ppw = 20` optimization below completes in 13489 s on an NVIDIA L40S.
 
 ```python
 --8<-- "examples/guide/inverse_design.py:objective"

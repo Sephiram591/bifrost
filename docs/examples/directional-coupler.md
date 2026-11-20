@@ -52,8 +52,9 @@ TE0 power at the two outputs, `fdtdx` with `bf.mesh` (`ppw = 20`) vs. MEEP at 20
 The cross-port power rises from 6.5 % to 96.8 % over the band, as the coupling length shortens with wavelength; the 50:50
 point is at 643.3 nm in fdtdx and 647.0 nm in MEEP (-3.7 nm). Across all 31 frequencies the two solvers agree to within
 0.026 in power (max |diff| 0.0246 through, 0.0259 cross; rms 0.0146 through, 0.0164 cross), and the `|E|^2` field map
-on `z = 0` at 619 nm agrees with a relative difference of 0.062. At 20 nm MEEP's 300 nm gap is 15 cells wide, whereas
-`bf.mesh` (`ppw = 16`, 106.6M cells) already places `0.3548` in `cross` at 619 nm and `ppw = 20` gives `0.3535`.
+on `z = 0` at 619 nm agrees with a relative difference of 0.062. MEEP's uniform 20 nm grid resolves the 300 nm gap with
+15 cells (89.4M total cells); with adaptive meshing, `bf.mesh` already converges to 0.3548 cross-port transmission at
+619 nm using `ppw=16` (106.6M cells) and gives 0.3535 at `ppw=20` (207.6M cells).
 
 Full-tensor subpixel averaging (`averaging="subpixel_full"`, the off-diagonal tensor entries at bends and corners)
 requires >48 GiB of GPU memory at `ppw = 20` (207.6M cells) and fits on an H200/B200; on the `ppw = 16` benchmark

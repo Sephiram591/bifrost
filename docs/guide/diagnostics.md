@@ -1,9 +1,6 @@
 # Geometry diagnostics
 
-When a device is placed, bifrost checks what each level draws against the grid and warns about the parts the grid
-cannot resolve. `bf.mesh` automatically refines narrow parts and gaps (`feature_cells=1.5`) unless constrained by
-`min_cell`, whereas a `min_cell`-limited mesh (shown here) or a fixed `UniformGrid` emits `StackDiagnosticWarning`. A
-40 nm strip on a `min_cell=0.05` mesh (~50 nm cells), placed without a run:
+When a `StackDevice` is placed, bifrost checks each level's geometry against the grid and warns if any parts or gaps are too narrow for the grid to resolve. `bf.mesh` automatically refines narrow features and gaps (`feature_cells=1.5`) unless capped by `min_cell`; a `min_cell`-limited mesh (shown below) or a coarse `UniformGrid` emits a `StackDiagnosticWarning`. Here is a 40 nm strip placed on a mesh capped at `min_cell=0.05` (~50 nm cells):
 
 ```python
 --8<-- "examples/guide/diagnostics.py:diagnostics"
@@ -17,42 +14,18 @@ StackDevice 'stack', level 'core': 1 part narrower than 0.07895 um (1.5 cells); 
 
 ## What is checked
 
-One `StackDiagnosticWarning` per level and kind of problem, about:
+One `StackDiagnosticWarning` is emitted per level and diagnostic category:
 
-- **Narrow parts and gaps.** Parts of a level, or gaps in it, narrower than 1.5 cells divided by `xy_subsamples`
-  (sub-samples resolve thinner features; where the x and y cells differ in size, the larger one), between any two
-  edges that face each other at less than 90°. That includes a
-  corner pointing at an edge or at another corner, and a V-notch that nearly cuts through a part. The two sides of one
-  corner (sharp, cut, blunt or rounded) are the corner, not a narrow part, where they meet at 45° or more. Sides meeting
-  at a smaller angle (a needle or a taper) are measured where they do not touch, so a sharp tip is never reported but a
-  blunt one is.
-  - The shape checked is the one the device draws. Each layer is offset by its signed distance, with round joins where it
-    grows at a convex corner or shrinks at a reflex one, drawn to within 1% of the threshold. For example, two squares
-    whose corners face each other diagonally 0.08 µm apart, grown by 0.02 µm, are 0.04 µm apart, not the 0.023 µm of
-    square-cornered sizing. A round join belongs to its corner: it is not a narrow part together with the edges next to
-    it, so a strip grown with round ends keeps its width.
-  - Where a sidewall angle, bias or `z_to_bias` offsets the level, the shape is checked at enough heights to also find a
-    part that narrows or vanishes, or a gap that closes, within the level.
-  - Only the box counts. A width or gap is found where one of its two edges enters the box, and it is measured and
-    located on the parts of its edges in the box, so a gap that narrows toward a point outside the box is reported with
-    its width at the box.
-  - The warning gives the narrowest one in µm and in cells, a point in its middle (x, y and z in µm) and how many places
-    there are. Widths and gaps of 1% of the threshold or less are round-off and are left out.
-  - Port extensions that end at a box face are not checked at that end.
-  - Derived levels are checked on the exact shape they draw (see [Geometry model](geometry-model.md)). With
-    `derived_shapes="composite"`, or for a level that fell back to it, a narrow part can also come from layers whose
-    edges coincide: `WG - ETCH` with the etch ending exactly where the waveguide ends then draws a sliver twice the
-    offset wide where the level grows.
-- **Overlapping polygons on a layer that a level shrinks** (only with `derived_shapes="composite"`, or for a level that
-  fell back to it), through a sidewall angle above `z_ref`, a negative bias, `z_to_bias` or sizing, or a growing level
-  that subtracts the layer. The composite distance of a layer is the minimum of its polygons' distances, so the level
-  draws each polygon shrunk instead of their union shrunk, which opens a slit where an overlap is narrower than about
-  twice the shrink. Polygons that only abut are not reported (their shared edges are seams), and grows are exact. With
-  the default `derived_shapes="exact"`, such a level draws the exact union and is not reported.
+- **Narrow parts and gaps.** Parts of a level, or gaps in it, narrower than 1.5 cells divided by `xy_subsamples` (using the larger cell width where x and y differ) between any two edges facing each other at less than 90°. That includes a corner pointing at an edge or another corner, and a V-notch that nearly cuts through a part. The two sides of one corner (sharp, cut, blunt, or rounded) are treated as the corner rather than a narrow part where they meet at 45° or more; sides meeting at a shallower angle (such as a needle or taper tip) are measured away from the tip, so sharp tips are not flagged while blunt ones are.
+  - Each layer is offset by its signed distance with round joins where it grows at a convex corner or shrinks at a reflex one, matching the geometry drawn on the grid to within 1 % of the threshold. A round join belongs to its corner so grown corners do not trigger false narrow-part warnings.
+  - Where a sidewall angle, bias, or `z_to_bias` offsets the level, cross-sections are checked across enough heights to catch parts that pinch or gaps that close inside the level.
+  - Only features inside the simulation box are reported: a width or gap is detected whenever one of its edges enters the box, and it is measured and located within the box.
+  - The warning reports the narrowest width or gap in µm and in cells, the `(x, y, z)` coordinates at its midpoint in µm, and the total count of such places (ignoring features at or below 1 % of the threshold).
+  - Port extensions ending at a box face are excluded at that end.
+  - Derived levels are checked on the exact shape they draw (see [Geometry model](geometry-model.md)). With `derived_shapes="composite"`, or for expressions that fall back to composite evaluation, coincident edges across layers (such as `WG - ETCH` ending flush with the waveguide) produce a sliver of twice the offset width when grown.
+- **Overlapping polygons on a shrunk layer** (only with `derived_shapes="composite"`, or when an expression falls back to it), due to a sidewall angle above `z_ref`, negative `bias`, `z_to_bias`, or sizing, or a growing level that subtracts the layer. Composite distance evaluation shrinks each polygon individually rather than their union, opening a slit where an overlap is narrower than twice the shrink. Abutting polygons sharing an edge are not flagged, and grows are exact. With the default `derived_shapes="exact"`, overlapping polygons are unioned before offsetting and do not trigger this issue.
 
-`stack.diagnose(resolution)` returns the same findings as `StackDiagnostic` tuples (level, kind, size in µm and cells,
-threshold, location, z, count, layers and message); before the device is placed, pass the resolution in µm. To turn the
-warnings off, pass `diagnostics=False` to `from_layer_stack`, or filter them:
+`stack.diagnose(resolution)` returns the findings programmatically as `StackDiagnostic` tuples (`level`, `kind`, `size`, `cells`, `threshold`, `location`, `z`, `count`, `layers`, `message`); pass the grid resolution in µm when calling `diagnose` before placement. To suppress warnings, pass `diagnostics=False` to `from_layer_stack`, or filter the warning class:
 
 ```python
 import warnings
@@ -60,13 +33,11 @@ import warnings
 warnings.filterwarnings("ignore", category=bf.StackDiagnosticWarning)
 ```
 
-The checks run KLayout on the polygons and nominal level heights the device was built with (its initial parameters),
-not on traced values. They take milliseconds for typical components (40 ms for a ring resonator); a 2000-tooth grating
-whose 1 µm thick level has a 30° sidewall is checked at 64 heights in about 9 s.
+Diagnostics use KLayout on the component polygons and nominal level heights (they are not re-run inside traced `jax.jit` or `jax.grad` calls). Typical components take tens of milliseconds (40 ms for a ring resonator); a 2000-tooth grating with a 30° sidewall over 1 µm thickness checks 64 heights in about 9 s.
 
 ## Timing the geometry steps
 
-Timing is off by default, where it costs one global lookup per step, and never changes values or gradients:
+Step timing is disabled by default (costing a single global lookup per call) and never alters simulation values or gradients. Enable it with `bf.record_timings()`:
 
 ```python
 with bf.record_timings() as timings:
@@ -76,36 +47,17 @@ with bf.record_timings() as timings:
 print(timings.table())  # per step: calls, wall, trace, compile, run (s)
 ```
 
-The steps and laps are:
+Recorded steps and sub-step laps:
 
 - **`from_layer_stack`** (laps `compile_levels`, `polygons`, `port_extensions`, `select_levels`) and **`derived_shapes`**
 - **`pack`** (`pack_vertices`, `topology_check`), **`check_topology`**, and **`retopologize`**
-- **`place_on_grid`** (`keep_reachable_levels`, lap `pole_alignment`, `corner_budget`, `junction_budget` for
-  `"subpixel_full"`, `diagnose`)
-- **`apply_stack`** (runs `write_complete` per device, then laps `write_stacks`, `apply_params`, `reapply_objects`)
-- **`write`** (for `"inverse"` and `"subpixel"`, with laps `Ex`, `Ey`, `Ez` or `E`, `set_permittivity`, `conductivity`,
-  and step `dispersion`) and, inside `write` or `material_weights`, **`weights`** with `level_surfaces`,
-  `layer_geometry` (where derived shapes are evaluated), `source_sdfs`, `corner_plan`, `corner_capacity`,
-  `corner_inputs`, `composite` or `composite_samples`, `corner_pass`, and `normal_tensor`
-- **`write_complete`** (`write_with_status`, for `"subpixel_full"`, delegating to `write` otherwise): runs
-  **`interfaces`** (`level_surfaces`, `layer_geometry`, `source_sdfs`, `corner_plan`, `corner_capacity`, `corner_inputs`,
-  `interface_composite` with `interface_corner_pass`, and `composite_samples` with `corner_pass` when sub-sampling
-  corners) and **`complete_tensor`**, plus laps `Ex`, `Ey`, `Ez`, `set_permittivity`, `conductivity`, and step
-  `dispersion` (`junction_budget` also calls `interfaces`)
+- **`place_on_grid`** (`keep_reachable_levels`, `pole_alignment`, `corner_budget`, `junction_budget` for `"subpixel_full"`, `diagnose`)
+- **`apply_stack`** (runs `write_complete` per device, then `write_stacks`, `apply_params`, `reapply_objects`)
+- **`write`** (for `"inverse"` and `"subpixel"`, with laps `Ex`, `Ey`, `Ez` or `E`, `set_permittivity`, `conductivity`, and step `dispersion`) and **`weights`** (`level_surfaces`, `layer_geometry`, `source_sdfs`, `corner_plan`, `corner_capacity`, `corner_inputs`, `composite` or `composite_samples`, `corner_pass`, and `normal_tensor`)
+- **`write_complete`** (for `"subpixel_full"`, delegating to `write` otherwise): **`interfaces`** and **`complete_tensor`**, plus `Ex`, `Ey`, `Ez`, `set_permittivity`, `conductivity`, and `dispersion`
 
-Nested steps also count in their callers.
+Nested steps are included in their callers' totals.
 
-A step that runs while JAX traces a function for `jax.jit` counts its wall time as tracing time, which is part of
-compiling. A step on concrete values, also under eager `jax.grad` (without `jit`), waits for its outputs
-(`jax.block_until_ready`; their primals under autodiff) when it ends, and splits its time into compile (JAX's tracing,
-lowering and XLA compile events while it runs) and run. Nothing waits inside traced code. The backward pass of an eager
-`jax.grad` and the lowering and compilation of jitted callers happen outside every step: `StepTimings.outside_compile`
-sums the compile events that fire while no step is open, and `timed_step(name)` around the whole call (forward and
-backward) times them.
+A step called while JAX traces a function for `jax.jit` attributes its wall time to tracing time (part of compiling). On concrete inputs (including eager `jax.grad` without `jit`), each step blocks on its outputs (`jax.block_until_ready`) when exiting and splits wall time into JAX compile time (tracing, lowering, and XLA compilation events) and run time. Lowering and compilation of outer jitted functions, as well as the backward pass of eager `jax.grad`, occur outside inner steps: read `StepTimings.outside_compile` or wrap the entire call in `bf.timing.timed_step(name)` to measure them.
 
-The test suites time themselves with `FDTDX_TIMINGS=<name> pytest tests/test_stack.py tests/test_geometry.py` (or
-`--fdtdx-timings=<name>`). The plugin `tests/fdtdx_timing_plugin.py` also times `fdtdx.place_objects` and
-`fdtdx.run_fdtd` (step `fdtd_solve`; the test `test_fdtd_solve_forward_and_gradient` adds `fdtd_solve_forward` and
-`fdtd_solve_gradient`, the whole forward and `jax.value_and_grad` calls with compile and backward pass), prints the
-per-step table, the time outside the steps (per test and in total) and the slowest tests with their steps, and writes
-the data to `.scratch/fdtdx_work/timings/<name>.json`, or `<name>.<worker id>.json` per pytest-xdist worker.
+Contributors running the test suite can record timings across tests with `FDTDX_TIMINGS=<name> pytest`; see [Contributing and tests](../development.md).

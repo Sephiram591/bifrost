@@ -881,7 +881,7 @@ def _layer_key(index: int) -> str:
 
 
 class StackDiagnosticWarning(UserWarning):
-    """A :class:`StackDiagnostic` reported when a :class:`StackDevice` is placed (see its ``diagnostics``)."""
+    """A `StackDiagnostic` reported when a `StackDevice` is placed (see its `diagnostics`)."""
 
 
 def _kdb_region(polygons: Sequence[np.ndarray], dbu: float, merged: bool = True) -> Any:

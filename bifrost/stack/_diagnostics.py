@@ -8,7 +8,7 @@ from ._layers import _CHECK_HEIGHTS, _Level, _NARROW_ANGLE, _kdb_region
 
 
 class StackDiagnostic(NamedTuple):
-    """One kind of problem in one level's geometry, found by :meth:`StackDevice.diagnose` (lengths in um).
+    """One kind of problem in one level's geometry, found by `StackDevice.diagnose` (lengths in um).
 
     Attributes:
         level: the level's name.

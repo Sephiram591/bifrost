@@ -14,6 +14,7 @@ simulation. It also ships a 3D viewer for setting up the run and inspecting its 
 ```
 
 `bf.StackDevice` is the helper class where all the magic happens, handling adaptive FDTD meshing and allowing you to create sources/detectors on ports. 
+
 ## Where to go next
 
 <div class="grid cards" markdown>

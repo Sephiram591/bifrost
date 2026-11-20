@@ -17,14 +17,13 @@ The smallest useful stack has one level and two materials: a core in a uniform c
 --8<-- "examples/guide/layer_stacks.py:bare"
 ```
 
-The box that `from_layer_stack` derives:
+`from_layer_stack` derives the simulation box size from the polygons and `zrange_layers`:
 
 ```text
 box (um): [7.0, 3.5, 3.22]
 ```
 
-In x, 5 µm of guide plus the two 1 µm port extensions; in y, the 0.5 µm guide plus 1.5 µm of cladding on both sides; in
-z, the 0.22 µm core plus 1.5 µm above and below.
+In x, this spans the 5 µm guide plus the two 1 µm port extensions; in y, the 0.5 µm guide plus 1.5 µm of cladding on both sides; in z, the 0.22 µm core plus 1.5 µm above and below.
 
 - **`layer_stack`** lists the levels. A `LayerLevel` gives the layer it draws, where it starts (`zmin`) and how thick it
   is (both in µm), its `material` by name, and its `mesh_order` (where levels overlap, the lower value wins).
@@ -37,18 +36,18 @@ z, the 0.22 µm core plus 1.5 µm above and below.
 - **`boundary_offset`** `= (x+, x-, y+, y-, z+, z-)` moves the box's faces by that many µm; positive values move a face
   toward +x, +y or +z. It changes the box, not the geometry.
 
-!!! note "The box is meshed as written"
-    With adaptive meshing (`bf.mesh`, the default), cell edges span the exact box faces so `boundary_offset` is used as
-    written for any box size. Only if you pass `fdtdx.core.grid.UniformGrid` directly does `fdtdx.place_objects` round
-    each side to the nearest whole number of cells (where a side exactly halfway between two cell counts can stop with
+!!! note "Box dimensions and grid spacing"
+    With adaptive meshing (`bf.mesh`, the default), cell edges span the exact box faces so `boundary_offset` is used
+    verbatim for any box size. If you pass `fdtdx.core.grid.UniformGrid` directly, `fdtdx.place_objects` rounds each
+    side to the nearest whole number of cells (and a side halfway between two cell counts can fail with
     `Configured grid shape ... does not match simulation volume shape`).
 
 Display the device with `viewer = bf.view(stack)`; see [Viewer](viewer.md).
 
 ## Adding a substrate
 
-The same guide on a 2 µm silica substrate under air. The substrate is a level on the `WAFER` layer, which covers the
-whole plane, so it needs no polygon of its own:
+Next, place the same guide on a 2 µm silica substrate under air. The substrate sits on the `WAFER` layer, which fills the
+entire xy plane and needs no polygon of its own:
 
 ```python
 --8<-- "examples/guide/layer_stacks.py:substrate"
@@ -83,8 +82,7 @@ The voxelization supports most of `LayerLevel`:
 
 ## Derived layers and foundry stacks
 
-Real stacks define some layers from others (a slab is the core grown by some margin; an etch is subtracted from it). A
-rib waveguide, as a sketch (`SLAB` and `WG` stand for your PDK's layers):
+Real stacks often define some layers from others (for example, growing a slab by a margin around the core or subtracting an etch). Here is a sketch of a rib waveguide where `SLAB` and `WG` stand for your PDK's layers:
 
 ```python
 rib_stack = LayerStack(

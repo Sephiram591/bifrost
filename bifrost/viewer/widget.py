@@ -90,56 +90,45 @@ def _marimo_runtime_context() -> Any:
 
 
 class Viewer(anywidget.AnyWidget):
-    """The app-shell widget returned by :func:`view` (spec D7, D9)."""
+    """The interactive viewer widget returned by `view`."""
 
     _esm = _STATIC / "viewer.js"
     _css = _STATIC / "viewer.css"
 
-    #: set once: the mesh buffers and the box (spec D5, C5)
+    #: Initial mesh buffers and bounding box geometry, synced once to the browser.
     geometry = traitlets.Dict(default_value={}).tag(sync=True)
-    #: set once: the level and port metadata (spec D5)
+    #: Layer level and port metadata, synced once to the browser.
     meta = traitlets.Dict(default_value={}).tag(sync=True)
-    #: the shared state, re-sent on every edit (spec D10)
+    #: Shared editor and setup state, synced on every edit.
     state = traitlets.Dict(default_value={}).tag(sync=True)
-    #: the 2D cross-section rings, rebuilt when the plane changes (spec R4)
+    #: 2D cross-section rings, rebuilt when the slicing plane changes.
     section = traitlets.Dict(default_value={}).tag(sync=True)
-    #: the last run's outcome summary, for the browser to show (spec R14, Q20)
+    #: Summary of the last completed simulation run.
     run_result = traitlets.Dict(default_value={}).tag(sync=True)
-    #: every detector's recorded field from the current result, keyed by spec id
-    #: (spec R15, D16): the raw complex field as float32 buffers, so a transform
-    #: or color edit re-shades in the browser with no kernel round-trip
+    #: Recorded fields from the active result, keyed by spec id as float32 buffers
+    #: so transform and color edits update in the browser without a kernel round-trip.
     fields = traitlets.Dict(default_value={}).tag(sync=True)
-    #: the in-flight run's progress as ``{"step": int, "total": int}`` (spec D15);
-    #: ``{}`` when no run is in flight or the total is not yet known
+    #: In-flight run progress as `{"step": int, "total": int}`, or `{}` when idle.
     progress = traitlets.Dict(default_value={}).tag(sync=True)
-    #: the in-flight run's phase — ``"placing"``, ``"compiling"`` or
-    #: ``"stepping"`` (spec D15) — or ``""`` when no run is in flight
+    #: In-flight run phase (`"placing"`, `"compiling"`, or `"stepping"`), or `""` when idle.
     phase = traitlets.Unicode(default_value="").tag(sync=True)
-    #: whether the user has asked the in-flight run to stop (spec D17); the
-    #: browser greys the button and shows "stopping…" while it is true
+    #: Whether stop has been requested for the in-flight run.
     stopping = traitlets.Bool(default_value=False).tag(sync=True)
-    #: the last kernel-side save's outcome, for the browser to confirm (spec
-    #: D14): ``{"path": str}`` on success, ``{"folder": str}`` when the save
-    #: folder changed, or ``{"error": str}`` on failure
+    #: Outcome of the last server-side save: `{"path": str}`, `{"folder": str}`, or `{"error": str}`.
     save_result = traitlets.Dict(default_value={}).tag(sync=True)
-    #: the absolute folder a server-side save writes into (spec D14). Settable
-    #: from the browser, so the settings screen can offer a folder field.
+    #: Absolute folder where server-side captures write PNGs; configurable from the browser UI.
     save_dir = traitlets.Unicode(default_value="").tag(sync=True)
-    #: the launch code — the script tail that rebuilds this setup (spec R14
-    #: mode 3, D12) — refreshed on every setup edit, so the browser's export
-    #: button copies the current text with no kernel round trip
+    #: Generated Python script snippet reproducing the current setup, updated on every edit.
     launch_code = traitlets.Unicode(default_value="").tag(sync=True)
 
     def __init__(self, stack: Any, save_dir: Path | str | None = None, **kwargs: Any) -> None:
-        """Builds the device's geometry and prepares the widget.
+        """Builds the device geometry and initializes the viewer widget.
 
         Args:
-            stack: a :class:`~bifrost.stack.StackDevice`.
-            save_dir: where the save button writes a PNG when the browser
-                prefers a server-side save (spec D14). Defaults to the process
-                working directory, resolved once at construction so a later
-                ``os.chdir`` does not move the target.
-            **kwargs: passed to :class:`anywidget.AnyWidget`.
+            stack: A `StackDevice` to inspect and simulate.
+            save_dir: Directory where server-side saves write PNG captures.
+                Defaults to the process working directory resolved at construction.
+            **kwargs: Forwarded to `anywidget.AnyWidget`.
         """
         self._viewer_state = ViewerState(stack)
         #: the result's own world (spec R17): a separate :class:`ViewerState`
@@ -371,32 +360,31 @@ class Viewer(anywidget.AnyWidget):
 
     @property
     def stack(self) -> Any:
-        """The :class:`~bifrost.stack.StackDevice` being viewed (spec D7)."""
+        """The `StackDevice` being viewed."""
         return self._viewer_state.stack
 
     @property
     def specs(self) -> list[Any]:
-        """The source/detector specs (spec R12, D11)."""
+        """The configured source and detector specs (`ObjectSpec` entries)."""
         return self._viewer_state.specs
 
     @property
     def settings(self) -> Any:
-        """The simulation settings (spec R13)."""
+        """The simulation settings."""
         return self._viewer_state.settings
 
     @property
     def running(self) -> bool:
-        """Whether a mode-1 run is in flight (spec D15)."""
+        """Whether a background viewer run is currently in flight."""
         with self._lock:
             return self._viewer_state.running
 
     def _prepare(self) -> tuple[list[Any], Any, list[Any]]:
-        """The prepared objects, config and constraints (spec R14 mode 2, D11).
+        """Builds and caches `(objects, config, constraints)` for the current setup.
 
-        Memoized on the state revision: the three properties (``objects``,
-        ``config``, ``constraints``) share one build, so the constraints'
-        object names always match the objects they were built with. A setup
-        edit bumps the revision and forces a rebuild on next access.
+        Memoized on the state revision so `objects`, `config`, and `constraints`
+        always share one consistent build. Any setup edit bumps the revision and
+        triggers a rebuild on next access.
         """
         with self._lock:
             revision = self._viewer_state.revision
@@ -406,35 +394,34 @@ class Viewer(anywidget.AnyWidget):
 
     @property
     def objects(self) -> list[Any]:
-        """The prepared simulation objects, computed on access (spec D11)."""
+        """The prepared simulation objects, computed on access."""
         return self._prepare()[0]
 
     @property
     def config(self) -> Any:
-        """The prepared ``fdtdx.SimulationConfig``, computed on access (spec D11)."""
+        """The prepared `fdtdx.SimulationConfig`, computed on access."""
         return self._prepare()[1]
 
     @property
     def constraints(self) -> list[Any]:
-        """The prepared placement constraints, computed on access (spec D11)."""
+        """The prepared placement constraints, computed on access."""
         return self._prepare()[2]
 
     def run(self, on_done: Callable[[Any], None] | None = None, key: Any = None) -> None:
-        """Places and runs the simulation on a background thread (spec D15).
+        """Places and runs the simulation on a background thread.
 
-        Returns immediately; the widget stays interactive. While the run is in
-        flight the setup is locked (``state['running']`` is true and setup edits
-        are rejected). On completion ``run_result`` carries a summary and
-        ``state['running']`` returns to false; detector results are on
-        ``self.last_result.arrays.detector_states``.
+        Returns immediately so the widget stays interactive. While the run is in
+        flight, the setup is locked (`state['running']` is True and setup edits
+        are rejected). On completion, `run_result` carries a summary and
+        detector results are available on `self.last_result.arrays.detector_states`.
 
         Args:
-            on_done: called with the :class:`~bifrost.viewer.sim.RunResult`
-                (or None on error) when the run finishes, on the worker thread.
-            key: an optional ``jax`` PRNG key.
+            on_done: Callback invoked on the worker thread with the `RunResult`
+                (or `None` on error) when the run finishes.
+            key: Optional JAX PRNG key.
 
         Raises:
-            RuntimeError: if a run is already in flight.
+            RuntimeError: If a run is already in flight.
         """
         with self._lock:
             if self._viewer_state.running:
@@ -534,15 +521,14 @@ class Viewer(anywidget.AnyWidget):
         thread.start()
 
     def stop(self) -> bool:
-        """Asks the in-flight run to stop (spec D17).
+        """Requests that the in-flight background simulation stop cleanly.
 
-        Sets the run's cancel flag; the worker notices it at the next step or
-        phase boundary and unwinds. Idempotent, and a no-op when no run is in
-        flight. Does not clear ``running`` — the worker's ``finally`` owns that,
-        so the widget never claims a run has ended before it has.
+        Sets the cancellation flag so the worker exits at the next step or phase
+        boundary. Idempotent, and a no-op when no run is in flight. `running`
+        remains True until the worker finishes unwinding.
 
         Returns:
-            True if a run was in flight and the stop was requested, False
+            True if a run was in flight and cancellation was requested, False
             otherwise.
         """
         with self._lock:
@@ -555,35 +541,32 @@ class Viewer(anywidget.AnyWidget):
 
     @property
     def last_result(self) -> Any:
-        """The last completed run's :class:`~bifrost.viewer.sim.RunResult` (spec Q20)."""
+        """The `RunResult` from the last completed simulation."""
         with self._lock:
             return self._run_result
 
     @property
     def last_error(self) -> BaseException | None:
-        """The last run's exception, if it failed (spec Q20)."""
+        """The exception raised by the last failed run, if any."""
         with self._lock:
             return self._run_error
 
     def show_result(self, result: Any) -> None:
-        """Adopts a result the user produced elsewhere as the current result (R15).
+        """Displays detector fields from an externally completed run on the current device.
 
-        The common case is a user who ran the simulation under ``srun`` and
-        wants to look at the fields in the widget: this adopts that result's
-        detector arrays and redraws every overlay, with no re-run and no
-        re-send of the geometry. It does **not** adopt the result's geometry or
-        objects — the widget's own stack and specs stay authoritative.
+        Useful when you ran the simulation in a standalone script or batch job and
+        want to inspect the recorded fields in the viewer without re-running or
+        rebuilding geometry. The widget keeps its existing stack and specs.
 
         Args:
-            result: a :class:`~bifrost.viewer.sim.RunResult`, or any object
-                with ``.arrays.detector_states``, ``.objects`` and ``.config``.
+            result: A `RunResult`, or any object with `.arrays.detector_states`,
+                `.objects`, and `.config`.
 
         Raises:
-            RuntimeError: if a run is in flight (spec D15).
-            ValueError: if the result's detectors do not correspond to the
-                widget's current setup by name, grid shape, grid spacing and
-                plane position (spec Q23). The previous result and its overlays
-                are left untouched.
+            RuntimeError: If a run is currently in flight.
+            ValueError: If `result` detectors do not match the widget's setup by
+                name, grid shape, grid spacing, and plane position. In that case,
+                the previous result and overlays are left untouched.
         """
         with self._lock:
             if self._viewer_state.running:
@@ -608,40 +591,34 @@ class Viewer(anywidget.AnyWidget):
         *,
         settings: Any = None,
     ) -> None:
-        """Displays a completed simulation from arbitrary user code (spec R16, D18).
+        """Displays a completed fdtdx simulation in the Result tab.
 
-        Takes the three pieces fdtdx hands out directly —
-        :func:`fdtdx.place_objects` returns ``(objects, config)`` and
-        :func:`fdtdx.run_fdtd` returns ``(time_step, arrays)`` — so nothing is
-        assembled for it; the widget's own run result passes as
-        ``load_result(*result)``. The result lands in the viewer's **result
-        world** (spec R17): a separate state built from ``stack`` (defaulting
-        to the stack the widget was built from) that the Result tab shows —
-        its own geometry, one read-only adopted spec per source and detector in
-        ``objects`` (spec R16), and the phasor-family detectors shaded from
-        ``arrays.detector_states``. The editor's geometry and styles are
-        untouched. When the result is on the widget's own stack, the editor
-        lists the same sources and detectors, as read-only copies, so the two
-        tabs agree.
+        Accepts the outputs returned by `fdtdx.place_objects` and `fdtdx.run_fdtd`
+        directly (`viewer.load_result(*result)` also works for a `RunResult`).
+        The loaded simulation opens in the Result tab with its own geometry
+        built from `stack` (defaulting to the widget's current stack), read-only
+        specs for each source and detector in `objects`, and field overlays from
+        `arrays.detector_states`. Existing editor geometry and styles are left
+        untouched. When `stack` matches the widget's own stack, read-only copies
+        of the loaded sources and detectors are also listed in the editor.
 
-        The adopted sources and detectors are excluded from a later
-        :meth:`run`, and a run (or a second ``load_result``) replaces them: the
-        setup you add yourself is what runs, and is never re-created from them.
+        Read-only specs imported from `load_result` are excluded from subsequent
+        `run()` calls, and a new `run()` or `load_result()` replaces them.
 
         Args:
-            objects: the result's placed :class:`fdtdx.objects.container.ObjectContainer`.
-            arrays: the result's fdtdx ``ArrayContainer``.
-            config: the result's :class:`fdtdx.config.SimulationConfig`.
-            stack: the :class:`~bifrost.stack.StackDevice` the result
-                was recorded on; defaults to the widget's current stack.
-            settings: kernel-side :class:`~bifrost.viewer.sim.SimSettings`
-                for the result world; defaults to fresh default settings.
+            objects: Placed `fdtdx.objects.container.ObjectContainer`.
+            arrays: Final fdtdx `ArrayContainer`.
+            config: `fdtdx.config.SimulationConfig`.
+            stack: `StackDevice` that produced the result; defaults to the
+                widget's current stack.
+            settings: `SimSettings` for the Result tab; defaults to fresh default
+                settings.
 
         Raises:
-            RuntimeError: if a run is in flight (spec D15).
-            ValueError: if the result lacks a required piece, a phasor detector
-                could never shade, or ``stack`` disagrees with the result's
-                grid. The previous result and overlays are left untouched.
+            RuntimeError: If a run is currently in flight.
+            ValueError: If required fields are missing, a phasor detector cannot
+                be shaded, or `stack` does not match the result grid. Previous
+                results and overlays are left untouched.
         """
         with self._lock:
             if self._viewer_state.running:
@@ -1027,14 +1004,14 @@ def _detector_names(result: Any) -> list[str]:
 
 
 def view(stack: Any, save_dir: Path | str | None = None) -> Viewer:
-    """Returns the viewer for a device (spec D7).
+    """Returns the interactive viewer widget for a `StackDevice`.
 
     Args:
-        stack: a :class:`~bifrost.stack.StackDevice`.
-        save_dir: where a server-side save writes its PNG (spec D14). Defaults
-            to the process working directory.
+        stack: A `StackDevice` to inspect and simulate.
+        save_dir: Directory where server-side saves write PNG captures.
+            Defaults to the process working directory.
 
     Returns:
-        The :class:`Viewer` app-shell widget.
+        The initialized `Viewer` widget.
     """
     return Viewer(stack, save_dir=save_dir)
