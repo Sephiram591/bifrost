@@ -79,6 +79,16 @@ The voxelization supports most of `LayerLevel`:
 - `sidewall_angle`, `width_to_z`, `bias` and `z_to_bias`;
 - background levels.
 
+## Negative-tone and inverted layers
+
+Any layer listed in `inverted_layers` (default `("WAFER",)`) applies its level's material to the complement of its drawn polygons. With no polygons drawn on the layer (such as `WAFER` above), its inverse covers the entire xy plane; drawing polygons on `WAFER` cuts openings out of the substrate or cladding.
+
+For negative-tone or trench-etch layers where drawn polygons mark where material is removed, pass the etch layer in `inverted_layers` (include `"WAFER"` as well when the stack also has `WAFER` levels, since passing `inverted_layers` overrides the default). `extend_ports` continues the bounding trenches straight out of each port, `create_*_at` matches ports on that layer automatically, and `bias` and `sidewall_angle` offset the remaining material (a positive `sidewall_angle` narrows the core and widens the etched trench toward the top):
+
+```python
+--8<-- "examples/guide/layer_stacks.py:inverted"
+```
+
 ## Derived layers and foundry stacks
 
 Real stacks often define some layers from others (for example, growing a slab by a margin around the core or subtracting an etch). Here is a sketch of a rib waveguide where `SLAB` and `WG` stand for your PDK's layers:
