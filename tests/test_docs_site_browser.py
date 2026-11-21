@@ -24,7 +24,7 @@ playwright_sync = pytest.importorskip("playwright.sync_api")
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "docs" / "_build" / "html"
 CHROMIUM_ARGS = ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
-PAGES = ["", "installation/", "getting-started/", "live-demo/", "guide/layer-stacks/", "guide/adaptive-meshing/", "guide/viewer/", "examples/waveguide-bend/"]
+PAGES = ["", "installation/", "getting-started/", "live-demo/", "guide/layer-stacks/", "guide/adaptive-meshing/", "guide/viewer/", "examples/waveguide-bend/", "examples/linbo3-bend/"]
 
 if not (ROOT / "docs" / "demo" / "data" / "manifest.json").exists():
     pytest.skip("the demo data is not generated (python scripts/build_demo.py)", allow_module_level=True)

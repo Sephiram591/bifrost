@@ -8749,5 +8749,3057 @@
     "peak_gb": 6.148,
     "summary": "mesh of 'stack': 489 x 148 x 136 = 9,842,592 cells\n  x: 489 cells, 13.09 to 13.09 nm, largest ratio 1.000, PML cells 77 / 77 (mirror-symmetric)\n  y: 148 cells, 13.1 to 31.54 nm, largest ratio 1.250, PML cells 32 / 32 (mirror-symmetric)\n  z: 136 cells, 12.94 to 31.25 nm, largest ratio 1.250, PML cells 32 / 32 (mirror-symmetric, faces centered at 0, 0.22 um)\n  time step 24.87 as, 8,043 steps\n  fields (E and H, 32-bit): 0.236 GB\n  starting geometry: 0 of 4 vertices in cells wider than their target (largest cell / target 1.000)",
     "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "mesh-46",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      661,
+      200,
+      184
+    ],
+    "total_cells": 24324800,
+    "min_cell_nm": [
+      9.68,
+      9.68,
+      9.57
+    ],
+    "max_cell_nm": [
+      9.68,
+      23.26,
+      23.26
+    ],
+    "steps": 10878,
+    "neff_mode": 2.3815550804138184,
+    "neff_fdtd": 2.382334551728718,
+    "setup_s": 35.39,
+    "run_s": 105.0,
+    "peak_gb": 5.703,
+    "summary": "mesh of 'stack': 661 x 200 x 184 = 24,324,800 cells\n  x: 661 cells, 9.682 to 9.682 nm, largest ratio 1.000, PML cells 104 / 104 (mirror-symmetric)\n  y: 200 cells, 9.683 to 23.26 nm, largest ratio 1.250, PML cells 43 / 43 (mirror-symmetric)\n  z: 184 cells, 9.565 to 23.26 nm, largest ratio 1.250, PML cells 43 / 43 (mirror-symmetric, faces centered at 0, 0.22 um)\n  time step 18.38 as, 10,879 steps\n  fields (E and H, 32-bit): 0.584 GB\n  starting geometry: 0 of 4 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "uniform-11",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      582,
+      291,
+      291
+    ],
+    "total_cells": 49284342,
+    "min_cell_nm": [
+      11.0,
+      11.0,
+      11.0
+    ],
+    "max_cell_nm": [
+      11.0,
+      11.0,
+      11.0
+    ],
+    "steps": 9536,
+    "neff_mode": 2.3818867206573486,
+    "neff_fdtd": 2.382893515326041,
+    "setup_s": 43.03,
+    "run_s": 200.63,
+    "peak_gb": 12.306,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "mesh-59",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      848,
+      254,
+      235
+    ],
+    "total_cells": 50617120,
+    "min_cell_nm": [
+      7.55,
+      7.55,
+      7.33
+    ],
+    "max_cell_nm": [
+      7.55,
+      18.19,
+      18.18
+    ],
+    "steps": 14035,
+    "neff_mode": 2.3812010288238525,
+    "neff_fdtd": 2.381673720703188,
+    "setup_s": 31.41,
+    "run_s": 279.47,
+    "peak_gb": 11.487,
+    "summary": "mesh of 'stack': 848 x 254 x 235 = 50,617,120 cells\n  x: 848 cells, 7.547 to 7.547 nm, largest ratio 1.000, PML cells 133 / 133 (mirror-symmetric)\n  y: 254 cells, 7.549 to 18.19 nm, largest ratio 1.250, PML cells 55 / 55 (mirror-symmetric)\n  z: 235 cells, 7.333 to 18.18 nm, largest ratio 1.250, PML cells 55 / 55 (mirror-symmetric, faces centered at 0, 0.22 um)\n  time step 14.25 as, 14,035 steps\n  fields (E and H, 32-bit): 1.21 GB\n  starting geometry: 0 of 4 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "uniform-9",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      711,
+      356,
+      356
+    ],
+    "total_cells": 90109296,
+    "min_cell_nm": [
+      9.0,
+      9.0,
+      9.0
+    ],
+    "max_cell_nm": [
+      9.0,
+      9.0,
+      9.0
+    ],
+    "steps": 11656,
+    "neff_mode": 2.380390167236328,
+    "neff_fdtd": 2.381061731903293,
+    "setup_s": 43.69,
+    "run_s": 442.9,
+    "peak_gb": 22.455,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "mesh-74",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1064,
+      318,
+      292
+    ],
+    "total_cells": 98798784,
+    "min_cell_nm": [
+      6.01,
+      6.02,
+      5.95
+    ],
+    "max_cell_nm": [
+      6.02,
+      14.49,
+      14.5
+    ],
+    "steps": 17504,
+    "neff_mode": 2.380995750427246,
+    "neff_fdtd": 2.3812947245011893,
+    "setup_s": 44.64,
+    "run_s": 678.77,
+    "peak_gb": 22.402,
+    "summary": "mesh of 'stack': 1064 x 318 x 292 = 98,798,784 cells\n  x: 1064 cells, 6.015 to 6.015 nm, largest ratio 1.000, PML cells 167 / 167 (mirror-symmetric)\n  y: 318 cells, 6.019 to 14.49 nm, largest ratio 1.250, PML cells 69 / 69 (mirror-symmetric)\n  z: 292 cells, 5.946 to 14.5 nm, largest ratio 1.250, PML cells 69 / 69 (mirror-symmetric, faces centered at 0, 0.22 um)\n  time step 11.43 as, 17,504 steps\n  fields (E and H, 32-bit): 2.37 GB\n  starting geometry: 0 of 4 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "mesh-86",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1236,
+      370,
+      340
+    ],
+    "total_cells": 155488800,
+    "min_cell_nm": [
+      5.18,
+      5.18,
+      5.12
+    ],
+    "max_cell_nm": [
+      5.18,
+      12.39,
+      12.38
+    ],
+    "steps": 20339,
+    "neff_mode": 2.3809311389923096,
+    "neff_fdtd": 2.3811522133530314,
+    "setup_s": 38.95,
+    "run_s": 1237.17,
+    "peak_gb": 35.221,
+    "summary": "mesh of 'stack': 1236 x 370 x 340 = 155,488,800 cells\n  x: 1236 cells, 5.178 to 5.178 nm, largest ratio 1.000, PML cells 194 / 194 (mirror-symmetric)\n  y: 370 cells, 5.179 to 12.39 nm, largest ratio 1.250, PML cells 81 / 81 (mirror-symmetric)\n  z: 340 cells, 5.116 to 12.38 nm, largest ratio 1.250, PML cells 81 / 81 (mirror-symmetric, faces centered at 0, 0.22 um)\n  time step 9.833 as, 20,340 steps\n  fields (E and H, 32-bit): 3.73 GB\n  starting geometry: 0 of 4 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "uniform-7.2",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      889,
+      444,
+      444
+    ],
+    "total_cells": 175253904,
+    "min_cell_nm": [
+      7.2,
+      7.2,
+      7.2
+    ],
+    "max_cell_nm": [
+      7.2,
+      7.2,
+      7.2
+    ],
+    "steps": 14569,
+    "neff_mode": 2.380589246749878,
+    "neff_fdtd": 2.38101830682723,
+    "setup_s": 46.63,
+    "run_s": 1074.43,
+    "peak_gb": 43.31,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "mesh-46",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      661,
+      200,
+      184
+    ],
+    "total_cells": 24324800,
+    "min_cell_nm": [
+      9.68,
+      9.68,
+      9.57
+    ],
+    "max_cell_nm": [
+      9.68,
+      23.26,
+      23.26
+    ],
+    "steps": 10878,
+    "neff_mode": 2.3815395832061768,
+    "neff_fdtd": 2.382424437219019,
+    "setup_s": 55.85,
+    "run_s": 514.77,
+    "peak_gb": 14.912,
+    "summary": "mesh of 'stack': 661 x 200 x 184 = 24,324,800 cells\n  x: 661 cells, 9.682 to 9.682 nm, largest ratio 1.000, PML cells 104 / 104 (mirror-symmetric)\n  y: 200 cells, 9.683 to 23.26 nm, largest ratio 1.250, PML cells 43 / 43 (mirror-symmetric)\n  z: 184 cells, 9.565 to 23.26 nm, largest ratio 1.250, PML cells 43 / 43 (mirror-symmetric, faces centered at 0, 0.22 um)\n  time step 18.38 as, 10,879 steps\n  fields (E and H, 32-bit): 0.584 GB\n  starting geometry: 0 of 4 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "uniform-11",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      582,
+      291,
+      291
+    ],
+    "total_cells": 49284342,
+    "min_cell_nm": [
+      11.0,
+      11.0,
+      11.0
+    ],
+    "max_cell_nm": [
+      11.0,
+      11.0,
+      11.0
+    ],
+    "steps": 9536,
+    "neff_mode": 2.381864547729492,
+    "neff_fdtd": 2.3829830494256736,
+    "setup_s": 61.07,
+    "run_s": 918.21,
+    "peak_gb": 30.566,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "mesh-59",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      848,
+      254,
+      235
+    ],
+    "total_cells": 50617120,
+    "min_cell_nm": [
+      7.55,
+      7.55,
+      7.33
+    ],
+    "max_cell_nm": [
+      7.55,
+      18.19,
+      18.18
+    ],
+    "steps": 14035,
+    "neff_mode": 2.3811910152435303,
+    "neff_fdtd": 2.381741034666892,
+    "setup_s": 49.5,
+    "run_s": 1419.43,
+    "peak_gb": 31.064,
+    "summary": "mesh of 'stack': 848 x 254 x 235 = 50,617,120 cells\n  x: 848 cells, 7.547 to 7.547 nm, largest ratio 1.000, PML cells 133 / 133 (mirror-symmetric)\n  y: 254 cells, 7.549 to 18.19 nm, largest ratio 1.250, PML cells 55 / 55 (mirror-symmetric)\n  z: 235 cells, 7.333 to 18.18 nm, largest ratio 1.250, PML cells 55 / 55 (mirror-symmetric, faces centered at 0, 0.22 um)\n  time step 14.25 as, 14,035 steps\n  fields (E and H, 32-bit): 1.21 GB\n  starting geometry: 0 of 4 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "elevator_coupler",
+    "kind": "uniform-17",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1129,
+      235,
+      188
+    ],
+    "total_cells": 49879220,
+    "min_cell_nm": [
+      17.0,
+      17.0,
+      17.0
+    ],
+    "max_cell_nm": [
+      17.0,
+      17.0,
+      17.0
+    ],
+    "steps": 12341,
+    "T": 0.5361088917704792,
+    "setup_s": 104.87,
+    "run_s": 231.7,
+    "peak_gb": 11.46,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "elevator_coupler",
+    "kind": "mesh-22",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1365,
+      229,
+      165
+    ],
+    "total_cells": 51576525,
+    "min_cell_nm": [
+      14.07,
+      14.07,
+      12.5
+    ],
+    "max_cell_nm": [
+      14.07,
+      19.28,
+      28.14
+    ],
+    "steps": 15563,
+    "T": 0.534353812347704,
+    "setup_s": 102.74,
+    "run_s": 295.85,
+    "peak_gb": 11.72,
+    "summary": "mesh of 'stack': 1365 x 229 x 165 = 51,576,525 cells\n  x: 1365 cells, 14.07 to 14.07 nm, largest ratio 1.000, PML cells 36 / 36\n  y: 229 cells, 14.07 to 19.28 nm, largest ratio 1.250, PML cells 26 / 26 (mirror-symmetric)\n  z: 165 cells, 12.5 to 28.14 nm, largest ratio 1.250, PML cells 26 / 18 (faces centered at -0.21, -0.1, 0, 0.19 um)\n  time step 25.7 as, 15,563 steps\n  fields (E and H, 32-bit): 1.24 GB\n  starting geometry: 0 of 20 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "elevator_coupler",
+    "kind": "mesh-28",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1737,
+      291,
+      209
+    ],
+    "total_cells": 105642603,
+    "min_cell_nm": [
+      11.05,
+      11.05,
+      10.0
+    ],
+    "max_cell_nm": [
+      11.05,
+      15.16,
+      21.8
+    ],
+    "steps": 19670,
+    "T": 0.5343284850606538,
+    "setup_s": 177.4,
+    "run_s": 758.12,
+    "peak_gb": 24.011,
+    "summary": "mesh of 'stack': 1737 x 291 x 209 = 105,642,603 cells\n  x: 1737 cells, 11.05 to 11.05 nm, largest ratio 1.000, PML cells 46 / 46\n  y: 291 cells, 11.05 to 15.16 nm, largest ratio 1.161, PML cells 33 / 33 (mirror-symmetric)\n  z: 209 cells, 10 to 21.8 nm, largest ratio 1.250, PML cells 33 / 23 (faces centered at -0.21, -0.1, 0, 0.19 um)\n  time step 20.34 as, 19,670 steps\n  fields (E and H, 32-bit): 2.54 GB\n  starting geometry: 0 of 20 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "elevator_coupler",
+    "kind": "uniform-12.5",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1536,
+      320,
+      256
+    ],
+    "total_cells": 125829120,
+    "min_cell_nm": [
+      12.5,
+      12.5,
+      12.5
+    ],
+    "max_cell_nm": [
+      12.5,
+      12.5,
+      12.5
+    ],
+    "steps": 16784,
+    "T": 0.5353597177622779,
+    "setup_s": 185.52,
+    "run_s": 774.49,
+    "peak_gb": 28.741,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "elevator_coupler",
+    "kind": "uniform-12",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1600,
+      333,
+      267
+    ],
+    "total_cells": 142257600,
+    "min_cell_nm": [
+      12.0,
+      12.0,
+      12.0
+    ],
+    "max_cell_nm": [
+      12.0,
+      12.0,
+      12.0
+    ],
+    "steps": 17483,
+    "T": 0.5337924814360266,
+    "setup_s": 204.47,
+    "run_s": 916.74,
+    "peak_gb": 32.577,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "elevator_coupler",
+    "kind": "mesh-33",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      2048,
+      343,
+      246
+    ],
+    "total_cells": 172806144,
+    "min_cell_nm": [
+      9.37,
+      9.38,
+      9.05
+    ],
+    "max_cell_nm": [
+      9.38,
+      12.86,
+      18.52
+    ],
+    "steps": 22650,
+    "T": 0.5343071280439414,
+    "setup_s": 305.87,
+    "run_s": 1412.99,
+    "peak_gb": 39.363,
+    "summary": "mesh of 'stack': 2048 x 343 x 246 = 172,806,144 cells\n  x: 2048 cells, 9.375 to 9.375 nm, largest ratio 1.000, PML cells 54 / 54\n  y: 343 cells, 9.379 to 12.86 nm, largest ratio 1.250, PML cells 39 / 39 (mirror-symmetric)\n  z: 246 cells, 9.048 to 18.52 nm, largest ratio 1.250, PML cells 39 / 27 (faces centered at -0.21, -0.1, 0, 0.19 um)\n  time step 17.66 as, 22,650 steps\n  fields (E and H, 32-bit): 4.15 GB\n  starting geometry: 0 of 20 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "elevator_coupler",
+    "kind": "uniform-17",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      1129,
+      235,
+      188
+    ],
+    "total_cells": 49879220,
+    "min_cell_nm": [
+      17.0,
+      17.0,
+      17.0
+    ],
+    "max_cell_nm": [
+      17.0,
+      17.0,
+      17.0
+    ],
+    "steps": 12341,
+    "T": 0.5366326616126619,
+    "setup_s": 110.86,
+    "run_s": 1366.38,
+    "peak_gb": 30.102,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "elevator_coupler",
+    "kind": "mesh-22",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      1365,
+      229,
+      165
+    ],
+    "total_cells": 51576525,
+    "min_cell_nm": [
+      14.07,
+      14.07,
+      12.5
+    ],
+    "max_cell_nm": [
+      14.07,
+      19.28,
+      28.14
+    ],
+    "steps": 15563,
+    "T": 0.5347294801487351,
+    "setup_s": 121.41,
+    "run_s": 2153.2,
+    "peak_gb": 31.11,
+    "summary": "mesh of 'stack': 1365 x 229 x 165 = 51,576,525 cells\n  x: 1365 cells, 14.07 to 14.07 nm, largest ratio 1.000, PML cells 36 / 36\n  y: 229 cells, 14.07 to 19.28 nm, largest ratio 1.250, PML cells 26 / 26 (mirror-symmetric)\n  z: 165 cells, 12.5 to 28.14 nm, largest ratio 1.250, PML cells 26 / 18 (faces centered at -0.21, -0.1, 0, 0.19 um)\n  time step 25.7 as, 15,563 steps\n  fields (E and H, 32-bit): 1.24 GB\n  starting geometry: 0 of 20 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "name": "mesh-12.5:greens:subpixel",
+    "kind": "mesh-12.5",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1948,
+      267,
+      99
+    ],
+    "total_cells": 51491484,
+    "min_cell_nm": [
+      22.07,
+      22.08,
+      20.0
+    ],
+    "max_cell_nm": [
+      22.08,
+      29.55,
+      29.41
+    ],
+    "steps": 9843,
+    "wavelength_nm": [
+      728.2352941176471,
+      719.767441860465,
+      711.4942528735633,
+      703.4090909090909,
+      695.5056179775281,
+      687.7777777777778,
+      680.2197802197802,
+      672.8260869565217,
+      665.5913978494624,
+      658.5106382978724,
+      651.578947368421,
+      644.7916666666666,
+      638.1443298969073,
+      631.6326530612245,
+      625.2525252525253,
+      619.0,
+      612.8712871287129,
+      606.8627450980392,
+      600.9708737864078,
+      595.1923076923077,
+      589.5238095238096,
+      583.9622641509434,
+      578.5046728971963,
+      573.1481481481483,
+      567.8899082568807,
+      562.7272727272727,
+      557.6576576576578,
+      552.6785714285714,
+      547.7876106194691,
+      542.9824561403509,
+      538.2608695652174
+    ],
+    "through": [
+      0.0039028881880844666,
+      0.01976785574132993,
+      0.04596012207216782,
+      0.08142510793067849,
+      0.12292973724626713,
+      0.16902793026053942,
+      0.21891627901535307,
+      0.26880116890149025,
+      0.31923160540703593,
+      0.3722808665082065,
+      0.4232703540299527,
+      0.46877353125826365,
+      0.5113076538470606,
+      0.5528449241659903,
+      0.5933861128152477,
+      0.6324834317736961,
+      0.6684117749903234,
+      0.7007804504281154,
+      0.7312976661175962,
+      0.759165946622167,
+      0.7831418663019495,
+      0.8044897469570346,
+      0.8244418435774424,
+      0.8432042160054292,
+      0.8606964448693384,
+      0.875912601905935,
+      0.8882209041490918,
+      0.8974079125532003,
+      0.9015096803538649,
+      0.9026200259950922,
+      0.9035912222273472
+    ],
+    "cross": [
+      0.9700339727823527,
+      0.9574109358926023,
+      0.9328806593781168,
+      0.8988047226929606,
+      0.8572955223418256,
+      0.810643030961212,
+      0.7614605153403925,
+      0.7119816517096793,
+      0.6635750436884296,
+      0.6144295670640191,
+      0.5635906406626733,
+      0.5155789657229326,
+      0.47351041962557266,
+      0.43449996845296013,
+      0.3957666437062137,
+      0.3584833357846014,
+      0.32393354189803225,
+      0.2919142022645203,
+      0.26283021468572587,
+      0.23667798273035437,
+      0.2121532641024397,
+      0.1887878087591301,
+      0.16781246156389942,
+      0.1495866737118693,
+      0.13308467486555528,
+      0.1179607996141789,
+      0.10478179210118364,
+      0.09361576494909768,
+      0.08379698281929361,
+      0.07532744117959707,
+      0.06817528410290745
+    ],
+    "split_mid": 0.3617511177169846,
+    "total_mid": 0.9909667675582976,
+    "setup_s": 69.34,
+    "run_s": 187.14,
+    "peak_gb": 11.007,
+    "summary": "mesh of 'stack': 1948 x 267 x 99 = 51,491,484 cells\n  x: 1948 cells, 22.07 to 22.07 nm, largest ratio 1.000, PML cells 23 / 23 (mirror-symmetric)\n  y: 267 cells, 22.08 to 29.55 nm, largest ratio 1.250, PML cells 17 / 17 (mirror-symmetric)\n  z: 99 cells, 20 to 29.41 nm, largest ratio 1.250, PML cells 17 / 17 (mirror-symmetric, faces centered at -0.1, 0.1 um)\n  time step 40.64 as, 9,843 steps\n  fields (E and H, 32-bit): 1.24 GB\n  starting geometry: 0 of 832 vertices in cells wider than their target (largest cell / target 1.000)",
+    "bench": "directional_coupler",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "name": "uniform-23.5:greens:subpixel",
+    "kind": "uniform-23.5",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1830,
+      272,
+      111
+    ],
+    "total_cells": 55251360,
+    "min_cell_nm": [
+      23.5,
+      23.5,
+      23.5
+    ],
+    "max_cell_nm": [
+      23.5,
+      23.5,
+      23.5
+    ],
+    "steps": 8928,
+    "wavelength_nm": [
+      728.2352941176471,
+      719.767441860465,
+      711.4942528735633,
+      703.4090909090909,
+      695.5056179775281,
+      687.7777777777778,
+      680.2197802197802,
+      672.8260869565217,
+      665.5913978494624,
+      658.5106382978724,
+      651.578947368421,
+      644.7916666666666,
+      638.1443298969073,
+      631.6326530612245,
+      625.2525252525253,
+      619.0,
+      612.8712871287129,
+      606.8627450980392,
+      600.9708737864078,
+      595.1923076923077,
+      589.5238095238096,
+      583.9622641509434,
+      578.5046728971963,
+      573.1481481481483,
+      567.8899082568807,
+      562.7272727272727,
+      557.6576576576578,
+      552.6785714285714,
+      547.7876106194691,
+      542.9824561403509,
+      538.2608695652174
+    ],
+    "through": [
+      0.002432541363910194,
+      0.016403002394832715,
+      0.040795960702454885,
+      0.07469282889220868,
+      0.11516194569452948,
+      0.16021283182153936,
+      0.20941740128615557,
+      0.25921044023789014,
+      0.30905180521481307,
+      0.3615413842974585,
+      0.41324487253145353,
+      0.4595475891631639,
+      0.5022659917119155,
+      0.5437667716336667,
+      0.5842689050772251,
+      0.623631846688466,
+      0.6602189109817642,
+      0.6933192579390997,
+      0.724149955247397,
+      0.7528751106546797,
+      0.777657318880552,
+      0.7993764488918771,
+      0.8195758649397955,
+      0.8384544680057191,
+      0.8564006634409341,
+      0.8721980316372898,
+      0.8853849501472619,
+      0.8955163970279814,
+      0.9011590626978346,
+      0.9027321458277408,
+      0.903637275929254
+    ],
+    "cross": [
+      0.9702346039875269,
+      0.9598025497774733,
+      0.9371570047345961,
+      0.9047490391533338,
+      0.8645648853315924,
+      0.8188894978915061,
+      0.7702732312413123,
+      0.7209899616271103,
+      0.672827712007192,
+      0.6242495782393832,
+      0.5737096919394878,
+      0.5248987751690382,
+      0.48210259991957727,
+      0.4431005695412129,
+      0.404421933346518,
+      0.36679030941509133,
+      0.33173149498440596,
+      0.2993101062487308,
+      0.26959838191474955,
+      0.24298939461565883,
+      0.2182371967990645,
+      0.19451349494629916,
+      0.1729122272957832,
+      0.15414945343233769,
+      0.1373553774759118,
+      0.12182627192998294,
+      0.10815853812353236,
+      0.09656718237425195,
+      0.08647187557667063,
+      0.0776735260014073,
+      0.07028537389043457
+    ],
+    "split_mid": 0.37033734267222934,
+    "total_mid": 0.9904221561035573,
+    "setup_s": 70.28,
+    "run_s": 182.81,
+    "peak_gb": 11.743,
+    "summary": null,
+    "bench": "directional_coupler",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "name": "mesh-18:greens:subpixel",
+    "kind": "mesh-18",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      2805,
+      384,
+      141
+    ],
+    "total_cells": 151873920,
+    "min_cell_nm": [
+      15.33,
+      15.33,
+      14.29
+    ],
+    "max_cell_nm": [
+      15.33,
+      20.5,
+      20.43
+    ],
+    "steps": 14026,
+    "wavelength_nm": [
+      728.2352941176471,
+      719.767441860465,
+      711.4942528735633,
+      703.4090909090909,
+      695.5056179775281,
+      687.7777777777778,
+      680.2197802197802,
+      672.8260869565217,
+      665.5913978494624,
+      658.5106382978724,
+      651.578947368421,
+      644.7916666666666,
+      638.1443298969073,
+      631.6326530612245,
+      625.2525252525253,
+      619.0,
+      612.8712871287129,
+      606.8627450980392,
+      600.9708737864078,
+      595.1923076923077,
+      589.5238095238096,
+      583.9622641509434,
+      578.5046728971963,
+      573.1481481481483,
+      567.8899082568807,
+      562.7272727272727,
+      557.6576576576578,
+      552.6785714285714,
+      547.7876106194691,
+      542.9824561403509,
+      538.2608695652174
+    ],
+    "through": [
+      0.004665671927766443,
+      0.021450451447787046,
+      0.0482811995911084,
+      0.08428255096672325,
+      0.1263584170865516,
+      0.17263177545113334,
+      0.2227612503783666,
+      0.2729692591000439,
+      0.3228340721559504,
+      0.3754134893397678,
+      0.4272396031565543,
+      0.47356225495673027,
+      0.5159453213840185,
+      0.556753614987136,
+      0.5964129627041198,
+      0.6349488983041696,
+      0.6708409375920616,
+      0.703034124672846,
+      0.7330019089447564,
+      0.7609121861926611,
+      0.7851464005074389,
+      0.8062830200624407,
+      0.8256947124042413,
+      0.8437499302569025,
+      0.86089104342905,
+      0.8765825088728508,
+      0.8902730913748298,
+      0.9020810669381986,
+      0.910181445163717,
+      0.914014050782704,
+      0.9157881241629532
+    ],
+    "cross": [
+      0.9688627071256227,
+      0.9555609707267118,
+      0.9305375196003538,
+      0.8961317881757375,
+      0.8543859456713476,
+      0.807421075453198,
+      0.7576817019620544,
+      0.7074812939782041,
+      0.6587274007352143,
+      0.610429039046865,
+      0.5604048518937244,
+      0.5112405354001465,
+      0.4675871656529496,
+      0.42883474301441127,
+      0.3914566617783362,
+      0.3549623624785162,
+      0.3208001935581131,
+      0.2892441208767089,
+      0.26020635825896316,
+      0.23406111153428882,
+      0.21026153534341255,
+      0.1877750405272786,
+      0.16689281701349087,
+      0.14844319931968067,
+      0.13215542861849558,
+      0.11727612967180955,
+      0.10382418482801334,
+      0.09219455872028447,
+      0.0821327251323865,
+      0.07330422219325487,
+      0.06584967409374247
+    ],
+    "split_mid": 0.35857998240959577,
+    "total_mid": 0.9899112607826858,
+    "setup_s": 124.71,
+    "run_s": 767.02,
+    "peak_gb": 32.036,
+    "summary": "mesh of 'stack': 2805 x 384 x 141 = 151,873,920 cells\n  x: 2805 cells, 15.33 to 15.33 nm, largest ratio 1.000, PML cells 33 / 33 (mirror-symmetric)\n  y: 384 cells, 15.34 to 20.5 nm, largest ratio 1.210, PML cells 25 / 25 (mirror-symmetric)\n  z: 141 cells, 14.29 to 20.43 nm, largest ratio 1.250, PML cells 25 / 25 (mirror-symmetric, faces centered at -0.1, 0.1 um)\n  time step 28.52 as, 14,026 steps\n  fields (E and H, 32-bit): 3.64 GB\n  starting geometry: 0 of 832 vertices in cells wider than their target (largest cell / target 1.000)",
+    "bench": "directional_coupler",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "name": "uniform-16.5:greens:subpixel",
+    "kind": "uniform-16.5",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      2606,
+      388,
+      158
+    ],
+    "total_cells": 159758224,
+    "min_cell_nm": [
+      16.5,
+      16.5,
+      16.5
+    ],
+    "max_cell_nm": [
+      16.5,
+      16.5,
+      16.5
+    ],
+    "steps": 12715,
+    "wavelength_nm": [
+      728.2352941176471,
+      719.767441860465,
+      711.4942528735633,
+      703.4090909090909,
+      695.5056179775281,
+      687.7777777777778,
+      680.2197802197802,
+      672.8260869565217,
+      665.5913978494624,
+      658.5106382978724,
+      651.578947368421,
+      644.7916666666666,
+      638.1443298969073,
+      631.6326530612245,
+      625.2525252525253,
+      619.0,
+      612.8712871287129,
+      606.8627450980392,
+      600.9708737864078,
+      595.1923076923077,
+      589.5238095238096,
+      583.9622641509434,
+      578.5046728971963,
+      573.1481481481483,
+      567.8899082568807,
+      562.7272727272727,
+      557.6576576576578,
+      552.6785714285714,
+      547.7876106194691,
+      542.9824561403509,
+      538.2608695652174
+    ],
+    "through": [
+      0.003282597643353687,
+      0.018488565014516123,
+      0.043851992420416194,
+      0.07853907569206942,
+      0.11976267156164545,
+      0.1652072131457566,
+      0.21472968397491488,
+      0.26489780382885303,
+      0.3143868510261181,
+      0.36640788624034243,
+      0.41861327312808505,
+      0.46571766112624197,
+      0.5084122843764953,
+      0.5493043919185094,
+      0.588990497632175,
+      0.6276423356231173,
+      0.6640515326086069,
+      0.6967916698134843,
+      0.7270314589291692,
+      0.7554206068867689,
+      0.7803779375826051,
+      0.8019712745141966,
+      0.8216510237648588,
+      0.8398604452536972,
+      0.8570758794841818,
+      0.8731062145917996,
+      0.8872260833119143,
+      0.899697844548579,
+      0.9090703349196189,
+      0.9139811715613797,
+      0.9163590883672649
+    ],
+    "cross": [
+      0.9693341106175719,
+      0.9578111804921678,
+      0.9343762723354955,
+      0.9013234829980875,
+      0.8607045019513606,
+      0.8145509293185835,
+      0.7653107724491486,
+      0.7152910180886749,
+      0.6666076113625901,
+      0.6186862830291782,
+      0.5690477307741595,
+      0.519521922516174,
+      0.4750803729470925,
+      0.43598774063589196,
+      0.39860558593437195,
+      0.36189879221205573,
+      0.3273389508049629,
+      0.295399462031989,
+      0.2659075710577635,
+      0.23928244019497058,
+      0.21520425509695723,
+      0.19252492478011565,
+      0.17127656762981783,
+      0.15237182343472003,
+      0.13575289839062024,
+      0.12062311065777767,
+      0.1068329595133683,
+      0.09482740364603987,
+      0.08447600510893273,
+      0.07535832475401828,
+      0.0676021856439508
+    ],
+    "split_mid": 0.36572385121958956,
+    "total_mid": 0.9895411278351731,
+    "setup_s": 138.25,
+    "run_s": 745.9,
+    "peak_gb": 33.982,
+    "summary": null,
+    "bench": "directional_coupler",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "name": "mesh-12.5:greens:subpixel_full",
+    "kind": "mesh-12.5",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      1948,
+      267,
+      99
+    ],
+    "total_cells": 51491484,
+    "min_cell_nm": [
+      22.07,
+      22.08,
+      20.0
+    ],
+    "max_cell_nm": [
+      22.08,
+      29.55,
+      29.41
+    ],
+    "steps": 9843,
+    "wavelength_nm": [
+      728.2352941176471,
+      719.767441860465,
+      711.4942528735633,
+      703.4090909090909,
+      695.5056179775281,
+      687.7777777777778,
+      680.2197802197802,
+      672.8260869565217,
+      665.5913978494624,
+      658.5106382978724,
+      651.578947368421,
+      644.7916666666666,
+      638.1443298969073,
+      631.6326530612245,
+      625.2525252525253,
+      619.0,
+      612.8712871287129,
+      606.8627450980392,
+      600.9708737864078,
+      595.1923076923077,
+      589.5238095238096,
+      583.9622641509434,
+      578.5046728971963,
+      573.1481481481483,
+      567.8899082568807,
+      562.7272727272727,
+      557.6576576576578,
+      552.6785714285714,
+      547.7876106194691,
+      542.9824561403509,
+      538.2608695652174
+    ],
+    "through": [
+      0.003922988282747838,
+      0.019813348672283706,
+      0.04602419346826033,
+      0.08150155757861931,
+      0.12302113789289847,
+      0.16912630595116301,
+      0.2190189185670233,
+      0.2689171700820761,
+      0.3193496595782199,
+      0.37238474048482817,
+      0.423370454822497,
+      0.46888335177561385,
+      0.5114245707321502,
+      0.5529653820590611,
+      0.5934990561827059,
+      0.63258556623053,
+      0.6685035387609632,
+      0.7008587180751338,
+      0.7313618174002618,
+      0.7592176656101591,
+      0.7831881353246777,
+      0.8045269760709604,
+      0.8244815363191438,
+      0.8432528029835077,
+      0.8607503658506145,
+      0.8759574887682816,
+      0.8882272656880932,
+      0.8973594635228809,
+      0.9014097557815351,
+      0.9024859934610346,
+      0.9034600486089228
+    ],
+    "cross": [
+      0.970091478085268,
+      0.9574404938261971,
+      0.932888883436483,
+      0.8987984847629747,
+      0.8572836724768427,
+      0.8106282763574114,
+      0.7614402812217186,
+      0.7119493730336046,
+      0.6635268660930996,
+      0.6143793834827826,
+      0.5635508377999332,
+      0.5155432238712827,
+      0.4734599214481329,
+      0.43443428034045034,
+      0.39569404665514285,
+      0.35841130472134275,
+      0.3238610022257911,
+      0.29184276553641214,
+      0.26276520351094673,
+      0.236620552638368,
+      0.21210318851097087,
+      0.18874029904454356,
+      0.1677689840741387,
+      0.1495489095846784,
+      0.13305162760233658,
+      0.11793249993667936,
+      0.10475965670848915,
+      0.09359965833462394,
+      0.08378730828407974,
+      0.07532432418848217,
+      0.06817396046213914
+    ],
+    "split_mid": 0.3616674433866591,
+    "total_mid": 0.9909968709518727,
+    "setup_s": 97.57,
+    "run_s": 1490.54,
+    "peak_gb": 31.051,
+    "summary": "mesh of 'stack': 1948 x 267 x 99 = 51,491,484 cells\n  x: 1948 cells, 22.07 to 22.07 nm, largest ratio 1.000, PML cells 23 / 23 (mirror-symmetric)\n  y: 267 cells, 22.08 to 29.55 nm, largest ratio 1.250, PML cells 17 / 17 (mirror-symmetric)\n  z: 99 cells, 20 to 29.41 nm, largest ratio 1.250, PML cells 17 / 17 (mirror-symmetric, faces centered at -0.1, 0.1 um)\n  time step 40.64 as, 9,843 steps\n  fields (E and H, 32-bit): 1.24 GB\n  starting geometry: 0 of 832 vertices in cells wider than their target (largest cell / target 1.000)",
+    "bench": "directional_coupler",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "name": "uniform-23.5:greens:subpixel_full",
+    "kind": "uniform-23.5",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      1830,
+      272,
+      111
+    ],
+    "total_cells": 55251360,
+    "min_cell_nm": [
+      23.5,
+      23.5,
+      23.5
+    ],
+    "max_cell_nm": [
+      23.5,
+      23.5,
+      23.5
+    ],
+    "steps": 8928,
+    "wavelength_nm": [
+      728.2352941176471,
+      719.767441860465,
+      711.4942528735633,
+      703.4090909090909,
+      695.5056179775281,
+      687.7777777777778,
+      680.2197802197802,
+      672.8260869565217,
+      665.5913978494624,
+      658.5106382978724,
+      651.578947368421,
+      644.7916666666666,
+      638.1443298969073,
+      631.6326530612245,
+      625.2525252525253,
+      619.0,
+      612.8712871287129,
+      606.8627450980392,
+      600.9708737864078,
+      595.1923076923077,
+      589.5238095238096,
+      583.9622641509434,
+      578.5046728971963,
+      573.1481481481483,
+      567.8899082568807,
+      562.7272727272727,
+      557.6576576576578,
+      552.6785714285714,
+      547.7876106194691,
+      542.9824561403509,
+      538.2608695652174
+    ],
+    "through": [
+      0.002456840665051925,
+      0.016466611824865324,
+      0.04089171451174925,
+      0.07481176836201109,
+      0.1153054140297151,
+      0.16037241077068654,
+      0.20958613276926719,
+      0.259398392690422,
+      0.30924868524811067,
+      0.3617229825110207,
+      0.41341743269941295,
+      0.4597250735560857,
+      0.5024517451699579,
+      0.5439582267282281,
+      0.5844559240918985,
+      0.6238066205211298,
+      0.6603761934432124,
+      0.6934634262578646,
+      0.7242739615570235,
+      0.752983136824725,
+      0.7777564942389611,
+      0.7994608046421766,
+      0.8196557223120488,
+      0.8385408407068898,
+      0.8564901629345997,
+      0.8722763868784496,
+      0.885422835490986,
+      0.8954764152777148,
+      0.9010530730009305,
+      0.9025723269802148,
+      0.9034708174232828
+    ],
+    "cross": [
+      0.9702946923746356,
+      0.959819308687846,
+      0.9371386786890089,
+      0.9047062297149807,
+      0.8645050563904809,
+      0.8188229533511209,
+      0.7701983740738862,
+      0.7208988056557584,
+      0.6727122935461989,
+      0.6241209102188788,
+      0.5735933474262219,
+      0.5247943566585263,
+      0.48199147154025007,
+      0.44297327864675073,
+      0.40428516434955836,
+      0.3666544016082324,
+      0.33159599281404156,
+      0.2991799676467478,
+      0.2694769556474818,
+      0.24287921777305638,
+      0.21813713457292164,
+      0.1944183026507947,
+      0.17282278637514628,
+      0.1540690096830423,
+      0.13728340974498499,
+      0.1217616849285583,
+      0.10810421954841978,
+      0.0965235369645562,
+      0.0864402965603957,
+      0.07765256470907989,
+      0.07026960164289185
+    ],
+    "split_mid": 0.3701855937954764,
+    "total_mid": 0.9904610221293622,
+    "setup_s": 85.67,
+    "run_s": 1458.8,
+    "peak_gb": 33.285,
+    "summary": null,
+    "bench": "directional_coupler",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-30",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      461,
+      461,
+      142
+    ],
+    "total_cells": 30177982,
+    "min_cell_nm": [
+      25.88,
+      25.88,
+      25.86
+    ],
+    "max_cell_nm": [
+      35.78,
+      35.71,
+      50.05
+    ],
+    "steps": 10134,
+    "T": 0.5581201215950718,
+    "phase_rad": 1.735902857601502,
+    "setup_s": 23.69,
+    "run_s": 116.79,
+    "peak_gb": 7.224,
+    "summary": "mesh of 'stack': 461 x 461 x 142 = 30,177,982 cells\n  x: 461 cells, 25.89 to 35.78 nm, largest ratio 1.250, PML cells 39 / 29 (aligned)\n  y: 461 cells, 25.89 to 35.71 nm, largest ratio 1.250, PML cells 28 / 39\n  z: 142 cells, 25.86 to 50.05 nm, largest ratio 1.250, PML cells 28 / 20 (faces centered at 0, 0.75 um)\n  time step 49.34 as, 10,135 steps\n  fields (E and H, 32-bit): 0.724 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "meshsub-32",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      478,
+      477,
+      138
+    ],
+    "total_cells": 31464828,
+    "min_cell_nm": [
+      24.27,
+      24.27,
+      24.19
+    ],
+    "max_cell_nm": [
+      48.44,
+      48.23,
+      47.94
+    ],
+    "steps": 10818,
+    "T": 0.558234266424242,
+    "phase_rad": 1.7017570043422348,
+    "setup_s": 29.27,
+    "run_s": 127.38,
+    "peak_gb": 7.372,
+    "summary": "mesh of 'stack': 478 x 477 x 138 = 31,464,828 cells\n  x: 478 cells, 24.27 to 48.44 nm, largest ratio 1.250, PML cells 42 / 23 (aligned)\n  y: 477 cells, 24.27 to 48.23 nm, largest ratio 1.250, PML cells 21 / 42\n  z: 138 cells, 24.19 to 47.94 nm, largest ratio 1.250, PML cells 21 / 21 (faces centered at 0, 0.75 um)\n  time step 46.22 as, 10,818 steps\n  fields (E and H, 32-bit): 0.755 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-36",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      553,
+      553,
+      169
+    ],
+    "total_cells": 51681721,
+    "min_cell_nm": [
+      21.57,
+      21.57,
+      21.43
+    ],
+    "max_cell_nm": [
+      29.82,
+      29.47,
+      42.34
+    ],
+    "steps": 12185,
+    "T": 0.5587394535933937,
+    "phase_rad": 1.9598489731612931,
+    "setup_s": 30.55,
+    "run_s": 238.99,
+    "peak_gb": 11.956,
+    "summary": "mesh of 'stack': 553 x 553 x 169 = 51,681,721 cells\n  x: 553 cells, 21.57 to 29.82 nm, largest ratio 1.239, PML cells 47 / 35 (aligned)\n  y: 553 cells, 21.57 to 29.47 nm, largest ratio 1.250, PML cells 34 / 47\n  z: 169 cells, 21.43 to 42.34 nm, largest ratio 1.250, PML cells 34 / 24 (faces centered at 0, 0.75 um)\n  time step 41.03 as, 12,185 steps\n  fields (E and H, 32-bit): 1.24 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "meshsub-38",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      567,
+      567,
+      163
+    ],
+    "total_cells": 52402707,
+    "min_cell_nm": [
+      20.44,
+      20.44,
+      20.27
+    ],
+    "max_cell_nm": [
+      40.79,
+      40.0,
+      40.66
+    ],
+    "steps": 12868,
+    "T": 0.5590639821413204,
+    "phase_rad": 1.9175801071364305,
+    "setup_s": 24.02,
+    "run_s": 250.15,
+    "peak_gb": 11.928,
+    "summary": "mesh of 'stack': 567 x 567 x 163 = 52,402,707 cells\n  x: 567 cells, 20.44 to 40.79 nm, largest ratio 1.250, PML cells 49 / 26 (aligned)\n  y: 567 cells, 20.44 to 40 nm, largest ratio 1.250, PML cells 25 / 49\n  z: 163 cells, 20.27 to 40.66 nm, largest ratio 1.250, PML cells 25 / 25 (faces centered at 0, 0.75 um)\n  time step 38.86 as, 12,869 steps\n  fields (E and H, 32-bit): 1.26 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-20",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      618,
+      618,
+      240
+    ],
+    "total_cells": 91661760,
+    "min_cell_nm": [
+      20.0,
+      20.0,
+      20.0
+    ],
+    "max_cell_nm": [
+      20.0,
+      20.0,
+      20.0
+    ],
+    "steps": 13113,
+    "T": 0.5589018687809447,
+    "phase_rad": 1.890693197478491,
+    "setup_s": 20.55,
+    "run_s": 462.38,
+    "peak_gb": 21.011,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "meshsub-46",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      686,
+      686,
+      197
+    ],
+    "total_cells": 92707412,
+    "min_cell_nm": [
+      16.88,
+      16.88,
+      16.67
+    ],
+    "max_cell_nm": [
+      33.7,
+      33.33,
+      33.35
+    ],
+    "steps": 15602,
+    "T": 0.5599868419876265,
+    "phase_rad": 1.7833902199244414,
+    "setup_s": 31.25,
+    "run_s": 535.04,
+    "peak_gb": 21.06,
+    "summary": "mesh of 'stack': 686 x 686 x 197 = 92,707,412 cells\n  x: 686 cells, 16.88 to 33.7 nm, largest ratio 1.250, PML cells 60 / 31 (aligned)\n  y: 686 cells, 16.88 to 33.33 nm, largest ratio 1.250, PML cells 30 / 60\n  z: 197 cells, 16.67 to 33.35 nm, largest ratio 1.250, PML cells 30 / 30 (faces centered at 0, 0.75 um)\n  time step 32.05 as, 15,602 steps\n  fields (E and H, 32-bit): 2.22 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-46",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      706,
+      706,
+      216
+    ],
+    "total_cells": 107662176,
+    "min_cell_nm": [
+      16.88,
+      16.88,
+      16.67
+    ],
+    "max_cell_nm": [
+      23.34,
+      23.32,
+      33.35
+    ],
+    "steps": 15602,
+    "T": 0.5600083407197146,
+    "phase_rad": 1.7833959913940318,
+    "setup_s": 25.97,
+    "run_s": 627.33,
+    "peak_gb": 24.507,
+    "summary": "mesh of 'stack': 706 x 706 x 216 = 107,662,176 cells\n  x: 706 cells, 16.88 to 23.33 nm, largest ratio 1.187, PML cells 60 / 44 (aligned)\n  y: 706 cells, 16.88 to 23.32 nm, largest ratio 1.250, PML cells 43 / 60\n  z: 216 cells, 16.67 to 33.35 nm, largest ratio 1.250, PML cells 43 / 30 (faces centered at 0, 0.75 um)\n  time step 32.05 as, 15,602 steps\n  fields (E and H, 32-bit): 2.58 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-16.2",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      763,
+      763,
+      296
+    ],
+    "total_cells": 172322024,
+    "min_cell_nm": [
+      16.2,
+      16.2,
+      16.2
+    ],
+    "max_cell_nm": [
+      16.2,
+      16.2,
+      16.2
+    ],
+    "steps": 16188,
+    "T": 0.5595455175921593,
+    "phase_rad": 1.7990904166983952,
+    "setup_s": 32.02,
+    "run_s": 1073.19,
+    "peak_gb": 39.674,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-54",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      829,
+      829,
+      253
+    ],
+    "total_cells": 173871973,
+    "min_cell_nm": [
+      14.38,
+      14.38,
+      14.15
+    ],
+    "max_cell_nm": [
+      19.88,
+      19.75,
+      28.66
+    ],
+    "steps": 18336,
+    "T": 0.5603070809049968,
+    "phase_rad": 1.897146234430481,
+    "setup_s": 29.02,
+    "run_s": 1179.86,
+    "peak_gb": 39.624,
+    "summary": "mesh of 'stack': 829 x 829 x 253 = 173,871,973 cells\n  x: 829 cells, 14.38 to 19.88 nm, largest ratio 1.250, PML cells 70 / 52 (aligned)\n  y: 829 cells, 14.38 to 19.75 nm, largest ratio 1.250, PML cells 51 / 70\n  z: 253 cells, 14.15 to 28.66 nm, largest ratio 1.250, PML cells 51 / 35 (faces centered at 0, 0.75 um)\n  time step 27.27 as, 18,336 steps\n  fields (E and H, 32-bit): 4.17 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "meshsub-57",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      849,
+      849,
+      243
+    ],
+    "total_cells": 175154643,
+    "min_cell_nm": [
+      13.62,
+      13.62,
+      13.39
+    ],
+    "max_cell_nm": [
+      27.19,
+      27.13,
+      27.12
+    ],
+    "steps": 19361,
+    "T": 0.5607976532764635,
+    "phase_rad": 1.956180899642814,
+    "setup_s": 30.3,
+    "run_s": 1234.45,
+    "peak_gb": 39.732,
+    "summary": "mesh of 'stack': 849 x 849 x 243 = 175,154,643 cells\n  x: 849 cells, 13.62 to 27.19 nm, largest ratio 1.250, PML cells 74 / 38 (aligned)\n  y: 849 cells, 13.62 to 27.13 nm, largest ratio 1.250, PML cells 37 / 74\n  z: 243 cells, 13.39 to 27.12 nm, largest ratio 1.250, PML cells 37 / 37 (faces centered at 0, 0.75 um)\n  time step 25.82 as, 19,362 steps\n  fields (E and H, 32-bit): 4.2 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-30",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      461,
+      461,
+      142
+    ],
+    "total_cells": 30177982,
+    "min_cell_nm": [
+      25.88,
+      25.88,
+      25.86
+    ],
+    "max_cell_nm": [
+      35.78,
+      35.71,
+      50.05
+    ],
+    "steps": 10134,
+    "T": 0.5585971476316826,
+    "phase_rad": 1.7292857379476798,
+    "setup_s": 41.56,
+    "run_s": 611.07,
+    "peak_gb": 18.207,
+    "summary": "mesh of 'stack': 461 x 461 x 142 = 30,177,982 cells\n  x: 461 cells, 25.89 to 35.78 nm, largest ratio 1.250, PML cells 39 / 29 (aligned)\n  y: 461 cells, 25.89 to 35.71 nm, largest ratio 1.250, PML cells 28 / 39\n  z: 142 cells, 25.86 to 50.05 nm, largest ratio 1.250, PML cells 28 / 20 (faces centered at 0, 0.75 um)\n  time step 49.34 as, 10,135 steps\n  fields (E and H, 32-bit): 0.724 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "meshsub-32",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      478,
+      477,
+      138
+    ],
+    "total_cells": 31464828,
+    "min_cell_nm": [
+      24.27,
+      24.27,
+      24.19
+    ],
+    "max_cell_nm": [
+      48.44,
+      48.23,
+      47.94
+    ],
+    "steps": 10818,
+    "T": 0.558698697123719,
+    "phase_rad": 1.6954680075607118,
+    "setup_s": 43.46,
+    "run_s": 689.43,
+    "peak_gb": 18.962,
+    "summary": "mesh of 'stack': 478 x 477 x 138 = 31,464,828 cells\n  x: 478 cells, 24.27 to 48.44 nm, largest ratio 1.250, PML cells 42 / 23 (aligned)\n  y: 477 cells, 24.27 to 48.23 nm, largest ratio 1.250, PML cells 21 / 42\n  z: 138 cells, 24.19 to 47.94 nm, largest ratio 1.250, PML cells 21 / 21 (faces centered at 0, 0.75 um)\n  time step 46.22 as, 10,818 steps\n  fields (E and H, 32-bit): 0.755 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "mesh-36",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      553,
+      553,
+      169
+    ],
+    "total_cells": 51681721,
+    "min_cell_nm": [
+      21.57,
+      21.57,
+      21.43
+    ],
+    "max_cell_nm": [
+      29.82,
+      29.47,
+      42.34
+    ],
+    "steps": 12185,
+    "T": 0.5591792087835024,
+    "phase_rad": 1.954143553227708,
+    "setup_s": 43.11,
+    "run_s": 1670.84,
+    "peak_gb": 31.227,
+    "summary": "mesh of 'stack': 553 x 553 x 169 = 51,681,721 cells\n  x: 553 cells, 21.57 to 29.82 nm, largest ratio 1.239, PML cells 47 / 35 (aligned)\n  y: 553 cells, 21.57 to 29.47 nm, largest ratio 1.250, PML cells 34 / 47\n  z: 169 cells, 21.43 to 42.34 nm, largest ratio 1.250, PML cells 34 / 24 (faces centered at 0, 0.75 um)\n  time step 41.03 as, 12,185 steps\n  fields (E and H, 32-bit): 1.24 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "meshsub-38",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      567,
+      567,
+      163
+    ],
+    "total_cells": 52402707,
+    "min_cell_nm": [
+      20.44,
+      20.44,
+      20.27
+    ],
+    "max_cell_nm": [
+      40.79,
+      40.0,
+      40.66
+    ],
+    "steps": 12868,
+    "T": 0.559459497754311,
+    "phase_rad": 1.9121792646037066,
+    "setup_s": 43.26,
+    "run_s": 1829.89,
+    "peak_gb": 31.588,
+    "summary": "mesh of 'stack': 567 x 567 x 163 = 52,402,707 cells\n  x: 567 cells, 20.44 to 40.79 nm, largest ratio 1.250, PML cells 49 / 26 (aligned)\n  y: 567 cells, 20.44 to 40 nm, largest ratio 1.250, PML cells 25 / 49\n  z: 163 cells, 20.27 to 40.66 nm, largest ratio 1.250, PML cells 25 / 25 (faces centered at 0, 0.75 um)\n  time step 38.86 as, 12,869 steps\n  fields (E and H, 32-bit): 1.26 GB\n  starting geometry: 0 of 152 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-120",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      100,
+      100,
+      40
+    ],
+    "total_cells": 400000,
+    "min_cell_nm": [
+      120.0,
+      120.0,
+      120.0
+    ],
+    "max_cell_nm": [
+      120.0,
+      120.0,
+      120.0
+    ],
+    "steps": 2185,
+    "T": 0.9153992597881297,
+    "T_tm0": 0.06744289410330069,
+    "phase_rad": 1.5512476148769294,
+    "neff_in": 1.770205020904541,
+    "neff_out": 1.8266894817352295,
+    "setup_s": 18.54,
+    "run_s": 1.28,
+    "peak_gb": 0.631,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-10",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      165,
+      165,
+      50
+    ],
+    "total_cells": 1361250,
+    "min_cell_nm": [
+      70.1,
+      70.1,
+      62.5
+    ],
+    "max_cell_nm": [
+      102.28,
+      102.28,
+      152.35
+    ],
+    "steps": 3898,
+    "T": 0.9469285112318555,
+    "T_tm0": 0.02971052570715913,
+    "phase_rad": 2.351063539800896,
+    "neff_in": 1.783950686454773,
+    "neff_out": 1.8415977954864502,
+    "setup_s": 20.08,
+    "run_s": 2.04,
+    "peak_gb": 1.258,
+    "summary": "mesh of 'stack': 165 x 165 x 50 = 1,361,250 cells\n  x: 165 cells, 70.1 to 102.3 nm, largest ratio 1.250, PML cells 15 / 10 (aligned)\n  y: 165 cells, 70.1 to 102.3 nm, largest ratio 1.250, PML cells 10 / 15\n  z: 50 cells, 62.5 to 152.3 nm, largest ratio 1.250, PML cells 10 / 7 (faces centered at 0, 0.5 um)\n  time step 128.3 as, 3,899 steps\n  fields (E and H, 32-bit): 0.0327 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-10",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      165,
+      165,
+      50
+    ],
+    "total_cells": 1361250,
+    "min_cell_nm": [
+      70.1,
+      70.1,
+      62.5
+    ],
+    "max_cell_nm": [
+      102.28,
+      102.28,
+      152.35
+    ],
+    "steps": 3898,
+    "T": 0.9469285112318555,
+    "T_tm0": 0.02971052570715913,
+    "phase_rad": 2.351063539800896,
+    "neff_in": 1.783950686454773,
+    "neff_out": 1.8415977954864502,
+    "setup_s": 19.56,
+    "run_s": 2.0,
+    "peak_gb": 1.258,
+    "summary": "mesh of 'stack': 165 x 165 x 50 = 1,361,250 cells\n  x: 165 cells, 70.1 to 102.3 nm, largest ratio 1.250, PML cells 15 / 10 (aligned)\n  y: 165 cells, 70.1 to 102.3 nm, largest ratio 1.250, PML cells 10 / 15\n  z: 50 cells, 62.5 to 152.3 nm, largest ratio 1.250, PML cells 10 / 7 (faces centered at 0, 0.5 um)\n  time step 128.3 as, 3,899 steps\n  fields (E and H, 32-bit): 0.0327 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-12",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      197,
+      197,
+      59
+    ],
+    "total_cells": 2289731,
+    "min_cell_nm": [
+      58.42,
+      58.42,
+      55.56
+    ],
+    "max_cell_nm": [
+      88.41,
+      88.41,
+      125.0
+    ],
+    "steps": 4568,
+    "T": 0.9441022639916037,
+    "T_tm0": 0.03234658805704744,
+    "phase_rad": 1.9240505023047603,
+    "neff_in": 1.7836230993270874,
+    "neff_out": 1.8412882089614868,
+    "setup_s": 22.5,
+    "run_s": 3.42,
+    "peak_gb": 1.538,
+    "summary": "mesh of 'stack': 197 x 197 x 59 = 2,289,731 cells\n  x: 197 cells, 58.42 to 88.41 nm, largest ratio 1.250, PML cells 18 / 12 (aligned)\n  y: 197 cells, 58.42 to 88.41 nm, largest ratio 1.250, PML cells 12 / 18\n  z: 59 cells, 55.56 to 125 nm, largest ratio 1.250, PML cells 12 / 8 (faces centered at 0, 0.5 um)\n  time step 109.5 as, 4,568 steps\n  fields (E and H, 32-bit): 0.055 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-12",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      197,
+      197,
+      59
+    ],
+    "total_cells": 2289731,
+    "min_cell_nm": [
+      58.42,
+      58.42,
+      55.56
+    ],
+    "max_cell_nm": [
+      88.41,
+      88.41,
+      125.0
+    ],
+    "steps": 4568,
+    "T": 0.9441022639916037,
+    "T_tm0": 0.03234658805704744,
+    "phase_rad": 1.9240505023047603,
+    "neff_in": 1.7836230993270874,
+    "neff_out": 1.8412882089614868,
+    "setup_s": 21.68,
+    "run_s": 3.4,
+    "peak_gb": 1.538,
+    "summary": "mesh of 'stack': 197 x 197 x 59 = 2,289,731 cells\n  x: 197 cells, 58.42 to 88.41 nm, largest ratio 1.250, PML cells 18 / 12 (aligned)\n  y: 197 cells, 58.42 to 88.41 nm, largest ratio 1.250, PML cells 12 / 18\n  z: 59 cells, 55.56 to 125 nm, largest ratio 1.250, PML cells 12 / 8 (faces centered at 0, 0.5 um)\n  time step 109.5 as, 4,568 steps\n  fields (E and H, 32-bit): 0.055 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-60",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      200,
+      200,
+      80
+    ],
+    "total_cells": 3200000,
+    "min_cell_nm": [
+      60.0,
+      60.0,
+      60.0
+    ],
+    "max_cell_nm": [
+      60.0,
+      60.0,
+      60.0
+    ],
+    "steps": 4371,
+    "T": 0.930860155231197,
+    "T_tm0": 0.044729876280099425,
+    "phase_rad": 2.0474437218903514,
+    "neff_in": 1.7788864374160767,
+    "neff_out": 1.8361150026321411,
+    "setup_s": 21.63,
+    "run_s": 3.88,
+    "peak_gb": 1.824,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-16",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      258,
+      258,
+      72
+    ],
+    "total_cells": 4792608,
+    "min_cell_nm": [
+      43.81,
+      43.81,
+      41.67
+    ],
+    "max_cell_nm": [
+      85.29,
+      85.29,
+      95.65
+    ],
+    "steps": 6090,
+    "T": 0.9392713273969104,
+    "T_tm0": 0.036324440993270576,
+    "phase_rad": 2.64488717276778,
+    "neff_in": 1.7825968265533447,
+    "neff_out": 1.8401545286178589,
+    "setup_s": 23.47,
+    "run_s": 8.11,
+    "peak_gb": 1.987,
+    "summary": "mesh of 'stack': 258 x 258 x 72 = 4,792,608 cells\n  x: 258 cells, 43.82 to 85.29 nm, largest ratio 1.250, PML cells 23 / 12 (aligned)\n  y: 258 cells, 43.82 to 85.29 nm, largest ratio 1.250, PML cells 12 / 23\n  z: 72 cells, 41.67 to 95.65 nm, largest ratio 1.250, PML cells 12 / 11 (faces centered at 0, 0.5 um)\n  time step 82.1 as, 6,091 steps\n  fields (E and H, 32-bit): 0.115 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-16",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      263,
+      263,
+      77
+    ],
+    "total_cells": 5326013,
+    "min_cell_nm": [
+      43.81,
+      43.81,
+      41.67
+    ],
+    "max_cell_nm": [
+      66.67,
+      66.67,
+      95.65
+    ],
+    "steps": 6090,
+    "T": 0.939256191720631,
+    "T_tm0": 0.03631528503421782,
+    "phase_rad": 2.6452252293172367,
+    "neff_in": 1.7825491428375244,
+    "neff_out": 1.8401199579238892,
+    "setup_s": 23.33,
+    "run_s": 10.07,
+    "peak_gb": 2.198,
+    "summary": "mesh of 'stack': 263 x 263 x 77 = 5,326,013 cells\n  x: 263 cells, 43.82 to 66.67 nm, largest ratio 1.250, PML cells 23 / 15 (aligned)\n  y: 263 cells, 43.82 to 66.67 nm, largest ratio 1.250, PML cells 15 / 23\n  z: 77 cells, 41.67 to 95.65 nm, largest ratio 1.250, PML cells 15 / 11 (faces centered at 0, 0.5 um)\n  time step 82.1 as, 6,091 steps\n  fields (E and H, 32-bit): 0.128 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-20",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      320,
+      320,
+      87
+    ],
+    "total_cells": 8908800,
+    "min_cell_nm": [
+      35.05,
+      35.05,
+      33.33
+    ],
+    "max_cell_nm": [
+      77.5,
+      77.5,
+      76.92
+    ],
+    "steps": 7613,
+    "T": 0.9369168655484172,
+    "T_tm0": 0.03858575258626758,
+    "phase_rad": 2.5152806109140338,
+    "neff_in": 1.7821719646453857,
+    "neff_out": 1.8397033214569092,
+    "setup_s": 22.93,
+    "run_s": 25.2,
+    "peak_gb": 2.928,
+    "summary": "mesh of 'stack': 320 x 320 x 87 = 8,908,800 cells\n  x: 320 cells, 35.05 to 77.5 nm, largest ratio 1.250, PML cells 29 / 13 (aligned)\n  y: 320 cells, 35.05 to 77.5 nm, largest ratio 1.250, PML cells 13 / 29\n  z: 87 cells, 33.33 to 76.92 nm, largest ratio 1.250, PML cells 13 / 13 (faces centered at 0, 0.5 um)\n  time step 65.68 as, 7,613 steps\n  fields (E and H, 32-bit): 0.214 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-20",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      328,
+      328,
+      96
+    ],
+    "total_cells": 10328064,
+    "min_cell_nm": [
+      35.05,
+      35.05,
+      33.33
+    ],
+    "max_cell_nm": [
+      53.43,
+      53.43,
+      76.92
+    ],
+    "steps": 7613,
+    "T": 0.9369088810931244,
+    "T_tm0": 0.0385842795270828,
+    "phase_rad": 2.5153729011624786,
+    "neff_in": 1.7821660041809082,
+    "neff_out": 1.8396979570388794,
+    "setup_s": 21.53,
+    "run_s": 30.35,
+    "peak_gb": 3.194,
+    "summary": "mesh of 'stack': 328 x 328 x 96 = 10,328,064 cells\n  x: 328 cells, 35.05 to 53.43 nm, largest ratio 1.250, PML cells 29 / 19 (aligned)\n  y: 328 cells, 35.05 to 53.43 nm, largest ratio 1.250, PML cells 19 / 29\n  z: 96 cells, 33.33 to 76.92 nm, largest ratio 1.250, PML cells 19 / 13 (faces centered at 0, 0.5 um)\n  time step 65.68 as, 7,613 steps\n  fields (E and H, 32-bit): 0.248 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-40",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      300,
+      300,
+      120
+    ],
+    "total_cells": 10800000,
+    "min_cell_nm": [
+      40.0,
+      40.0,
+      40.0
+    ],
+    "max_cell_nm": [
+      40.0,
+      40.0,
+      40.0
+    ],
+    "steps": 6556,
+    "T": 0.9331837254509773,
+    "T_tm0": 0.04184627279143788,
+    "phase_rad": 2.5681858542425315,
+    "neff_in": 1.7806135416030884,
+    "neff_out": 1.8379937410354614,
+    "setup_s": 20.1,
+    "run_s": 28.11,
+    "peak_gb": 2.883,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-27",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      432,
+      432,
+      116
+    ],
+    "total_cells": 21648384,
+    "min_cell_nm": [
+      25.96,
+      25.96,
+      25.0
+    ],
+    "max_cell_nm": [
+      56.17,
+      56.17,
+      57.34
+    ],
+    "steps": 10232,
+    "T": 0.9348062862827587,
+    "T_tm0": 0.040483575717158576,
+    "phase_rad": 2.634619472217894,
+    "neff_in": 1.7818055152893066,
+    "neff_out": 1.8393077850341797,
+    "setup_s": 36.03,
+    "run_s": 83.05,
+    "peak_gb": 5.108,
+    "summary": "mesh of 'stack': 432 x 432 x 116 = 21,648,384 cells\n  x: 432 cells, 25.96 to 56.17 nm, largest ratio 1.250, PML cells 39 / 18 (aligned)\n  y: 432 cells, 25.96 to 56.17 nm, largest ratio 1.250, PML cells 18 / 39\n  z: 116 cells, 25 to 57.34 nm, largest ratio 1.250, PML cells 18 / 18 (faces centered at 0, 0.5 um)\n  time step 48.87 as, 10,232 steps\n  fields (E and H, 32-bit): 0.52 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-26",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      427,
+      427,
+      123
+    ],
+    "total_cells": 22426467,
+    "min_cell_nm": [
+      26.96,
+      26.96,
+      26.32
+    ],
+    "max_cell_nm": [
+      41.29,
+      40.34,
+      58.82
+    ],
+    "steps": 9807,
+    "T": 0.9351518987427129,
+    "T_tm0": 0.04018055361768707,
+    "phase_rad": 2.5654619729386874,
+    "neff_in": 1.7818846702575684,
+    "neff_out": 1.8393831253051758,
+    "setup_s": 42.04,
+    "run_s": 85.57,
+    "peak_gb": 5.289,
+    "summary": "mesh of 'stack': 427 x 427 x 123 = 22,426,467 cells\n  x: 427 cells, 26.96 to 41.28 nm, largest ratio 1.250, PML cells 38 / 26 (aligned)\n  y: 427 cells, 26.96 to 40.34 nm, largest ratio 1.250, PML cells 25 / 38\n  z: 123 cells, 26.32 to 58.82 nm, largest ratio 1.250, PML cells 25 / 17 (faces centered at 0, 0.5 um)\n  time step 50.99 as, 9,807 steps\n  fields (E and H, 32-bit): 0.538 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-30",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      400,
+      400,
+      160
+    ],
+    "total_cells": 25600000,
+    "min_cell_nm": [
+      30.0,
+      30.0,
+      30.0
+    ],
+    "max_cell_nm": [
+      30.0,
+      30.0,
+      30.0
+    ],
+    "steps": 8742,
+    "T": 0.9337019366004535,
+    "T_tm0": 0.041317578016226195,
+    "phase_rad": 2.7894115897102796,
+    "neff_in": 1.7812069654464722,
+    "neff_out": 1.8386552333831787,
+    "setup_s": 27.82,
+    "run_s": 87.5,
+    "peak_gb": 6.004,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-24",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      500,
+      500,
+      200
+    ],
+    "total_cells": 50000000,
+    "min_cell_nm": [
+      24.0,
+      24.0,
+      24.0
+    ],
+    "max_cell_nm": [
+      24.0,
+      24.0,
+      24.0
+    ],
+    "steps": 10927,
+    "T": 0.9338747959235469,
+    "T_tm0": 0.04131317127790211,
+    "phase_rad": 2.5574506719829113,
+    "neff_in": 1.7815159559249878,
+    "neff_out": 1.838987112045288,
+    "setup_s": 27.47,
+    "run_s": 212.8,
+    "peak_gb": 11.617,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-34",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      558,
+      557,
+      161
+    ],
+    "total_cells": 50039766,
+    "min_cell_nm": [
+      20.62,
+      20.62,
+      20.0
+    ],
+    "max_cell_nm": [
+      31.57,
+      31.5,
+      45.45
+    ],
+    "steps": 12852,
+    "T": 0.9338390468265895,
+    "T_tm0": 0.041380799442114154,
+    "phase_rad": 2.689046862948959,
+    "neff_in": 1.781652569770813,
+    "neff_out": 1.8391447067260742,
+    "setup_s": 31.99,
+    "run_s": 244.22,
+    "peak_gb": 11.572,
+    "summary": "mesh of 'stack': 558 x 557 x 161 = 50,039,766 cells\n  x: 558 cells, 20.62 to 31.57 nm, largest ratio 1.250, PML cells 49 / 34 (aligned)\n  y: 557 cells, 20.62 to 31.5 nm, largest ratio 1.250, PML cells 32 / 49\n  z: 161 cells, 20 to 45.45 nm, largest ratio 1.250, PML cells 32 / 22 (faces centered at 0, 0.5 um)\n  time step 38.91 as, 12,852 steps\n  fields (E and H, 32-bit): 1.2 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-36",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      575,
+      575,
+      153
+    ],
+    "total_cells": 50585625,
+    "min_cell_nm": [
+      19.47,
+      19.47,
+      19.23
+    ],
+    "max_cell_nm": [
+      43.06,
+      42.79,
+      42.59
+    ],
+    "steps": 13524,
+    "T": 0.933711550987064,
+    "T_tm0": 0.04148977382108545,
+    "phase_rad": 2.780545563397239,
+    "neff_in": 1.781622290611267,
+    "neff_out": 1.8391180038452148,
+    "setup_s": 27.9,
+    "run_s": 254.88,
+    "peak_gb": 11.604,
+    "summary": "mesh of 'stack': 575 x 575 x 153 = 50,585,625 cells\n  x: 575 cells, 19.47 to 43.06 nm, largest ratio 1.250, PML cells 52 / 24 (aligned)\n  y: 575 cells, 19.47 to 42.79 nm, largest ratio 1.250, PML cells 24 / 52\n  z: 153 cells, 19.23 to 42.59 nm, largest ratio 1.250, PML cells 24 / 24 (faces centered at 0, 0.5 um)\n  time step 36.97 as, 13,525 steps\n  fields (E and H, 32-bit): 1.21 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-20",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      600,
+      600,
+      240
+    ],
+    "total_cells": 86400000,
+    "min_cell_nm": [
+      20.0,
+      20.0,
+      20.0
+    ],
+    "max_cell_nm": [
+      20.0,
+      20.0,
+      20.0
+    ],
+    "steps": 13113,
+    "T": 0.9338490408204156,
+    "T_tm0": 0.04137270528444987,
+    "phase_rad": 2.6918053067579435,
+    "neff_in": 1.7816716432571411,
+    "neff_out": 1.8391633033752441,
+    "setup_s": 27.66,
+    "run_s": 434.35,
+    "peak_gb": 19.861,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-42",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      688,
+      688,
+      197
+    ],
+    "total_cells": 93248768,
+    "min_cell_nm": [
+      16.69,
+      16.69,
+      16.67
+    ],
+    "max_cell_nm": [
+      25.56,
+      25.54,
+      36.51
+    ],
+    "steps": 15720,
+    "T": 0.9332874041556549,
+    "T_tm0": 0.041924049275995044,
+    "phase_rad": 2.756658213563181,
+    "neff_in": 1.781596302986145,
+    "neff_out": 1.8390758037567139,
+    "setup_s": 34.31,
+    "run_s": 548.91,
+    "peak_gb": 21.215,
+    "summary": "mesh of 'stack': 688 x 688 x 197 = 93,248,768 cells\n  x: 688 cells, 16.69 to 25.56 nm, largest ratio 1.250, PML cells 60 / 40 (aligned)\n  y: 688 cells, 16.69 to 25.54 nm, largest ratio 1.250, PML cells 40 / 60\n  z: 197 cells, 16.67 to 36.51 nm, largest ratio 1.250, PML cells 40 / 28 (faces centered at 0, 0.5 um)\n  time step 31.81 as, 15,720 steps\n  fields (E and H, 32-bit): 2.24 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-46",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      735,
+      734,
+      194
+    ],
+    "total_cells": 104661060,
+    "min_cell_nm": [
+      15.24,
+      15.24,
+      15.15
+    ],
+    "max_cell_nm": [
+      33.7,
+      33.56,
+      33.62
+    ],
+    "steps": 17242,
+    "T": 0.9330712360138336,
+    "T_tm0": 0.042164842082184906,
+    "phase_rad": 2.6686306319350126,
+    "neff_in": 1.7815515995025635,
+    "neff_out": 1.83903169631958,
+    "setup_s": 34.41,
+    "run_s": 667.11,
+    "peak_gb": 23.854,
+    "summary": "mesh of 'stack': 735 x 734 x 194 = 104,661,060 cells\n  x: 735 cells, 15.24 to 33.7 nm, largest ratio 1.250, PML cells 66 / 32 (aligned)\n  y: 734 cells, 15.24 to 33.56 nm, largest ratio 1.250, PML cells 30 / 66\n  z: 194 cells, 15.15 to 33.62 nm, largest ratio 1.250, PML cells 30 / 30 (faces centered at 0, 0.5 um)\n  time step 29 as, 17,242 steps\n  fields (E and H, 32-bit): 2.51 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-48",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      787,
+      786,
+      225
+    ],
+    "total_cells": 139180950,
+    "min_cell_nm": [
+      14.6,
+      14.6,
+      14.29
+    ],
+    "max_cell_nm": [
+      22.36,
+      22.33,
+      32.26
+    ],
+    "steps": 18091,
+    "T": 0.9329523885892255,
+    "T_tm0": 0.04226664602686223,
+    "phase_rad": 2.737374933036077,
+    "neff_in": 1.7815239429473877,
+    "neff_out": 1.8390048742294312,
+    "setup_s": 38.2,
+    "run_s": 941.72,
+    "peak_gb": 31.723,
+    "summary": "mesh of 'stack': 787 x 786 x 225 = 139,180,950 cells\n  x: 787 cells, 14.61 to 22.36 nm, largest ratio 1.250, PML cells 69 / 47 (aligned)\n  y: 786 cells, 14.61 to 22.33 nm, largest ratio 1.250, PML cells 45 / 69\n  z: 225 cells, 14.29 to 32.26 nm, largest ratio 1.250, PML cells 45 / 31 (faces centered at 0, 0.5 um)\n  time step 27.64 as, 18,092 steps\n  fields (E and H, 32-bit): 3.34 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-17",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      706,
+      706,
+      282
+    ],
+    "total_cells": 140558952,
+    "min_cell_nm": [
+      17.0,
+      17.0,
+      17.0
+    ],
+    "max_cell_nm": [
+      17.0,
+      17.0,
+      17.0
+    ],
+    "steps": 15426,
+    "T": 0.9330008882766914,
+    "T_tm0": 0.04207589687094941,
+    "phase_rad": 2.79891641137539,
+    "neff_in": 1.7813037633895874,
+    "neff_out": 1.8387658596038818,
+    "setup_s": 32.02,
+    "run_s": 837.81,
+    "peak_gb": 32.309,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-51",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      815,
+      814,
+      215
+    ],
+    "total_cells": 142633150,
+    "min_cell_nm": [
+      13.75,
+      13.75,
+      13.51
+    ],
+    "max_cell_nm": [
+      30.39,
+      30.3,
+      30.3
+    ],
+    "steps": 19189,
+    "T": 0.932873629744983,
+    "T_tm0": 0.04237398304534875,
+    "phase_rad": 2.6277045814627256,
+    "neff_in": 1.7815041542053223,
+    "neff_out": 1.8389860391616821,
+    "setup_s": 44.63,
+    "run_s": 996.8,
+    "peak_gb": 32.387,
+    "summary": "mesh of 'stack': 815 x 814 x 215 = 142,633,150 cells\n  x: 815 cells, 13.75 to 30.39 nm, largest ratio 1.250, PML cells 73 / 35 (aligned)\n  y: 814 cells, 13.75 to 30.3 nm, largest ratio 1.250, PML cells 33 / 73\n  z: 215 cells, 13.51 to 30.3 nm, largest ratio 1.250, PML cells 33 / 33 (faces centered at 0, 0.5 um)\n  time step 26.06 as, 19,189 steps\n  fields (E and H, 32-bit): 3.42 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-120",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      100,
+      100,
+      40
+    ],
+    "total_cells": 400000,
+    "min_cell_nm": [
+      120.0,
+      120.0,
+      120.0
+    ],
+    "max_cell_nm": [
+      120.0,
+      120.0,
+      120.0
+    ],
+    "steps": 2185,
+    "T": 0.8918066104727187,
+    "T_tm0": 0.09390877895589217,
+    "phase_rad": 1.4654898721243452,
+    "neff_in": 1.7700856924057007,
+    "neff_out": 1.8265377283096313,
+    "setup_s": 25.83,
+    "run_s": 2.83,
+    "peak_gb": 0.649,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-10",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      165,
+      165,
+      50
+    ],
+    "total_cells": 1361250,
+    "min_cell_nm": [
+      70.1,
+      70.1,
+      62.5
+    ],
+    "max_cell_nm": [
+      102.28,
+      102.28,
+      152.35
+    ],
+    "steps": 3898,
+    "T": 0.9419653658767868,
+    "T_tm0": 0.03540764359242686,
+    "phase_rad": 2.282625090222295,
+    "neff_in": 1.7839683294296265,
+    "neff_out": 1.8416177034378052,
+    "setup_s": 26.83,
+    "run_s": 8.63,
+    "peak_gb": 1.376,
+    "summary": "mesh of 'stack': 165 x 165 x 50 = 1,361,250 cells\n  x: 165 cells, 70.1 to 102.3 nm, largest ratio 1.250, PML cells 15 / 10 (aligned)\n  y: 165 cells, 70.1 to 102.3 nm, largest ratio 1.250, PML cells 10 / 15\n  z: 50 cells, 62.5 to 152.3 nm, largest ratio 1.250, PML cells 10 / 7 (faces centered at 0, 0.5 um)\n  time step 128.3 as, 3,899 steps\n  fields (E and H, 32-bit): 0.0327 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-10",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      165,
+      165,
+      50
+    ],
+    "total_cells": 1361250,
+    "min_cell_nm": [
+      70.1,
+      70.1,
+      62.5
+    ],
+    "max_cell_nm": [
+      102.28,
+      102.28,
+      152.35
+    ],
+    "steps": 3898,
+    "T": 0.9419653941071432,
+    "T_tm0": 0.035407643250168014,
+    "phase_rad": 2.282625079670654,
+    "neff_in": 1.7839683294296265,
+    "neff_out": 1.8416177034378052,
+    "setup_s": 26.94,
+    "run_s": 8.61,
+    "peak_gb": 1.376,
+    "summary": "mesh of 'stack': 165 x 165 x 50 = 1,361,250 cells\n  x: 165 cells, 70.1 to 102.3 nm, largest ratio 1.250, PML cells 15 / 10 (aligned)\n  y: 165 cells, 70.1 to 102.3 nm, largest ratio 1.250, PML cells 10 / 15\n  z: 50 cells, 62.5 to 152.3 nm, largest ratio 1.250, PML cells 10 / 7 (faces centered at 0, 0.5 um)\n  time step 128.3 as, 3,899 steps\n  fields (E and H, 32-bit): 0.0327 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-12",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      197,
+      197,
+      59
+    ],
+    "total_cells": 2289731,
+    "min_cell_nm": [
+      58.42,
+      58.42,
+      55.56
+    ],
+    "max_cell_nm": [
+      88.41,
+      88.41,
+      125.0
+    ],
+    "steps": 4568,
+    "T": 0.9399577534698027,
+    "T_tm0": 0.036994236304327265,
+    "phase_rad": 1.863233468484231,
+    "neff_in": 1.7836267948150635,
+    "neff_out": 1.8412889242172241,
+    "setup_s": 29.19,
+    "run_s": 17.41,
+    "peak_gb": 1.747,
+    "summary": "mesh of 'stack': 197 x 197 x 59 = 2,289,731 cells\n  x: 197 cells, 58.42 to 88.41 nm, largest ratio 1.250, PML cells 18 / 12 (aligned)\n  y: 197 cells, 58.42 to 88.41 nm, largest ratio 1.250, PML cells 12 / 18\n  z: 59 cells, 55.56 to 125 nm, largest ratio 1.250, PML cells 12 / 8 (faces centered at 0, 0.5 um)\n  time step 109.5 as, 4,568 steps\n  fields (E and H, 32-bit): 0.055 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-12",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      197,
+      197,
+      59
+    ],
+    "total_cells": 2289731,
+    "min_cell_nm": [
+      58.42,
+      58.42,
+      55.56
+    ],
+    "max_cell_nm": [
+      88.41,
+      88.41,
+      125.0
+    ],
+    "steps": 4568,
+    "T": 0.9399577300075694,
+    "T_tm0": 0.0369942342132441,
+    "phase_rad": 1.8632334418704073,
+    "neff_in": 1.7836267948150635,
+    "neff_out": 1.8412889242172241,
+    "setup_s": 29.01,
+    "run_s": 17.41,
+    "peak_gb": 1.747,
+    "summary": "mesh of 'stack': 197 x 197 x 59 = 2,289,731 cells\n  x: 197 cells, 58.42 to 88.41 nm, largest ratio 1.250, PML cells 18 / 12 (aligned)\n  y: 197 cells, 58.42 to 88.41 nm, largest ratio 1.250, PML cells 12 / 18\n  z: 59 cells, 55.56 to 125 nm, largest ratio 1.250, PML cells 12 / 8 (faces centered at 0, 0.5 um)\n  time step 109.5 as, 4,568 steps\n  fields (E and H, 32-bit): 0.055 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-60",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      200,
+      200,
+      80
+    ],
+    "total_cells": 3200000,
+    "min_cell_nm": [
+      60.0,
+      60.0,
+      60.0
+    ],
+    "max_cell_nm": [
+      60.0,
+      60.0,
+      60.0
+    ],
+    "steps": 4371,
+    "T": 0.9248895546225875,
+    "T_tm0": 0.05090335160561736,
+    "phase_rad": 1.986727557526731,
+    "neff_in": 1.7788639068603516,
+    "neff_out": 1.836081624031067,
+    "setup_s": 28.35,
+    "run_s": 25.02,
+    "peak_gb": 2.384,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-16",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      258,
+      258,
+      72
+    ],
+    "total_cells": 4792608,
+    "min_cell_nm": [
+      43.81,
+      43.81,
+      41.67
+    ],
+    "max_cell_nm": [
+      85.29,
+      85.29,
+      95.65
+    ],
+    "steps": 6090,
+    "T": 0.9357955224473999,
+    "T_tm0": 0.03984955910521576,
+    "phase_rad": 2.596284352723329,
+    "neff_in": 1.7826006412506104,
+    "neff_out": 1.8401566743850708,
+    "setup_s": 29.62,
+    "run_s": 50.88,
+    "peak_gb": 2.993,
+    "summary": "mesh of 'stack': 258 x 258 x 72 = 4,792,608 cells\n  x: 258 cells, 43.82 to 85.29 nm, largest ratio 1.250, PML cells 23 / 12 (aligned)\n  y: 258 cells, 43.82 to 85.29 nm, largest ratio 1.250, PML cells 12 / 23\n  z: 72 cells, 41.67 to 95.65 nm, largest ratio 1.250, PML cells 12 / 11 (faces centered at 0, 0.5 um)\n  time step 82.1 as, 6,091 steps\n  fields (E and H, 32-bit): 0.115 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-16",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      263,
+      263,
+      77
+    ],
+    "total_cells": 5326013,
+    "min_cell_nm": [
+      43.81,
+      43.81,
+      41.67
+    ],
+    "max_cell_nm": [
+      66.67,
+      66.67,
+      95.65
+    ],
+    "steps": 6090,
+    "T": 0.9357801536519056,
+    "T_tm0": 0.039841076563971824,
+    "phase_rad": 2.596620746493767,
+    "neff_in": 1.78255295753479,
+    "neff_out": 1.840122103691101,
+    "setup_s": 29.87,
+    "run_s": 55.49,
+    "peak_gb": 3.244,
+    "summary": "mesh of 'stack': 263 x 263 x 77 = 5,326,013 cells\n  x: 263 cells, 43.82 to 66.67 nm, largest ratio 1.250, PML cells 23 / 15 (aligned)\n  y: 263 cells, 43.82 to 66.67 nm, largest ratio 1.250, PML cells 15 / 23\n  z: 77 cells, 41.67 to 95.65 nm, largest ratio 1.250, PML cells 15 / 11 (faces centered at 0, 0.5 um)\n  time step 82.1 as, 6,091 steps\n  fields (E and H, 32-bit): 0.128 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-20",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      320,
+      320,
+      87
+    ],
+    "total_cells": 8908800,
+    "min_cell_nm": [
+      35.05,
+      35.05,
+      33.33
+    ],
+    "max_cell_nm": [
+      77.5,
+      77.5,
+      76.92
+    ],
+    "steps": 7613,
+    "T": 0.9341467405894569,
+    "T_tm0": 0.04131272579386641,
+    "phase_rad": 2.474998501190307,
+    "neff_in": 1.7821804285049438,
+    "neff_out": 1.8397119045257568,
+    "setup_s": 29.42,
+    "run_s": 123.93,
+    "peak_gb": 5.534,
+    "summary": "mesh of 'stack': 320 x 320 x 87 = 8,908,800 cells\n  x: 320 cells, 35.05 to 77.5 nm, largest ratio 1.250, PML cells 29 / 13 (aligned)\n  y: 320 cells, 35.05 to 77.5 nm, largest ratio 1.250, PML cells 13 / 29\n  z: 87 cells, 33.33 to 76.92 nm, largest ratio 1.250, PML cells 13 / 13 (faces centered at 0, 0.5 um)\n  time step 65.68 as, 7,613 steps\n  fields (E and H, 32-bit): 0.214 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-20",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      328,
+      328,
+      96
+    ],
+    "total_cells": 10328064,
+    "min_cell_nm": [
+      35.05,
+      35.05,
+      33.33
+    ],
+    "max_cell_nm": [
+      53.43,
+      53.43,
+      76.92
+    ],
+    "steps": 7613,
+    "T": 0.934138225940639,
+    "T_tm0": 0.041311471435379034,
+    "phase_rad": 2.475087351469563,
+    "neff_in": 1.7821745872497559,
+    "neff_out": 1.8397066593170166,
+    "setup_s": 28.45,
+    "run_s": 148.27,
+    "peak_gb": 6.275,
+    "summary": "mesh of 'stack': 328 x 328 x 96 = 10,328,064 cells\n  x: 328 cells, 35.05 to 53.43 nm, largest ratio 1.250, PML cells 29 / 19 (aligned)\n  y: 328 cells, 35.05 to 53.43 nm, largest ratio 1.250, PML cells 19 / 29\n  z: 96 cells, 33.33 to 76.92 nm, largest ratio 1.250, PML cells 19 / 13 (faces centered at 0, 0.5 um)\n  time step 65.68 as, 7,613 steps\n  fields (E and H, 32-bit): 0.248 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-40",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      300,
+      300,
+      120
+    ],
+    "total_cells": 10800000,
+    "min_cell_nm": [
+      40.0,
+      40.0,
+      40.0
+    ],
+    "max_cell_nm": [
+      40.0,
+      40.0,
+      40.0
+    ],
+    "steps": 6556,
+    "T": 0.929684135305249,
+    "T_tm0": 0.04528497756237646,
+    "phase_rad": 2.523861074774052,
+    "neff_in": 1.7806107997894287,
+    "neff_out": 1.8379863500595093,
+    "setup_s": 27.47,
+    "run_s": 139.72,
+    "peak_gb": 6.552,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-27",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      432,
+      432,
+      116
+    ],
+    "total_cells": 21648384,
+    "min_cell_nm": [
+      25.96,
+      25.96,
+      25.0
+    ],
+    "max_cell_nm": [
+      56.17,
+      56.17,
+      57.34
+    ],
+    "steps": 10232,
+    "T": 0.9327433603039103,
+    "T_tm0": 0.0424542514754433,
+    "phase_rad": 2.6037191060105838,
+    "neff_in": 1.7818104028701782,
+    "neff_out": 1.839312195777893,
+    "setup_s": 74.3,
+    "run_s": 428.15,
+    "peak_gb": 13.178,
+    "summary": "mesh of 'stack': 432 x 432 x 116 = 21,648,384 cells\n  x: 432 cells, 25.96 to 56.17 nm, largest ratio 1.250, PML cells 39 / 18 (aligned)\n  y: 432 cells, 25.96 to 56.17 nm, largest ratio 1.250, PML cells 18 / 39\n  z: 116 cells, 25 to 57.34 nm, largest ratio 1.250, PML cells 18 / 18 (faces centered at 0, 0.5 um)\n  time step 48.87 as, 10,232 steps\n  fields (E and H, 32-bit): 0.52 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-26",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      427,
+      427,
+      123
+    ],
+    "total_cells": 22426467,
+    "min_cell_nm": [
+      26.96,
+      26.96,
+      26.32
+    ],
+    "max_cell_nm": [
+      41.29,
+      40.34,
+      58.82
+    ],
+    "steps": 9807,
+    "T": 0.9329938341535405,
+    "T_tm0": 0.042242404396977226,
+    "phase_rad": 2.5334429874579514,
+    "neff_in": 1.7818865776062012,
+    "neff_out": 1.8393837213516235,
+    "setup_s": 49.8,
+    "run_s": 407.9,
+    "peak_gb": 13.611,
+    "summary": "mesh of 'stack': 427 x 427 x 123 = 22,426,467 cells\n  x: 427 cells, 26.96 to 41.28 nm, largest ratio 1.250, PML cells 38 / 26 (aligned)\n  y: 427 cells, 26.96 to 40.34 nm, largest ratio 1.250, PML cells 25 / 38\n  z: 123 cells, 26.32 to 58.82 nm, largest ratio 1.250, PML cells 25 / 17 (faces centered at 0, 0.5 um)\n  time step 50.99 as, 9,807 steps\n  fields (E and H, 32-bit): 0.538 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-30",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      400,
+      400,
+      160
+    ],
+    "total_cells": 25600000,
+    "min_cell_nm": [
+      30.0,
+      30.0,
+      30.0
+    ],
+    "max_cell_nm": [
+      30.0,
+      30.0,
+      30.0
+    ],
+    "steps": 8742,
+    "T": 0.9311805781616808,
+    "T_tm0": 0.04371373290305873,
+    "phase_rad": 2.754553354745912,
+    "neff_in": 1.781205415725708,
+    "neff_out": 1.8386510610580444,
+    "setup_s": 48.42,
+    "run_s": 452.33,
+    "peak_gb": 15.606,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-24",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      500,
+      500,
+      200
+    ],
+    "total_cells": 50000000,
+    "min_cell_nm": [
+      24.0,
+      24.0,
+      24.0
+    ],
+    "max_cell_nm": [
+      24.0,
+      24.0,
+      24.0
+    ],
+    "steps": 10927,
+    "T": 0.9319405617380622,
+    "T_tm0": 0.043129365157132914,
+    "phase_rad": 2.528726747568768,
+    "neff_in": 1.7815208435058594,
+    "neff_out": 1.8389917612075806,
+    "setup_s": 46.8,
+    "run_s": 1186.88,
+    "peak_gb": 30.318,
+    "summary": null,
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "mesh-34",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      558,
+      557,
+      161
+    ],
+    "total_cells": 50039766,
+    "min_cell_nm": [
+      20.62,
+      20.62,
+      20.0
+    ],
+    "max_cell_nm": [
+      31.57,
+      31.5,
+      45.45
+    ],
+    "steps": 12852,
+    "T": 0.9322176598073778,
+    "T_tm0": 0.04290771609869499,
+    "phase_rad": 2.6640436779220185,
+    "neff_in": 1.781655192375183,
+    "neff_out": 1.839146614074707,
+    "setup_s": 55.11,
+    "run_s": 1718.8,
+    "peak_gb": 30.238,
+    "summary": "mesh of 'stack': 558 x 557 x 161 = 50,039,766 cells\n  x: 558 cells, 20.62 to 31.57 nm, largest ratio 1.250, PML cells 49 / 34 (aligned)\n  y: 557 cells, 20.62 to 31.5 nm, largest ratio 1.250, PML cells 32 / 49\n  z: 161 cells, 20 to 45.45 nm, largest ratio 1.250, PML cells 32 / 22 (faces centered at 0, 0.5 um)\n  time step 38.91 as, 12,852 steps\n  fields (E and H, 32-bit): 1.2 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-36",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      575,
+      575,
+      153
+    ],
+    "total_cells": 50585625,
+    "min_cell_nm": [
+      19.47,
+      19.47,
+      19.23
+    ],
+    "max_cell_nm": [
+      43.06,
+      42.79,
+      42.59
+    ],
+    "steps": 13524,
+    "T": 0.9321662722573981,
+    "T_tm0": 0.042930207087067594,
+    "phase_rad": 2.7568080790139597,
+    "neff_in": 1.7816236019134521,
+    "neff_out": 1.8391183614730835,
+    "setup_s": 59.99,
+    "run_s": 1954.04,
+    "peak_gb": 30.508,
+    "summary": "mesh of 'stack': 575 x 575 x 153 = 50,585,625 cells\n  x: 575 cells, 19.47 to 43.06 nm, largest ratio 1.250, PML cells 52 / 24 (aligned)\n  y: 575 cells, 19.47 to 42.79 nm, largest ratio 1.250, PML cells 24 / 52\n  z: 153 cells, 19.23 to 42.59 nm, largest ratio 1.250, PML cells 24 / 24 (faces centered at 0, 0.5 um)\n  time step 36.97 as, 13,525 steps\n  fields (E and H, 32-bit): 1.21 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
+    "gpu": "NVIDIA L40S"
   }
 ]

@@ -12,7 +12,7 @@ The table below lists cumulative wall times for each [geometry option](guide/opt
 |---|---|
 | `corner_lines=2` (0: off) | 5.7 min (`corner_pass` 176 s, `corner_inputs` 123 s, `corner_budget` 38 s, `corner_plan` 6 s) |
 | `averaging="subpixel"` (`"inverse"`) | part of `composite` painting (at most 4.2 min combined across all painting) |
-| `averaging="subpixel_full"` (opt-in) | 9-component tensors using fdtdx's fully anisotropic FDTD update (~4.5–6× runtime and ~1.1–2.4× peak memory across full simulations; see `Write cost` above for per-call array writing) |
+| `averaging="subpixel_full"` (opt-in) | 9-component tensors using fdtdx's fully anisotropic FDTD update (~4.8–6.5× median runtime and ~1.2–2.8× median peak memory across full simulations; see `Write cost` above for per-call array writing) |
 | `subpixel_normal="voxel"` (`"gradient"`) | ~1.7× write forward and ~3.0× write gradient over `"gradient"` (0.095 s / 0.59 s vs 0.056 s / 0.20 s on a 130 × 90 × 45 device) |
 | `yee_staggered=True` | 1.1 min (`write.Ey`, `write.Ez`) plus staggered corner budgets |
 | `xy_subsamples=1` | 1.4 min across tests that enable `xy_subsamples=2` |
@@ -27,4 +27,4 @@ On a jitted 130 × 90 × 45 device on an NVIDIA L40S, `write` with all default `
 
 ## Adaptive meshing benchmarks
 
-Accuracy-per-cell and memory convergence sweeps comparing `bf.mesh` against `UniformGrid` across six photonic simulations, under both `averaging="subpixel"` and `averaging="subpixel_full"`, live in `benchmarks/meshing/` (`accuracy_per_cell.py`, `plot_accuracy_per_cell.py`, results in `benchmarks/meshing/results/accuracy_per_cell.json`) and are summarized in [Adaptive meshing](guide/adaptive-meshing.md).
+Accuracy-per-cell, VRAM, and MEEP reference convergence sweeps comparing `bf.mesh` against `UniformGrid` across six photonic simulations—under `averaging="subpixel"`, `averaging="subpixel_full"`, and native `mp.Prism`/`mp.Block` uniform-grid MEEP—live in `benchmarks/meshing/` (`accuracy_per_cell.py`, `meep_uniform.py`, `plot_accuracy_per_cell.py`, results in `benchmarks/meshing/results/accuracy_per_cell.json` and `benchmarks/meshing/results/meep_uniform.json`) and are summarized in [Adaptive meshing](guide/adaptive-meshing.md).

@@ -14,6 +14,7 @@ Benchmarks:
     4. ``elevator_coupler``  Multi-level SiN adiabatic elevator coupler (100 nm gap, 50 nm tips)
     5. ``directional_coupler`` Broadband SiN directional coupler (300 nm gap, 538-728 nm)
     6. ``sin_bend``          Curved SiN bend (R=7 um) + Refine.material_cells substrate study
+    7. ``linbo3_bend``       X-cut LiNbO3 (TFLN) 90-degree trapezoidal bend on silica substrate
 """
 
 from __future__ import annotations
@@ -856,6 +857,140 @@ def run_sin_bend(kind: str, averaging: str) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------- 7. linbo3_bend
+
+
+def run_linbo3_bend(kind: str, averaging: str) -> dict[str, Any]:
+    import fdtdx
+    import jax
+    import jax.numpy as jnp
+    import linbo3_bend as lb
+
+    import bifrost as bf
+
+    assert Path(bf.__file__).resolve().is_relative_to(WT_ROOT), bf.__file__
+    z_margin = (lb.BOX_HEIGHT - lb.THICKNESS) / 2
+    stack = bf.StackDevice.from_layer_stack(
+        lb.component,
+        lb.LAYER_STACK,
+        lb.MATERIALS,
+        background="air",
+        zrange_layers=["core"],
+        extend_ports=(("o1", lb.EXTENSION), ("o2", lb.EXTENSION)),
+        boundary_offset=(lb.MARGIN, 0.0, 0.0, -lb.MARGIN, z_margin, -z_margin),
+        name="stack",
+        diagnostics=False,
+        averaging=averaging,
+        voxelizer="greens",
+        dtype=jnp.float32,
+    )
+
+    summary = None
+    if kind.startswith("uniform-"):
+        res_um = float(kind.split("-", 1)[1]) * 1e-3
+        grid = fdtdx.core.grid.UniformGrid(spacing=res_um * 1e-6)
+        bound = fdtdx.BoundaryConfig.from_uniform_bound(thickness=round(lb.PML / res_um))
+        on_grid: dict[str, Any] = {}
+    elif kind.startswith("meshsub-"):
+        ppw = float(kind.split("-", 1)[1])
+        clad_cell = lb.WAVELENGTH / (lb.BOX_INDEX * min(ppw, 12.0))
+        m = bf.mesh(
+            stack,
+            lb.WAVELENGTH,
+            ppw=ppw,
+            pml=lb.PML,
+            refine=bf.Refine(material_cells={"silica": clad_cell}),
+        )
+        summary = m.summary(time=lb.DURATION)
+        grid, bound = m.grid, m.boundary
+    elif kind.startswith("mesh-"):
+        ppw = float(kind.split("-", 1)[1])
+        m = bf.mesh(stack, lb.WAVELENGTH, ppw=ppw, pml=lb.PML)
+        summary = m.summary(time=lb.DURATION)
+        grid, bound = m.grid, m.boundary
+    else:
+        raise ValueError(f"Unknown linbo3_bend kind {kind!r}")
+
+    config = stack.get_simulation_config(time=lb.DURATION, grid=grid)
+    if not kind.startswith("uniform-"):
+        on_grid = {"grid": config}
+
+    wave = fdtdx.WaveCharacter(wavelength=lb.WAVELENGTH * 1e-6)
+    pulse = fdtdx.GaussianPulseProfile(
+        center_wave=wave, spectral_width=fdtdx.WaveCharacter(frequency=0.05 * wave.get_frequency())
+    )
+    te0 = dict(mode_index=0, filter_pol="te")
+    tm0 = dict(mode_index=0, filter_pol="tm")
+    vol, constraints = stack.get_simulation_volume()
+    objects = [vol, stack]
+    for obj, pl in (
+        stack.create_mode_plane_source_at(
+            "o1", lb.PLANE_PADDING, wave_character=wave, temporal_profile=pulse, port_offset=-1.0,
+            name="source", **te0, **on_grid,
+        ),
+        stack.create_mode_overlap_detector_at(
+            "o1", lb.PLANE_PADDING, direction="in", wave_characters=(wave,), scaling_mode="pulse",
+            port_offset=-0.5, name="in", **te0, **on_grid,
+        ),
+        stack.create_mode_overlap_detector_at(
+            "o2", lb.PLANE_PADDING, wave_characters=(wave,), scaling_mode="pulse",
+            port_offset=-0.5, name="out", **te0, **on_grid,
+        ),
+        stack.create_mode_overlap_detector_at(
+            "o2", lb.PLANE_PADDING, wave_characters=(wave,), scaling_mode="pulse",
+            port_offset=-0.5, name="out_tm", **tm0, **on_grid,
+        ),
+    ):
+        objects.append(obj)
+        constraints += pl
+    bounds, b_placing = fdtdx.boundary_objects_from_config(bound, vol)
+    objects += list(bounds.values())
+    constraints += b_placing
+
+    key = jax.random.PRNGKey(0)
+    t0 = time.perf_counter()
+    objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
+    all_params = {**params, **bf.init_stack_params(objects)}
+    arrays, objects, _ = _apply_stack(arrays, objects, all_params, key)
+    jax.block_until_ready(arrays.inv_permittivities)
+    t_setup = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    with jax.enable_x64(False):
+        _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key, show_progress=False)
+        jax.block_until_ready(arrays.detector_states)
+    t_run = time.perf_counter() - t0
+
+    a_in = objects["in"].compute_overlap(arrays.detector_states["in"])[0]
+    a_out = objects["out"].compute_overlap(arrays.detector_states["out"])[0]
+    a_tm = objects["out_tm"].compute_overlap(arrays.detector_states["out_tm"])[0]
+    s21 = complex(np.asarray(a_out / a_in))
+    s21_tm = complex(np.asarray(a_tm / a_in))
+    neff_in = float(complex(np.asarray(objects["in"]._mode_neff).reshape(-1)[0]).real)
+    neff_out = float(complex(np.asarray(objects["out"]._mode_neff).reshape(-1)[0]).real)
+    shape, total_cells, min_nm, max_nm = _grid_stats(config)
+    return {
+        "bench": "linbo3_bend",
+        "kind": kind,
+        "voxelizer": "greens",
+        "averaging": averaging,
+        "cells": shape,
+        "total_cells": total_cells,
+        "min_cell_nm": min_nm,
+        "max_cell_nm": max_nm,
+        "steps": int(config.time_steps_total),
+        "T": float(abs(s21) ** 2),
+        "T_tm0": float(abs(s21_tm) ** 2),
+        "phase_rad": float(math.atan2(s21.imag, s21.real)),
+        "neff_in": neff_in,
+        "neff_out": neff_out,
+        "setup_s": round(t_setup, 2),
+        "run_s": round(t_run, 2),
+        "peak_gb": _peak_gb(jax),
+        "summary": summary,
+    }
+
+
 RUNNERS = {
     "aniso_slab": run_aniso_slab,
     "sloped_guide": run_sloped_guide,
@@ -863,12 +998,13 @@ RUNNERS = {
     "elevator_coupler": run_elevator_coupler,
     "directional_coupler": run_directional_coupler,
     "sin_bend": run_sin_bend,
+    "linbo3_bend": run_linbo3_bend,
 }
 
 
 DC_KINDS = (
-    "uniform-100", "uniform-50", "uniform-40", "uniform-25", "uniform-20",
-    "mesh-6", "mesh-8", "mesh-10", "mesh-12", "mesh-14", "mesh-16",
+    "uniform-100", "uniform-50", "uniform-40", "uniform-25", "uniform-23.5", "uniform-20",
+    "mesh-6", "mesh-8", "mesh-10", "mesh-12", "mesh-12.5", "mesh-14", "mesh-16",
 )
 BEND_IMPORT_KINDS = (
     "uniform-120", "uniform-60", "uniform-40", "uniform-30", "uniform-24",
@@ -898,20 +1034,27 @@ def _import_existing(results: list[dict[str, Any]]) -> None:
                     seen.add(("sin_bend", k, avg))
 
 
-def _job_list() -> list[tuple[str, str, bool]]:
+def _job_list(averaging: str = "subpixel") -> list[tuple[str, str, bool]]:
     """Return ``(bench, kind, use_platform_allocator)`` jobs in execution order."""
+    sub = averaging == "subpixel"
     jobs: list[tuple[str, str, bool]] = []
-    for k in (
-        "uniform-60", "uniform-45", "uniform-36", "uniform-30", "uniform-24",
-        "uniform-18", "uniform-15", "uniform-12", "uniform-10", "uniform-7.5",
-        "mesh-6", "mesh-8", "mesh-10", "mesh-14", "mesh-20", "mesh-28", "mesh-40", "mesh-55",
-    ):
-        jobs.append(("aniso_slab", k, False))
+    if not sub:
+        for k in (
+            "uniform-60", "uniform-45", "uniform-36", "uniform-30", "uniform-24",
+            "uniform-18", "uniform-15", "uniform-12", "uniform-10", "uniform-7.5",
+            "mesh-6", "mesh-8", "mesh-10", "mesh-14", "mesh-20", "mesh-28", "mesh-40", "mesh-55",
+        ):
+            jobs.append(("aniso_slab", k, False))
 
-    for k in (
-        "uniform-64", "uniform-50", "uniform-40", "uniform-32", "uniform-25", "uniform-20", "uniform-16", "uniform-12.5",
+    sg_kinds: tuple[str, ...] = (
+        "uniform-64", "uniform-50", "uniform-40", "uniform-32", "uniform-25", "uniform-20", "uniform-16",
+        "uniform-12.5", "uniform-11",
+        *(("uniform-9", "uniform-7.2") if sub else ()),
         "mesh-8", "mesh-10", "mesh-12", "mesh-15", "mesh-18", "mesh-22", "mesh-27", "mesh-34",
-    ):
+        "mesh-46", "mesh-59",
+        *(("mesh-74", "mesh-86") if sub else ()),
+    )
+    for k in sg_kinds:
         jobs.append(("sloped_guide", k, k == "uniform-12.5"))
 
     for k in (
@@ -920,21 +1063,44 @@ def _job_list() -> list[tuple[str, str, bool]]:
     ):
         jobs.append(("soi_bragg", k, k in ("uniform-16", "uniform-12.5")))
 
-    for k in (
-        "uniform-80", "uniform-50", "uniform-40", "uniform-32", "uniform-25", "uniform-20", "uniform-16",
-        "mesh-6", "mesh-8", "mesh-10", "mesh-12", "mesh-15", "mesh-18",
-    ):
+    ec_kinds: tuple[str, ...] = (
+        "uniform-80", "uniform-50", "uniform-40", "uniform-32", "uniform-25", "uniform-20", "uniform-17", "uniform-16",
+        *(("uniform-12.5", "uniform-12") if sub else ()),
+        "mesh-6", "mesh-8", "mesh-10", "mesh-12", "mesh-15", "mesh-18", "mesh-22",
+        *(("mesh-28", "mesh-33") if sub else ()),
+    )
+    for k in ec_kinds:
         jobs.append(("elevator_coupler", k, k in ("uniform-20", "uniform-16", "mesh-18")))
 
-    for k in DC_KINDS:
+    dc_kinds: tuple[str, ...] = (
+        *DC_KINDS,
+        *(("uniform-16.5", "mesh-18") if sub else ()),
+    )
+    for k in dc_kinds:
         jobs.append(("directional_coupler", k, k in ("uniform-25", "uniform-20", "mesh-10", "mesh-12", "mesh-14", "mesh-16")))
 
-    for k in (
+    sb_kinds: tuple[str, ...] = (
         *BEND_IMPORT_KINDS,
-        "meshsub-12", "meshsub-16", "meshsub-20", "meshsub-24",
+        *(("uniform-20", "uniform-16.2") if sub else ()),
+        "mesh-30", "mesh-36",
+        *(("mesh-46", "mesh-54") if sub else ()),
+        "meshsub-12", "meshsub-16", "meshsub-20", "meshsub-24", "meshsub-32", "meshsub-38",
+        *(("meshsub-46", "meshsub-57") if sub else ()),
         "meshclad-14", "meshclad-17", "meshclad-20", "meshclad-24", "meshclad-40-80",
-    ):
+    )
+    for k in sb_kinds:
         jobs.append(("sin_bend", k, k in ("uniform-30", "uniform-24")))
+
+    lb_kinds: tuple[str, ...] = (
+        "uniform-120", "uniform-60", "uniform-40", "uniform-30", "uniform-24",
+        *(("uniform-20", "uniform-17") if sub else ()),
+        "mesh-10", "mesh-12", "mesh-16", "mesh-20", "mesh-26", "mesh-34",
+        *(("mesh-42", "mesh-48") if sub else ()),
+        "meshsub-10", "meshsub-12", "meshsub-16", "meshsub-20", "meshsub-27", "meshsub-36",
+        *(("meshsub-46", "meshsub-51") if sub else ()),
+    )
+    for k in lb_kinds:
+        jobs.append(("linbo3_bend", k, False))
     return jobs
 
 
@@ -974,7 +1140,7 @@ def main() -> None:
     out_path.write_text(json.dumps(results, indent=2))
 
     done = {(r["bench"], r["kind"], r["averaging"]) for r in results}
-    for bench, kind, use_platform in _job_list():
+    for bench, kind, use_platform in _job_list(args.averaging):
         if args.bench != "all" and bench != args.bench:
             continue
         if args.kind and kind not in args.kind.split(","):

@@ -196,6 +196,18 @@ def test_hardware_the_bend_tutorial_reproduces_its_numbers(tmp_path: Path) -> No
 
 
 @pytest.mark.skipif(not HARDWARE, reason="runs full simulations; set BIFROST_HARDWARE=1 on a GPU node")
+def test_hardware_the_linbo3_bend_example_runs(tmp_path: Path) -> None:
+    done = _run("examples/linbo3_bend.py", "--figure", str(tmp_path / "field.png"))
+    assert done.returncode == 0, done.stderr[-2000:]
+    transmission = float(re.search(r"TE0 trans\.:\s+([\d.]+)", done.stdout).group(1))
+    tm_conv = float(re.search(r"TE0->TM0 conv\.:\s+([\d.]+)", done.stdout).group(1))
+    assert 0.90 < transmission < 0.98, done.stdout
+    assert 0.01 < tm_conv < 0.10, done.stdout
+    assert transmission + tm_conv <= 1.01, done.stdout
+    assert (tmp_path / "field.png").stat().st_size > 10_000
+
+
+@pytest.mark.skipif(not HARDWARE, reason="runs full simulations; set BIFROST_HARDWARE=1 on a GPU node")
 def test_hardware_the_results_guide_reads_its_monitors() -> None:
     done = _run("examples/guide/results.py")
     assert done.returncode == 0, done.stderr[-2000:]

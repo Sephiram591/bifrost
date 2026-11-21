@@ -1,9 +1,10 @@
-"""Plot accuracy and simulated convergence curves across six simulations for both subpixel averaging modes.
+"""Plot accuracy and simulated convergence curves across six simulations for bifrost and MEEP.
 
-Writes three figures: the error against each benchmark's reference (``adaptive_meshing_accuracy.png``),
-the measured quantity itself against grid cell count (``adaptive_meshing_raw.png``), and the same
-measured quantity against peak GPU VRAM (``adaptive_meshing_vram.png``). Solid filled markers are
-``averaging="subpixel"``; dashed hollow markers are ``averaging="subpixel_full"``."""
+Writes three figures: peak GPU VRAM (``adaptive_meshing_vram.png``), grid cell count
+(``adaptive_meshing_raw.png``), and error against reference (``adaptive_meshing_accuracy.png``).
+Solid filled markers are ``averaging="subpixel"``; dashed hollow markers are
+``averaging="subpixel_full"``; purple dash-dot diamonds are MEEP on a uniform grid.
+"""
 
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ GRID = "#e6e5e0"
 UNIF = "#2a78d6"
 MESH = "#eb6834"
 MESH_SUB = "#1baf7a"
+MEEP = "#7a49a5"
 
 TIDY3D_NEFF_REF = 2.381043200767292  # benchmarks/rectilinear/results/guide_tidy3d_reference.json
 DC_S0_REF = 0.3558  # benchmarks/rectilinear/README.md joint uniform continuum fit
@@ -38,8 +40,17 @@ AVG_LS = {"subpixel": "-", "subpixel_full": "--"}
 AVG_LABEL = {"subpixel": "subpixel", "subpixel_full": "subpixel_full"}
 
 
+def _load_meep(src: Path, meep_src: Path | None) -> list[dict[str, Any]]:
+    candidate = src.parent / "meep_uniform.json" if meep_src is None else meep_src
+    return json.loads(candidate.read_text()) if candidate.exists() else []
+
+
 def _by_bench(rows: list[dict[str, Any]], bench: str, averaging: str) -> dict[str, dict[str, Any]]:
     return {r["kind"]: r for r in rows if r.get("bench") == bench and r.get("averaging") == averaging}
+
+
+def _meep_by_bench(rows: list[dict[str, Any]], bench: str) -> dict[str, dict[str, Any]]:
+    return {r["kind"]: r for r in rows if r.get("bench") == bench}
 
 
 def _style_ax(ax: plt.Axes, title: str, xlabel: str, ylabel: str) -> None:
@@ -58,6 +69,14 @@ def _style_ax(ax: plt.Axes, title: str, xlabel: str, ylabel: str) -> None:
     ax.set_title(title, loc="left", fontsize=10.5, fontweight="medium", color=INK, pad=8)
     ax.set_xlabel(xlabel, fontsize=9.5, color=INK)
     ax.set_ylabel(ylabel, fontsize=9.5, color=INK)
+
+
+def _markersize(marker: str) -> float:
+    if marker == "^":
+        return 7.0
+    if marker == "D":
+        return 5.4
+    return 6.2
 
 
 def _plot_series(
@@ -87,10 +106,10 @@ def _plot_series(
         marker=marker,
         linestyle=ls,
         linewidth=2.0,
-        markersize=7.0 if marker == "^" else 6.2,
+        markersize=_markersize(marker),
         markeredgecolor=color if hollow else SURFACE,
         markerfacecolor=SURFACE if hollow else color,
-        markeredgewidth=1.4 if hollow else (0.9 if marker == "^" else 1.2),
+        markeredgewidth=1.4 if hollow else (0.9 if marker in ("^", "D") else 1.2),
         label=label,
         zorder=zorder,
     )
@@ -117,35 +136,40 @@ def _annotate_points(
         )
 
 
-def _rmse(r: dict[str, Any], ref: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((np.asarray(r["T_spectrum"]) - ref) ** 2)))
-
-
 def _series(
-    ax: plt.Axes, rows: list[dict[str, Any]], fx, fy, *, color: str, marker: str, label: str, avg: str,
-    label_ends: bool | None = None, show_avg: bool = True, **kw: Any,
+    ax: plt.Axes, rows: list[dict[str, Any]], fx, fy, *, color: str, marker: str, label: str, avg: str | None,
+    label_ends: bool | None = None, show_avg: bool = True, ls: str | None = None,
+    start_offset: tuple[tuple[int, int], str, str] = ((-4, 4), "right", "bottom"),
+    fin_offset: tuple[tuple[int, int], str, str] = ((5, 4), "left", "bottom"),
+    **kw: Any,
 ) -> None:
     """One curve; ``label_ends`` (default: only on ``"subpixel"`` curves) tags its coarsest and finest points."""
     if label_ends is None:
         label_ends = avg == "subpixel"
     if rows and label_ends:
         ends = sorted(rows, key=fx)
-        for r, (dx, ha) in ((ends[0], (-5, "right")), (ends[-1], (5, "left"))):
+        end_specs = (
+            (ends[0], start_offset[0], start_offset[1], start_offset[2]),
+            (ends[-1], fin_offset[0], fin_offset[1], fin_offset[2]),
+        )
+        for r, off, ha, va in end_specs:
             kind = r["kind"]
             size = kind.split("-", 1)[1]
             text = f"{size} nm" if kind.startswith("uniform-") else f"ppw {size}"
             y = fy(r)
             if kw.get("yscale_floor", 1e-7) is not None:
                 y = max(y, 1e-7)
-            ax.annotate(text, (fx(r), y), textcoords="offset points", xytext=(dx, 4), ha=ha, va="bottom", fontsize=7.2, color=MUTED)
+            ax.annotate(text, (fx(r), y), textcoords="offset points", xytext=off, ha=ha, va=va, fontsize=7.2, color=MUTED)
+    resolved_ls = ls if ls is not None else AVG_LS[avg or "subpixel"]
+    resolved_label = f"{label} · {AVG_LABEL[avg]}" if (show_avg and avg is not None) else label
     _plot_series(
         ax,
         [fx(r) for r in rows],
         [fy(r) for r in rows],
         color=color,
         marker=marker,
-        label=f"{label} · {AVG_LABEL[avg]}" if show_avg else label,
-        ls=AVG_LS[avg],
+        label=resolved_label,
+        ls=resolved_ls,
         hollow=avg == "subpixel_full",
         **kw,
     )
@@ -168,42 +192,61 @@ def _setup_rc() -> None:
     )
 
 
-def _finish(fig: plt.Figure, axes: np.ndarray, dsts: list[Path], *, show_avg: bool = True) -> None:
+def _finish(
+    fig: plt.Figure,
+    axes: np.ndarray,
+    dsts: list[Path],
+    *,
+    show_avg: bool = True,
+    meep_label: str = "MEEP · UniformGrid",
+) -> None:
     from matplotlib.lines import Line2D
 
     present = {lab for ax in axes.flat for lab in ax.get_legend_handles_labels()[1]}
     handles, labels = [], []
     if show_avg:
-        for avg in AVERAGINGS:
-            for color, marker, name in ((UNIF, "o", "UniformGrid"), (MESH, "s", "bf.mesh"), (MESH_SUB, "^", "bf.mesh + material_cells")):
+        # Pair (subpixel, subpixel_full) per meshing family so column-major ncol=4 aligns modes cleanly.
+        for color, marker, name in ((UNIF, "o", "UniformGrid"), (MESH, "s", "bf.mesh"), (MESH_SUB, "^", "bf.mesh + material_cells")):
+            for avg in AVERAGINGS:
                 lab = f"{name} · {AVG_LABEL[avg]}"
                 if lab not in present:
                     continue
                 hollow = avg == "subpixel_full"
                 handles.append(
-                    Line2D([], [], color=color, marker=marker, linestyle=AVG_LS[avg], linewidth=2.0, markersize=6.2,
+                    Line2D([], [], color=color, marker=marker, linestyle=AVG_LS[avg], linewidth=2.0, markersize=_markersize(marker),
                            markeredgecolor=color if hollow else SURFACE, markerfacecolor=SURFACE if hollow else color,
                            markeredgewidth=1.4 if hollow else 1.2)
                 )
                 labels.append(lab)
-        # one legend column per averaging mode (matplotlib fills columns first)
-        ncol = max(1, len({lab.rsplit(" · ", 1)[1] for lab in labels}))
-        rect_top = 0.91
+        if meep_label in present:
+            handles.append(
+                Line2D([], [], color=MEEP, marker="D", linestyle="-.", linewidth=2.0, markersize=_markersize("D"),
+                       markeredgecolor=SURFACE, markerfacecolor=MEEP, markeredgewidth=0.9)
+            )
+            labels.append(meep_label)
+        ncol = 4 if meep_label in present else 3
+        rect_top = 0.905
+        leg_kw: dict[str, Any] = {"fontsize": 8.6, "handlelength": 2.7, "columnspacing": 1.3}
     else:
-        for color, marker, name in ((UNIF, "o", "UniformGrid"), (MESH, "s", "bf.mesh (default)"), (MESH_SUB, "^", "bf.mesh + material_cells")):
+        for color, marker, name, ls in (
+            (UNIF, "o", "UniformGrid", "-"),
+            (MESH, "s", "bf.mesh (default)", "-"),
+            (MESH_SUB, "^", "bf.mesh + material_cells", "-"),
+            (MEEP, "D", meep_label, "-."),
+        ):
             if name not in present:
                 continue
             handles.append(
-                Line2D([], [], color=color, marker=marker, linestyle="-", linewidth=2.0,
-                       markersize=7.0 if marker == "^" else 6.2,
+                Line2D([], [], color=color, marker=marker, linestyle=ls, linewidth=2.0,
+                       markersize=_markersize(marker),
                        markeredgecolor=SURFACE, markerfacecolor=color,
-                       markeredgewidth=0.9 if marker == "^" else 1.2)
+                       markeredgewidth=0.9 if marker in ("^", "D") else 1.2)
             )
             labels.append(name)
         ncol = max(1, len(labels))
         rect_top = 0.94
-    fig.legend(handles, labels, loc="upper center", ncol=ncol, frameon=False, fontsize=9.2, bbox_to_anchor=(0.5, 0.997),
-               handlelength=3.0)
+        leg_kw = {"fontsize": 9.2, "handlelength": 3.0}
+    fig.legend(handles, labels, loc="upper center", ncol=ncol, frameon=False, bbox_to_anchor=(0.5, 0.997), **leg_kw)
     fig.tight_layout(rect=(0.0, 0.0, 1.0, rect_top))
     for dst in dsts:
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -211,12 +254,59 @@ def _finish(fig: plt.Figure, axes: np.ndarray, dsts: list[Path], *, show_avg: bo
     plt.close(fig)
 
 
-def make_figure(src: Path, dsts: list[Path]) -> None:
-    """Error against cell count, both averaging modes per panel. References: (a) Berreman, (b) tidy3d
-    continuum, (e) joint uniform continuum fit; (c), (d), (f) the finest UniformGrid of the same averaging mode."""
+def _plot_self_conv_panel(
+    ax: plt.Axes,
+    title: str,
+    ylabel: str,
+    rows: list[dict[str, Any]],
+    meep_rows: list[dict[str, Any]],
+    bench: str,
+    *,
+    max_unif_nm: float | None = None,
+    has_meshsub: bool = False,
+    mesh_start_offset: tuple[tuple[int, int], str, str] = ((-4, 4), "right", "bottom"),
+) -> None:
+    _style_ax(ax, title, "total cells (millions)", ylabel)
+    ax.margins(x=0.14, y=0.16)
+    mb = lambda r: r["total_cells"] / 1e6  # noqa: E731
+    in_range = lambda k: k.startswith("uniform-") and (max_unif_nm is None or _uniform_nm(k) <= max_unif_nm)  # noqa: E731
+    for avg in AVERAGINGS:
+        d = _by_bench(rows, bench, avg)
+        u_keys = [k for k in d if in_range(k)]
+        if not u_keys:
+            continue
+        finest_u = min(u_keys, key=_uniform_nm)
+        ref_t = d[finest_u]["T"]
+        u = [d[k] for k in u_keys if k != finest_u]
+        m = [r for k, r in d.items() if k.startswith("mesh-")]
+        fy = lambda r, rt=ref_t: abs(r["T"] - rt)  # noqa: E731
+        _series(ax, u, mb, fy, color=UNIF, marker="o", label="UniformGrid", avg=avg, fin_offset=((0, 7), "center", "bottom"))
+        _series(ax, m, mb, fy, color=MESH, marker="s", label="bf.mesh", avg=avg, start_offset=mesh_start_offset)
+        if has_meshsub:
+            ms = [r for k, r in d.items() if k.startswith("meshsub-")]
+            _series(ax, ms, mb, fy, color=MESH_SUB, marker="^", label="bf.mesh + material_cells", avg=avg, label_ends=False)
+    md = _meep_by_bench(meep_rows, bench)
+    m_keys = [k for k in md if in_range(k)]
+    if len(m_keys) > 1:
+        m_finest = min(m_keys, key=_uniform_nm)
+        m_ref = md[m_finest]["T"]
+        m_u = [md[k] for k in m_keys if k != m_finest]
+        _series(
+            ax, m_u, mb, lambda r, rt=m_ref: abs(r["T"] - rt),
+            color=MEEP, marker="D", ls="-.", label="MEEP · UniformGrid", avg=None, label_ends=False, zorder=2.8,
+        )
+
+
+def make_figure(src: Path, dsts: list[Path], *, meep_src: Path | None = None) -> None:
+    """Error against cell count for bifrost (both averaging modes) and MEEP UniformGrid.
+
+    References: (a) Berreman, (b) tidy3d continuum, (e) joint uniform continuum fit; (c), (d), (f)
+    each solver/averaging mode's own finest UniformGrid.
+    """
     rows = json.loads(src.read_text())
+    meep_rows = _load_meep(src, meep_src)
     _setup_rc()
-    fig, axes = plt.subplots(2, 3, figsize=(12.0, 7.9), facecolor=SURFACE)
+    fig, axes = plt.subplots(2, 3, figsize=(12.2, 8.0), facecolor=SURFACE)
     mb = lambda r: r["total_cells"] / 1e6  # noqa: E731
 
     # (a) Anisotropic crystal slab: averaging="subpixel" cannot write off-diagonal material tensors
@@ -228,103 +318,92 @@ def make_figure(src: Path, dsts: list[Path]) -> None:
         m = [r for k, r in slab.items() if k.startswith("mesh-") and float(k.split("-")[1]) >= 10]
         _series(ax, u, lambda r: r["cells_z"], lambda r: r["t_error"], color=UNIF, marker="o", label="UniformGrid", avg=avg, label_ends=True)
         _series(ax, m, lambda r: r["cells_z"], lambda r: r["t_error"], color=MESH, marker="s", label="bf.mesh", avg=avg, label_ends=True)
+    m_slab = list(_meep_by_bench(meep_rows, "aniso_slab").values())
+    _series(ax, m_slab, lambda r: r["cells_z"], lambda r: r["t_error"], color=MEEP, marker="D", ls="-.", label="MEEP · UniformGrid", avg=None, label_ends=False, zorder=2.8)
     ax.set_xlim(28, 620)
     ax.set_ylim(3e-4, 3.0e-2)
     ax.set_xticks([40, 60, 100, 150, 240, 360, 480])
     ax.text(0.97, 0.97, "subpixel_full only\n(off-diagonal material)", transform=ax.transAxes, ha="right", va="top", fontsize=7.6, color=MUTED)
 
-    # (b) Sloped SOI waveguide: mode-solver n_eff against the tidy3d continuum reference (the FDTD
-    # phase-slope n_eff is in the raw-value figure)
+    # (b) Sloped SOI waveguide: mode-solver n_eff against the tidy3d continuum reference
     ax = axes[0, 1]
     _style_ax(ax, "(b) Sloped SOI strip (10° walls)", "total cells (millions)", "|n_eff - n_eff,ref|")
+    ax.margins(x=0.14, y=0.16)
+    fy_sg = lambda r: abs(r["neff_mode"] - TIDY3D_NEFF_REF)  # noqa: E731
     for avg in AVERAGINGS:
         sg = _by_bench(rows, "sloped_guide", avg)
-        u = [r for k, r in sg.items() if k.startswith("uniform-") and k != "uniform-12.5"]
+        u = [r for k, r in sg.items() if k.startswith("uniform-")]
         m = [r for k, r in sg.items() if k.startswith("mesh-")]
-        fy = lambda r: abs(r["neff_mode"] - TIDY3D_NEFF_REF)  # noqa: E731
-        _series(ax, u, mb, fy, color=UNIF, marker="o", label="UniformGrid", avg=avg)
-        _series(ax, m, mb, fy, color=MESH, marker="s", label="bf.mesh", avg=avg)
+        _series(ax, u, mb, fy_sg, color=UNIF, marker="o", label="UniformGrid", avg=avg)
+        _series(ax, m, mb, fy_sg, color=MESH, marker="s", label="bf.mesh", avg=avg)
+    m_sg = list(_meep_by_bench(meep_rows, "sloped_guide").values())
+    _series(ax, m_sg, mb, fy_sg, color=MEEP, marker="D", ls="-.", label="MEEP · UniformGrid", avg=None, label_ends=False, zorder=2.8)
 
-    # (c) Broadband SOI Bragg grating
-    ax = axes[0, 2]
-    _style_ax(ax, "(c) SOI Bragg grating (1.48–1.60 µm)", "total cells (millions)", "T(λ) RMSE vs uniform-12.5")
-    for avg in AVERAGINGS:
-        br = _by_bench(rows, "soi_bragg", avg)
-        if "uniform-12.5" not in br:
-            continue
-        ref = np.asarray(br["uniform-12.5"]["T_spectrum"])
-        u = [r for k, r in br.items() if k.startswith("uniform-") and k != "uniform-12.5"]
-        m = [r for k, r in br.items() if k.startswith("mesh-")]
-        _series(ax, u, mb, lambda r: _rmse(r, ref), color=UNIF, marker="o", label="UniformGrid", avg=avg)
-        _series(ax, m, mb, lambda r: _rmse(r, ref), color=MESH, marker="s", label="bf.mesh", avg=avg)
+    # (c) SiN bend (moved from (f) replacing soi_bragg)
+    _plot_self_conv_panel(
+        axes[0, 2], "(c) Curved SiN bend on silica substrate", "|T - T(finest uniform)| at 1.55 µm",
+        rows, meep_rows, "sin_bend", max_unif_nm=60.0, has_meshsub=True,
+    )
 
     # (d) Elevator coupler
-    ax = axes[1, 0]
-    _style_ax(ax, "(d) Two-level SiN elevator coupler", "total cells (millions)", "|T - T(uniform-16)| at 619 nm")
-    for avg in AVERAGINGS:
-        ec = _by_bench(rows, "elevator_coupler", avg)
-        if "uniform-16" not in ec:
-            continue
-        ref_t = ec["uniform-16"]["T"]
-        u = [r for k, r in ec.items() if k.startswith("uniform-") and k != "uniform-16"]
-        m = [r for k, r in ec.items() if k.startswith("mesh-")]
-        _series(ax, u, mb, lambda r: abs(r["T"] - ref_t), color=UNIF, marker="o", label="UniformGrid", avg=avg)
-        _series(ax, m, mb, lambda r: abs(r["T"] - ref_t), color=MESH, marker="s", label="bf.mesh", avg=avg)
+    _plot_self_conv_panel(
+        axes[1, 0], "(d) Two-level SiN elevator coupler", "|T - T(finest uniform)| at 619 nm",
+        rows, meep_rows, "elevator_coupler", max_unif_nm=None, has_meshsub=False,
+        mesh_start_offset=((6, 3), "left", "bottom"),
+    )
 
     # (e) Directional coupler
     ax = axes[1, 1]
     _style_ax(ax, "(e) SiN directional coupler (300 nm gap)", "total cells (millions)", "|S_619 - S_0|")
+    ax.margins(x=0.14, y=0.16)
+    fy_dc = lambda r: abs(r["split_mid"] - DC_S0_REF)  # noqa: E731
     for avg in AVERAGINGS:
         dc = _by_bench(rows, "directional_coupler", avg)
         u = [r for k, r in dc.items() if k.startswith("uniform-") and _uniform_nm(k) <= 50]
         m = [r for k, r in dc.items() if k.startswith("mesh-")]
-        fy = lambda r: abs(r["split_mid"] - DC_S0_REF)  # noqa: E731
-        _series(ax, u, mb, fy, color=UNIF, marker="o", label="UniformGrid", avg=avg)
-        _series(ax, m, mb, fy, color=MESH, marker="s", label="bf.mesh", avg=avg)
+        _series(ax, u, mb, fy_dc, color=UNIF, marker="o", label="UniformGrid", avg=avg)
+        _series(ax, m, mb, fy_dc, color=MESH, marker="s", label="bf.mesh", avg=avg)
+    m_dc = [r for k, r in _meep_by_bench(meep_rows, "directional_coupler").items() if k.startswith("uniform-") and _uniform_nm(k) <= 50]
+    _series(ax, m_dc, mb, fy_dc, color=MEEP, marker="D", ls="-.", label="MEEP · UniformGrid", avg=None, label_ends=False, zorder=2.8)
 
-    # (f) SiN bend + Refine.material_cells substrate study
-    ax = axes[1, 2]
-    _style_ax(ax, "(f) Curved SiN bend on silica substrate", "total cells (millions)", "|T - T(uniform-24)| at 1.55 µm")
-    for avg in AVERAGINGS:
-        sb = _by_bench(rows, "sin_bend", avg)
-        if "uniform-24" not in sb:
-            continue
-        ref_t = sb["uniform-24"]["T"]
-        u = [r for k, r in sb.items() if k.startswith("uniform-") and k != "uniform-24" and _uniform_nm(k) <= 60]
-        m = [r for k, r in sb.items() if k.startswith("mesh-")]
-        ms = [r for k, r in sb.items() if k.startswith("meshsub-")]
-        fy = lambda r: abs(r["T"] - ref_t)  # noqa: E731
-        _series(ax, u, mb, fy, color=UNIF, marker="o", label="UniformGrid", avg=avg)
-        _series(ax, m, mb, fy, color=MESH, marker="s", label="bf.mesh", avg=avg)
-        _series(ax, ms, mb, fy, color=MESH_SUB, marker="^", label="bf.mesh + material_cells", avg=avg, label_ends=False)
+    # (f) X-cut LiNbO3 bend (20 deg sidewalls, anisotropic)
+    _plot_self_conv_panel(
+        axes[1, 2], "(f) X-cut LiNbO3 bend (20° walls)", "|T - T(finest uniform)| at 1.55 µm",
+        rows, meep_rows, "linbo3_bend", max_unif_nm=60.0, has_meshsub=True,
+    )
 
     _finish(fig, axes, dsts)
 
 
-def _make_value_figure(src: Path, dsts: list[Path], *, x_axis: Literal["cells", "vram"]) -> None:
+def _make_value_figure(src: Path, dsts: list[Path], *, x_axis: Literal["cells", "vram"], meep_src: Path | None = None) -> None:
     """Actual simulated quantities (effective index, transmission, splitting ratio) against cells or peak VRAM."""
     rows = json.loads(src.read_text())
+    meep_rows = _load_meep(src, meep_src)
     _setup_rc()
     fig, axes = plt.subplots(2, 3, figsize=(12.2, 8.0), facecolor=SURFACE)
     if x_axis == "cells":
         fx = lambda r: r["total_cells"] / 1e6  # noqa: E731
+        mfx = fx
         xlabel = "total cells (millions)"
-        x_margin = 0.08
+        x_margin = 0.14
+        meep_label = "MEEP · UniformGrid"
     elif x_axis == "vram":
         fx = lambda r: r.get("peak_gb")  # noqa: E731
-        xlabel = "peak VRAM (GB)"
+        mfx = lambda r: r.get("equiv_peak_gb")  # noqa: E731
+        xlabel = "peak / equiv. VRAM (GB)"
         x_margin = 0.15
+        meep_label = "MEEP · UniformGrid (equiv. VRAM)"
     else:
         raise ValueError(f"Unknown x_axis {x_axis!r}")
     panels = (
         (axes[0, 0], "(a) Sloped SOI strip: mode solver", "sloped_guide", "n_eff (mode solver)", lambda r: r["neff_mode"]),
         (axes[0, 1], "(b) Sloped SOI strip: FDTD phase slope", "sloped_guide", "n_eff (FDTD)", lambda r: r["neff_fdtd"]),
-        (axes[0, 2], "(c) SOI Bragg grating: stop-band minimum", "soi_bragg", "min T(λ), 1.48–1.60 µm", lambda r: r["T_min"]),
+        (axes[0, 2], "(c) Curved SiN bend on silica substrate", "sin_bend", "T at 1.55 µm", lambda r: r["T"]),
         (axes[1, 0], "(d) Two-level SiN elevator coupler", "elevator_coupler", "T at 619 nm", lambda r: r["T"]),
         (axes[1, 1], "(e) SiN directional coupler (300 nm gap)", "directional_coupler", "splitting ratio S at 619 nm", lambda r: r["split_mid"]),
-        (axes[1, 2], "(f) Curved SiN bend on silica substrate", "sin_bend", "T at 1.55 µm", lambda r: r["T"]),
+        (axes[1, 2], "(f) X-cut LiNbO3 bend (20° walls)", "linbo3_bend", "TE0 T at 1.55 µm", lambda r: r["T"]),
     )
-    coarse = {"sloped_guide": 64, "soi_bragg": 64, "elevator_coupler": 50, "directional_coupler": 50, "sin_bend": 60}
+    coarse = {"sloped_guide": 64, "sin_bend": 60, "elevator_coupler": 50, "directional_coupler": 50, "linbo3_bend": 60}
     present_avgs = {r.get("averaging") for r in rows if r.get("bench") in {p[2] for p in panels}}
     show_avg = len(present_avgs) > 1
     mesh_label = "bf.mesh" if show_avg else "bf.mesh (default)"
@@ -333,88 +412,127 @@ def _make_value_figure(src: Path, dsts: list[Path], *, x_axis: Literal["cells", 
         "sloped_guide_mode": [
             ("uniform-50", (5, -4), "left", "top", "50 nm"),
             ("uniform-20", (5, 5), "left", "bottom", "20 nm"),
-            ("uniform-12.5", (0, -7), "center", "top", "12.5 nm"),
+            ("uniform-7.2", (0, -7), "center", "top", "7.2 nm"),
             ("mesh-8", (6, 2), "left", "bottom", "ppw 8"),
             ("mesh-22", (4, 7), "left", "bottom", "ppw 22"),
-            ("mesh-34", (-5, -5), "right", "top", "ppw 34"),
+            ("mesh-86", (-5, -5), "right", "top", "ppw 86"),
         ],
         "sloped_guide_fdtd": [
             ("uniform-50", (-4, -5), "right", "top", "50 nm"),
             ("uniform-20", (5, 4), "left", "bottom", "20 nm"),
-            ("uniform-12.5", (0, 6), "center", "bottom", "12.5 nm"),
+            ("uniform-7.2", (0, 6), "center", "bottom", "7.2 nm"),
             ("mesh-8", (6, 0), "left", "center", "ppw 8"),
             ("mesh-22", (-6, -7), "right", "top", "ppw 22"),
-            ("mesh-34", (-5, -6), "right", "top", "ppw 34"),
-        ],
-        "soi_bragg": [
-            ("uniform-64", (-4, -5), "right", "top", "64 nm"),
-            ("uniform-20", (0, -6), "center", "top", "20 nm"),
-            ("uniform-12.5", (-4, 5), "right", "bottom", "12.5 nm"),
-            ("mesh-8", (5, 2), "left", "bottom", "ppw 8"),
-            ("mesh-18", (-5, -5), "right", "top", "ppw 18"),
-            ("mesh-26", (5, 4), "left", "bottom", "ppw 26"),
-        ],
-        "elevator_coupler": [
-            ("uniform-50", (0, 6), "center", "bottom", "50 nm"),
-            ("uniform-25", (4, 5), "left", "bottom", "25 nm"),
-            ("uniform-16", (-4, 5), "right", "bottom", "16 nm"),
-            ("mesh-6", (6, -1), "left", "center", "ppw 6"),
-            ("mesh-10", (0, -6), "center", "top", "ppw 10"),
-            ("mesh-18", (-4, -6), "right", "top", "ppw 18"),
-        ],
-        "directional_coupler": [
-            ("uniform-50", (5, 2), "left", "bottom", "50 nm"),
-            ("uniform-20", (0, 6), "center", "bottom", "20 nm"),
-            ("mesh-6", (5, 2), "left", "bottom", "ppw 6"),
-            ("mesh-10", (-5, -5), "right", "top", "ppw 10"),
-            ("mesh-16", (-4, -6), "right", "top", "ppw 16"),
+            ("mesh-86", (-5, -6), "right", "top", "ppw 86"),
         ],
         "sin_bend": [
             ("uniform-60", (-4, -5), "right", "top", "60 nm"),
             ("uniform-40", (5, 4), "left", "bottom", "40 nm"),
-            ("uniform-24", (-4, 5), "right", "bottom", "24 nm"),
+            ("uniform-16.2", (-4, 5), "right", "bottom", "16.2 nm"),
             ("mesh-12", (5, 2), "left", "bottom", "ppw 12"),
             ("meshsub-20", (-5, -5), "right", "top", "ppw 20 (mc)"),
-            ("mesh-24", (-6, -6), "right", "top", "ppw 24"),
+            ("mesh-54", (-6, -6), "right", "top", "ppw 54"),
+        ],
+        "elevator_coupler": [
+            ("uniform-50", (0, 6), "center", "bottom", "50 nm"),
+            ("uniform-25", (4, 5), "left", "bottom", "25 nm"),
+            ("uniform-12", (-4, 5), "right", "bottom", "12 nm"),
+            ("mesh-6", (6, -1), "left", "center", "ppw 6"),
+            ("mesh-10", (0, -6), "center", "top", "ppw 10"),
+            ("mesh-33", (-4, -6), "right", "top", "ppw 33"),
+        ],
+        "directional_coupler": [
+            ("uniform-50", (5, 2), "left", "bottom", "50 nm"),
+            ("uniform-16.5", (0, 6), "center", "bottom", "16.5 nm"),
+            ("mesh-6", (5, 2), "left", "bottom", "ppw 6"),
+            ("mesh-10", (-5, -5), "right", "top", "ppw 10"),
+            ("mesh-18", (-4, -6), "right", "top", "ppw 18"),
+        ],
+        "linbo3_bend": [
+            ("uniform-60", (-4, -5), "right", "top", "60 nm"),
+            ("uniform-30", (5, 4), "left", "bottom", "30 nm"),
+            ("uniform-17", (0, 6), "center", "bottom", "17 nm"),
+            ("mesh-10", (5, 2), "left", "bottom", "ppw 10"),
+            ("mesh-26", (-5, -5), "right", "top", "ppw 26"),
+            ("mesh-48", (0, -7), "center", "top", "ppw 48"),
+        ],
+    }
+
+    cells_end_annotations: dict[str, list[tuple[str, tuple[int, int], str, str, str]]] = {
+        "sloped_guide_mode": [
+            ("mesh-8", (5, 3), "left", "bottom", "ppw 8"),
+            ("mesh-86", (0, 8), "center", "bottom", "ppw 86"),
+            ("uniform-64", (4, -5), "left", "top", "64 nm"),
+            ("uniform-7.2", (0, -9), "center", "top", "7.2 nm"),
+        ],
+        "sloped_guide_fdtd": [
+            ("mesh-8", (6, 0), "left", "center", "ppw 8"),
+            ("mesh-86", (0, 7), "center", "bottom", "ppw 86"),
+            ("uniform-64", (-3, -8), "center", "top", "64 nm"),
+            ("uniform-7.2", (0, -9), "center", "top", "7.2 nm"),
+        ],
+        "sin_bend": [
+            ("mesh-12", (5, 3), "left", "bottom", "ppw 12"),
+            ("mesh-54", (0, 7), "center", "bottom", "ppw 54"),
+            ("uniform-60", (0, -8), "center", "top", "60 nm"),
+            ("uniform-16.2", (0, -9), "center", "top", "16.2 nm"),
+        ],
+        "elevator_coupler": [
+            ("mesh-6", (6, -2), "left", "center", "ppw 6"),
+            ("mesh-33", (4, -8), "left", "top", "ppw 33"),
+            ("uniform-50", (0, -8), "center", "top", "50 nm"),
+            ("uniform-12", (-6, -8), "right", "top", "12 nm"),
+        ],
+        "directional_coupler": [
+            ("mesh-6", (5, 2), "left", "bottom", "ppw 6"),
+            ("mesh-18", (0, -9), "center", "top", "ppw 18"),
+            ("uniform-50", (5, 2), "left", "bottom", "50 nm"),
+            ("uniform-16.5", (5, 2), "left", "bottom", "16.5 nm"),
+        ],
+        "linbo3_bend": [
+            ("mesh-10", (5, 0), "left", "center", "ppw 10"),
+            ("mesh-48", (0, -9), "center", "top", "ppw 48"),
+            ("uniform-60", (0, -8), "center", "top", "60 nm"),
+            ("uniform-17", (0, 7), "center", "bottom", "17 nm"),
         ],
     }
 
     vram_end_annotations: dict[str, list[tuple[str, tuple[int, int], str, str, str]]] = {
         "sloped_guide_mode": [
-            ("mesh-8", (-5, 4), "right", "bottom", "ppw 8"),
-            ("mesh-34", (0, -9), "center", "top", "ppw 34"),
-            ("uniform-64", (-5, 4), "right", "bottom", "64 nm"),
-            ("uniform-12.5", (0, -9), "center", "top", "12.5 nm"),
+            ("mesh-8", (5, 3), "left", "bottom", "ppw 8"),
+            ("mesh-86", (-3, 7), "center", "bottom", "ppw 86"),
+            ("uniform-64", (4, -5), "left", "top", "64 nm"),
+            ("uniform-7.2", (0, -9), "center", "top", "7.2 nm"),
         ],
         "sloped_guide_fdtd": [
-            ("mesh-8", (-5, 4), "right", "bottom", "ppw 8"),
-            ("mesh-34", (-2, -9), "center", "top", "ppw 34"),
-            ("uniform-64", (-5, 4), "right", "bottom", "64 nm"),
-            ("uniform-12.5", (0, -9), "center", "top", "12.5 nm"),
+            ("mesh-8", (5, 0), "left", "center", "ppw 8"),
+            ("mesh-86", (-2, 7), "center", "bottom", "ppw 86"),
+            ("uniform-64", (-2, -8), "center", "top", "64 nm"),
+            ("uniform-7.2", (0, -9), "center", "top", "7.2 nm"),
         ],
-        "soi_bragg": [
-            ("mesh-8", (-5, 4), "right", "bottom", "ppw 8"),
-            ("mesh-26", (8, 7), "left", "bottom", "ppw 26"),
-            ("uniform-64", (-5, 4), "right", "bottom", "64 nm"),
-            ("uniform-12.5", (5, 4), "left", "bottom", "12.5 nm"),
+        "sin_bend": [
+            ("mesh-12", (0, 7), "center", "bottom", "ppw 12"),
+            ("mesh-54", (0, 7), "center", "bottom", "ppw 54"),
+            ("uniform-60", (-4, -6), "right", "top", "60 nm"),
+            ("uniform-16.2", (0, -9), "center", "top", "16.2 nm"),
         ],
         "elevator_coupler": [
             ("mesh-6", (6, -1), "left", "center", "ppw 6"),
-            ("mesh-18", (0, -9), "center", "top", "ppw 18"),
-            ("uniform-50", (-5, 4), "right", "bottom", "50 nm"),
-            ("uniform-16", (-2, 14), "center", "bottom", "16 nm"),
+            ("mesh-33", (3, -8), "left", "top", "ppw 33"),
+            ("uniform-50", (0, 7), "center", "bottom", "50 nm"),
+            ("uniform-12", (-6, -8), "right", "top", "12 nm"),
         ],
         "directional_coupler": [
-            ("mesh-6", (6, 2), "left", "bottom", "ppw 6"),
-            ("mesh-16", (0, -9), "center", "top", "ppw 16"),
-            ("uniform-50", (-5, 4), "right", "bottom", "50 nm"),
-            ("uniform-20", (0, 8), "center", "bottom", "20 nm"),
+            ("mesh-6", (5, 2), "left", "bottom", "ppw 6"),
+            ("mesh-18", (0, -9), "center", "top", "ppw 18"),
+            ("uniform-50", (5, 2), "left", "bottom", "50 nm"),
+            ("uniform-16.5", (6, 11), "left", "bottom", "16.5 nm"),
         ],
-        "sin_bend": [
-            ("mesh-12", (-5, -8), "right", "top", "ppw 12"),
-            ("mesh-24", (0, -9), "center", "top", "ppw 24"),
-            ("uniform-60", (-5, 3), "right", "bottom", "60 nm"),
-            ("uniform-24", (0, -9), "center", "top", "24 nm"),
+        "linbo3_bend": [
+            ("mesh-10", (5, -2), "left", "center", "ppw 10"),
+            ("mesh-48", (0, -9), "center", "top", "ppw 48"),
+            ("uniform-60", (-4, -7), "center", "top", "60 nm"),
+            ("uniform-17", (0, 7), "center", "bottom", "17 nm"),
         ],
     }
 
@@ -432,39 +550,42 @@ def _make_value_figure(src: Path, dsts: list[Path], *, x_axis: Literal["cells", 
             u = [r for k, r in rr.items() if k.startswith("uniform-") and _uniform_nm(k) <= coarse[bench] and keep(r)]
             m = [r for k, r in rr.items() if k.startswith("mesh-") and keep(r)]
             ms = [r for k, r in rr.items() if k.startswith("meshsub-") and keep(r)]
-            kw: dict[str, Any] = {"yscale_floor": None, "show_avg": show_avg}
-            if not show_avg or x_axis == "vram":
-                kw["label_ends"] = False
+            kw: dict[str, Any] = {"yscale_floor": None, "show_avg": show_avg, "label_ends": False}
             _series(ax, u, fx, fy, color=UNIF, marker="o", label="UniformGrid", avg=avg, **kw)
             _series(ax, m, fx, fy, color=MESH, marker="s", label=mesh_label, avg=avg, **kw)
-            _series(ax, ms, fx, fy, color=MESH_SUB, marker="^", label="bf.mesh + material_cells", avg=avg, label_ends=False, yscale_floor=None, show_avg=show_avg)
-        if not show_avg or x_axis == "vram":
-            ann_key = ("sloped_guide_mode", "sloped_guide_fdtd")[idx] if bench == "sloped_guide" else bench
-            rr_sub = _by_bench(rows, bench, "subpixel")
-            spec_map = annotations if not show_avg else vram_end_annotations
-            pts = []
-            for kind, off, ha, va, text in spec_map[ann_key]:
-                if kind in rr_sub and fx(rr_sub[kind]) is not None and fy(rr_sub[kind]) is not None:
-                    r = rr_sub[kind]
-                    pts.append((fx(r), fy(r), text, off, ha, va))
-            _annotate_points(ax, pts, yscale_floor=None, fontsize=7.5 if not show_avg else 7.2)
-    _finish(fig, axes, dsts, show_avg=show_avg)
+            _series(ax, ms, fx, fy, color=MESH_SUB, marker="^", label="bf.mesh + material_cells", avg=avg, **kw)
+        m_u = [
+            r for k, r in _meep_by_bench(meep_rows, bench).items()
+            if k.startswith("uniform-") and _uniform_nm(k) <= coarse[bench] and mfx(r) is not None and fy(r) is not None
+        ]
+        _series(ax, m_u, mfx, fy, color=MEEP, marker="D", ls="-.", label=meep_label, avg=None, label_ends=False, yscale_floor=None, show_avg=show_avg, zorder=2.8)
+        ann_key = ("sloped_guide_mode", "sloped_guide_fdtd")[idx] if bench == "sloped_guide" else bench
+        rr_sub = _by_bench(rows, bench, "subpixel")
+        spec_map = annotations if not show_avg else (cells_end_annotations if x_axis == "cells" else vram_end_annotations)
+        pts = []
+        for kind, off, ha, va, text in spec_map[ann_key]:
+            if kind in rr_sub and fx(rr_sub[kind]) is not None and fy(rr_sub[kind]) is not None:
+                r = rr_sub[kind]
+                pts.append((fx(r), fy(r), text, off, ha, va))
+        _annotate_points(ax, pts, yscale_floor=None, fontsize=7.5 if not show_avg else 7.2)
+    _finish(fig, axes, dsts, show_avg=show_avg, meep_label=meep_label)
 
 
-def make_raw_figure(src: Path, dsts: list[Path]) -> None:
+def make_raw_figure(src: Path, dsts: list[Path], *, meep_src: Path | None = None) -> None:
     """Actual simulated quantities (effective index, transmission, splitting ratio) against cell count."""
-    _make_value_figure(src, dsts, x_axis="cells")
+    _make_value_figure(src, dsts, x_axis="cells", meep_src=meep_src)
 
 
-def make_vram_figure(src: Path, dsts: list[Path]) -> None:
+def make_vram_figure(src: Path, dsts: list[Path], *, meep_src: Path | None = None) -> None:
     """Actual simulated quantities (effective index, transmission, splitting ratio) against peak GPU VRAM."""
-    _make_value_figure(src, dsts, x_axis="vram")
+    _make_value_figure(src, dsts, x_axis="vram", meep_src=meep_src)
 
 
 def main() -> None:
     root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--src", type=Path, default=root / "benchmarks/meshing/results/accuracy_per_cell.json")
+    parser.add_argument("--meep-src", type=Path, default=root / "benchmarks/meshing/results/meep_uniform.json")
     parser.add_argument(
         "--out",
         type=Path,
@@ -492,9 +613,9 @@ def main() -> None:
         ],
     )
     args = parser.parse_args()
-    make_figure(args.src, args.out)
-    make_raw_figure(args.src, args.raw_out)
-    make_vram_figure(args.src, args.vram_out)
+    make_figure(args.src, args.out, meep_src=args.meep_src)
+    make_raw_figure(args.src, args.raw_out, meep_src=args.meep_src)
+    make_vram_figure(args.src, args.vram_out, meep_src=args.meep_src)
 
 
 if __name__ == "__main__":
