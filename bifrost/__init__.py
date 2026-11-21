@@ -15,6 +15,7 @@ from typing import Any
 
 from . import geometry, greens, grids, jitting, meshing, stack, subpixel, timing
 from .grids import AxisEdges, axis_edges, graded_edges, lattice_edges
+from .harminv import HarminvResult, detector_time_grid, harminv, harminv_detector
 from .jitting import COMPILER_OPTIONS, compiler_options, jit
 from .meshing import CoarseVertices, Mesh, Refine, mesh
 from .stack import (
@@ -35,6 +36,7 @@ __all__ = [
     "COMPILER_OPTIONS",
     "AxisEdges",
     "CoarseVertices",
+    "HarminvResult",
     "Mesh",
     "ModeOverlapDetector",
     "ModePlaneSource",
@@ -47,10 +49,13 @@ __all__ = [
     "apply_stack",
     "axis_edges",
     "compiler_options",
+    "detector_time_grid",
     "geometry",
     "graded_edges",
     "greens",
     "grids",
+    "harminv",
+    "harminv_detector",
     "init_stack_params",
     "jit",
     "jitting",
