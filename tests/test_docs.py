@@ -369,8 +369,8 @@ def test_automatic_mesh_recipe_in_simulation_setup() -> None:
     assert np.isfinite(np.asarray(arrays.inv_permittivities)).all()
 
 
-def test_adaptive_meshing_guide_recipe() -> None:
-    """Exercise the substrate-coarsening + dilation bf.mesh recipe in docs/guide/adaptive-meshing.md."""
+def test_convergence_testing_guide_recipe() -> None:
+    """Exercise the substrate-coarsening + dilation bf.mesh recipe in docs/guide/convergence-testing.md."""
     import fdtdx
     import gdsfactory as gf
     import jax

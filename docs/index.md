@@ -15,6 +15,9 @@ simulation. It also ships a 3D viewer for setting up the run and inspecting its 
 
 `bf.StackDevice` is the helper class where all the magic happens, handling adaptive FDTD meshing and allowing you to create sources/detectors on ports. 
 
+!!! warning "LLM Disclaimer"
+    bifrost is largely developed using LLM models from providers including Claude, ChatGPT, and Google. We should always validate any code shipped by "AI". Conveniently, the MEEP FDTD package provides a reference against which to test FDTD simulations build by bifrost and run by FDTDX. [See our convergence testing section](guide/convergence-testing.md) for comparison results between bifrost and MEEP.
+
 ## Where to go next
 
 <div class="grid cards" markdown>
@@ -33,6 +36,6 @@ simulation. It also ships a 3D viewer for setting up the run and inspecting its 
 
 - **[Read the user guide](guide/layer-stacks.md)**
 
-    Layer stacks, simulation setup, adaptive meshing, results, the viewer, gradients, inverse design and diagnostics.
+    Layer stacks, simulation setup, convergence testing, results, the viewer, gradients, inverse design and diagnostics.
 
 </div>

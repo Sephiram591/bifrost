@@ -34,7 +34,7 @@ python examples/linbo3_bend.py --ppw 27 --averaging subpixel_full --figure linbo
 
 ## Convergence and MEEP comparison
 
-The table below summarizes convergence runs from `benchmarks/meshing/accuracy_per_cell.py` (NVIDIA L40S, `float32`) alongside native `mp.Prism`/`mp.Block` uniform-grid reference runs from `benchmarks/meshing/meep_uniform.py` (16 MPI CPU ranks). See [Adaptive meshing](../guide/adaptive-meshing.md) for the full convergence curves and [Diagonal vs full-tensor averaging](../guide/adaptive-meshing.md#diagonal-vs-full-tensor-averaging) for the full-tensor overhead trade-off.
+The table below summarizes convergence runs from `benchmarks/meshing/accuracy_per_cell.py` (NVIDIA L40S, `float32`) alongside native `mp.Prism`/`mp.Block` uniform-grid reference runs from `benchmarks/meshing/meep_uniform.py` (16 MPI CPU ranks). See [Convergence testing](../guide/convergence-testing.md) for the full convergence curves and [Diagonal vs full-tensor averaging](../guide/convergence-testing.md#diagonal-vs-full-tensor-averaging) for the full-tensor overhead trade-off.
 
 | Configuration | Total cells | Peak / equiv. VRAM | FDTD runtime | `TE0` transmission | `TE0 -> TM0` |
 | --- | --- | --- | --- | --- | --- |

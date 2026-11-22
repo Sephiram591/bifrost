@@ -58,7 +58,7 @@ on `z = 0` at 619 nm agrees with a relative difference of 0.062. MEEP's uniform 
 
 Full-tensor subpixel averaging (`averaging="subpixel_full"`, the off-diagonal tensor entries at bends and corners)
 requires >48 GiB of GPU memory at `ppw = 20` (207.6M cells) and fits on an H200/B200; on the `ppw = 16` benchmark
-(106.6M cells; see [Diagonal vs. full-tensor averaging](../guide/adaptive-meshing.md#diagonal-vs-full-tensor-averaging))
+(106.6M cells; see [Diagonal vs. full-tensor averaging](../guide/convergence-testing.md#diagonal-vs-full-tensor-averaging))
 `subpixel` and `subpixel_full` agree within `4e-5` in power across the band.
 
 On 207.6M cells `fdtdx` (`subpixel`) took 1285 s on one NVIDIA L40S, compilation included, peaking at 40.6 GiB of GPU

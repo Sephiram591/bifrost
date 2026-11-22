@@ -156,7 +156,7 @@ for the pulse to cross the device and ring down.
 ## Next
 
 - [Simulation setup and ports](guide/simulation-setup.md): sources, monitors and the run, in detail.
-- [Adaptive meshing](guide/adaptive-meshing.md): how automatic non-uniform meshing cuts cell count and memory at fixed accuracy.
+- [Convergence testing](guide/convergence-testing.md): how automatic non-uniform meshing cuts cell count and memory at fixed accuracy.
 - [Results and field monitors](guide/results.md): reading what the monitors record.
 - [Gradients](guide/gradients.md): differentiate a result with respect to the geometry, through the simulation.
 - [Inverse design](guide/inverse-design.md): optimize the width profile of a tight bend for transmission.
