@@ -1,15 +1,15 @@
 # Layer stacks and materials
 
-`bf.StackDevice` turns a gdsfactory component and its
-[`LayerStack`](https://gdsfactory.github.io/gdsfactory/notebooks/03_layer_stack/) into one
-[fdtdx](https://github.com/ymahlau/fdtdx) object. Every `LayerLevel` of the stack is voxelized into a single
-multi-material region, differentiable with respect to the polygon vertices of every layer (and so to the parameters of
-the cell function that drew them) and to the thickness, height and sidewall angle of every level.
+Vertical structure and optical properties in bifrost are described by two objects:
+
+- a gdsfactory [`LayerStack`](https://gdsfactory.github.io/gdsfactory/notebooks/03_layer_stack/), which maps 2D layout layers (or boolean expressions of layers) to 3D `LayerLevel`s with heights, thicknesses, sidewall profiles, and material names;
+- a `dict[str, fdtdx.Material]` mapping every material name referenced by the stack—plus the background medium—to an [`fdtdx.Material`](https://github.com/ymahlau/fdtdx).
+
+Once defined, a component, its `LayerStack`, and its `materials` dictionary are passed to `bf.StackDevice` in [Simulation setup and ports](simulation-setup.md).
 
 ## A silicon waveguide in silica
 
-The smallest useful stack has one level and two materials: a core in a uniform cladding. The component is gdsfactory's
-`straight` cell on the generic PDK's waveguide layer `gf.gpdk.LAYER.WG`.
+The simplest stack has one level and two isotropic materials—a 220 nm silicon strip core embedded in uniform silica cladding:
 
 ```python
 --8<-- "examples/guide/layer_stacks.py:imports"
@@ -17,91 +17,65 @@ The smallest useful stack has one level and two materials: a core in a uniform c
 --8<-- "examples/guide/layer_stacks.py:bare"
 ```
 
-`StackDevice` derives the simulation box size from the polygons and `zrange_layers`:
-
-```text
-box (um): [7.0, 3.5, 3.22]
-```
-
-In x, this spans the 5 µm guide plus the two 1 µm port extensions; in y, the 0.5 µm guide plus 1.5 µm of cladding on both sides; in z, the 0.22 µm core plus 1.5 µm above and below.
-
-- **`layer_stack`** lists the levels. A `LayerLevel` gives the layer it draws, where it starts (`zmin`) and how thick it
-  is (both in µm), its `material` by name, and its `mesh_order` (where levels overlap, the lower value wins).
-- **`materials`** maps every drawn material name, plus the `background`, to an `fdtdx.Material`. Here the permittivity
-  is constant: the indices are 3.48 (silicon) and 1.444 (silica).
-- **`background`** fills everything no level covers: here the cladding.
-- **`zrange_layers`** picks the levels whose z range sets the box's height before `boundary_offset` is applied.
-- **`extend_ports`** continues a port's cross-section straight out of the component, so the waveguide runs through the
-  absorbing boundary instead of ending inside the simulation.
-- **`boundary_offset`** `= (x+, x-, y+, y-, z+, z-)` moves the box's faces by that many µm; positive values move a face
-  toward +x, +y or +z. It changes the box, not the geometry.
-
-!!! note "Box dimensions and grid spacing"
-    With adaptive meshing (`bf.mesh`, the default), cell edges span the exact box faces so `boundary_offset` is used
-    verbatim for any box size. If you pass `fdtdx.core.grid.UniformGrid` directly, `fdtdx.place_objects` rounds each
-    side to the nearest whole number of cells (and a side halfway between two cell counts can fail with
-    `Configured grid shape ... does not match simulation volume shape`).
-
-Display the device with `viewer = bf.view(stack)`; see [Viewer](viewer.md).
+- **`layer_stack`** maps level names to `LayerLevel` definitions:
+  - `layer`: the GDS `(layer, datatype)` tuple, PDK layer name, or `LogicalLayer` that defines the level's 2D footprint;
+  - `zmin` and `thickness`: vertical start coordinate and thickness in **µm** (`z` spans `[zmin, zmin + thickness]`);
+  - `material`: string key looked up in `materials`;
+  - `mesh_order`: integer priority where levels overlap in 3D (**lower `mesh_order` wins**).
+- **`materials`** maps each material name to an `fdtdx.Material`. Lossless isotropic dielectrics set `permittivity=n**2` (`fdtdx.Material()` defaults to `permittivity=1.0` for vacuum/air). Include the background medium (`"clad"` here) alongside the level materials so regions outside every level have a defined permittivity.
 
 ## Adding a substrate
 
-Next, place the same guide on a 2 µm silica substrate under air. The substrate sits on the `WAFER` layer, which is in `inverted_layers` by default, so with no polygons drawn on `WAFER` its inverse fills the entire xy plane:
+Multi-layer stacks combine planar wafer layers with patterned waveguide layers. Here the silicon core sits on a 2 µm buried-oxide (`"box"`) substrate with air above:
 
 ```python
 --8<-- "examples/guide/layer_stacks.py:substrate"
 ```
 
-Every level that overlaps the box is drawn, including the `box` level here, which `zrange_layers` does not list. The
-box starts as the xy bounding box of the polygons (extensions included) and the z range of `zrange_layers`, so the
-substrate appears in the geometry without enlarging the simulation.
+The `"box"` level uses `"WAFER"`, which bifrost treats as an inverted (background-plane) layer by default: when no polygons are drawn on `WAFER`, its complement covers the entire xy plane from `zmin=-2.0` to `0.0` µm. Giving `"box"` a higher `mesh_order` (`9`) than `"core"` (`1`) ensures the core takes precedence wherever their vertical spans meet or overlap.
 
-## Parameters
+## Sloped sidewalls and anisotropic materials: lithium niobate
 
-Besides the arguments above, `StackDevice` takes (and pre-compiled raw fields can be passed via `StackDevice.from_raw(...)`):
+`LayerLevel` supports angled sidewalls and `fdtdx.Material` supports anisotropic permittivity tensors. The stack below models an X-cut thin-film lithium niobate (TFLN) ridge waveguide (`0.50` µm thick, `20°` trapezoidal sidewalls) on a `3.0` µm silica bottom oxide in air at `1.55` µm (used in the [Lithium niobate bend](../examples/linbo3-bend.md) example):
 
-| Argument | Meaning |
-| --- | --- |
-| `extend_ports` | also `(port, length, [layers])`, to extend only some layers |
-| `inverted_layers` | layers whose material is applied to the inverse of their geometry (default `WAFER`, which covers the whole plane when empty) |
-| `level_margin` | include levels within this distance of the box, so their `zmin` can move into it |
-| `dtype` | `jnp.float32` (default) or `jnp.float64`: the precision of the whole simulation, see [Precision](simulation-setup.md#precision) |
+```python
+--8<-- "examples/guide/layer_stacks.py:linbo3"
+```
 
-`extend_ports` extends, for each listed port, every stack layer that reaches the port face, with that layer's width at
-the port, so a rib waveguide keeps its slab and an etch over the port continues. The extensions are polygons like any
-other: they get the level's thickness, sidewall angle and bias, and follow the port and the polygon edges when the
-component's parameters change.
+- **Trapezoidal sidewalls (`sidewall_angle`, `width_to_z`).** `sidewall_angle` tilts the boundary inward with height by `(z - z_ref) * tan(sidewall_angle)`, where `z_ref = zmin + width_to_z * thickness`. Because `width_to_z` defaults to `0.0`, the drawn GDS width applies at the bottom of the ridge (`z = zmin`) and a positive angle narrows the ridge toward the top (`width_to_z=0.5` anchors the drawn width at mid-height instead). Constant and height-varying horizontal offsets can also be specified with `bias` and `z_to_bias`.
+- **Anisotropic permittivity.** In simulation coordinates with crystallographic X vertical along `z`, the optic axis Z along `y`, and Y along `x`, the ordinary (`n_o = 2.211`) and extraordinary (`n_e = 2.138`) refractive indices give the diagonal permittivity 3-tuple `(n_o**2, n_e**2, n_o**2)`.
 
-The voxelization supports most of `LayerLevel`:
+## Derived layers and foundry stacks
 
-- logical and derived layers;
-- `mesh_order` priorities;
-- `sidewall_angle`, `width_to_z`, `bias` and `z_to_bias`;
-- background levels.
+Foundry stacks often define partial etches, slabs, or claddings as boolean combinations (`|`, `&`, `-`, `^`) of drawn mask layers via `LogicalLayer` (pass `derived_layer` to satisfy gdsfactory's `LayerLevel` validation when `layer` is a boolean `DerivedLayer`):
+
+```python
+--8<-- "examples/guide/layer_stacks.py:derived"
+```
+
+Here `"rib"` keeps the full 220 nm silicon thickness where `WG` is not covered by the `SLAB150` etch mask, while `"slab"` leaves a 90 nm slab across their union (`mesh_order=1` on `"rib"` overrides `mesh_order=2` on `"slab"` inside the rib). Outer sizing on a layer expression (`.sized(...)`) is also supported. To use a foundry PDK's built-in stack directly (such as `gf.gpdk.LAYER_STACK`), supply an entry in `materials` for each level that overlaps your simulation region.
 
 ## Negative-tone and inverted layers
 
-Any layer listed in `inverted_layers` (default `("WAFER",)`) applies its level's material to the complement of its drawn polygons. With no polygons drawn on the layer (such as `WAFER` above), its inverse covers the entire xy plane; drawing polygons on `WAFER` cuts openings out of the substrate or cladding.
-
-For negative-tone or trench-etch layers where drawn polygons mark where material is removed, pass the etch layer in `inverted_layers` (include `"WAFER"` as well when the stack also has `WAFER` levels, since passing `inverted_layers` overrides the default). `extend_ports` continues the bounding trenches straight out of each port, `create_*_at` matches ports on that layer automatically, and `bias` and `sidewall_angle` offset the remaining material (a positive `sidewall_angle` narrows the core and widens the etched trench toward the top):
+In negative-tone or trench-etch processes, drawn polygons mark where material is **removed** rather than where the core sits. Define the `LayerStack` on the trench layer in the same way:
 
 ```python
 --8<-- "examples/guide/layer_stacks.py:inverted"
 ```
 
-## Derived layers and foundry stacks
+Listing `DEEP_ETCH` alongside `"WAFER"` in `inverted_layers` when constructing the device (see [Simulation setup and ports](simulation-setup.md)) applies `"silicon"` to the complement of the drawn `DEEP_ETCH` trenches—leaving a ridge waveguide between two trenches—and offsets the remaining silicon when `sidewall_angle` or `bias` is set. Similarly, drawing polygons on `WAFER` cuts openings out of a `"WAFER"` substrate or cladding level.
 
-Real stacks often define some layers from others (for example, growing a slab by a margin around the core or subtracting an etch). Here is a sketch of a rib waveguide where `SLAB` and `WG` stand for your PDK's layers:
+## Summary of `LayerLevel` and `Material` features
 
-```python
-rib_stack = LayerStack(
-    layers={
-        "slab": LayerLevel(layer=SLAB, zmin=0.0, thickness=0.09, material="silicon", mesh_order=2),
-        "rib": LayerLevel(layer=WG, zmin=0.0, thickness=0.22, material="silicon", mesh_order=1),
-    }
-)
-```
+| Feature | How to specify |
+| --- | --- |
+| Vertical span | `zmin` and `thickness` (in µm) on `LayerLevel` |
+| Overlap priority | `mesh_order` on `LayerLevel` (lower integer wins) |
+| Boolean & sized masks | `LogicalLayer` operators `\|`, `&`, `-`, `^`, and outer `.sized(...)` (with `derived_layer=...`), or `background=True` (`background_exclude_layers=...`) |
+| Sidewalls & offsets | `sidewall_angle` (degrees), `width_to_z` (`0.0`..`1.0`), `bias`, and `z_to_bias` on `LayerLevel` |
+| Isotropic dielectric | `fdtdx.Material(permittivity=n**2)` |
+| Diagonal anisotropy | `fdtdx.Material(permittivity=(eps_x, eps_y, eps_z))` |
+| Full 3 × 3 anisotropy | `fdtdx.Material(permittivity=((e_xx, e_xy, e_xz), ...))` (real symmetric positive-definite tensor; requires `averaging="subpixel_full"`, see [Geometry options](options.md)) |
+| Dispersion & loss | `fdtdx.Material(permittivity=eps_inf, dispersion=fdtdx.DispersionModel(poles=(...)), electric_conductivity=sigma)` (see [Geometry model](geometry-model.md)) |
 
-To use a foundry PDK's own stack, pass its `LayerStack` (for example `gf.gpdk.LAYER_STACK`) and give a material for
-every level it draws. The [geometry model](geometry-model.md) describes how geometry becomes voxels, including derived
-levels and sloped walls; [Geometry options](options.md) gives the cost and accuracy of each option.
+Next: [Simulation setup and ports](simulation-setup.md) turns a component, `LayerStack`, and `materials` dictionary into a `bf.StackDevice` with adaptive meshing, port sources, and monitors.

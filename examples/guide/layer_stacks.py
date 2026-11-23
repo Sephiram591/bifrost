@@ -1,4 +1,4 @@
-"""Layer stacks and materials: the same waveguide in a bare cladding and on a substrate.
+"""Layer stacks and materials: common photonic LayerStack and fdtdx.Material definitions.
 
 Run it:  python examples/guide/layer_stacks.py
 """
@@ -6,37 +6,32 @@ Run it:  python examples/guide/layer_stacks.py
 # --8<-- [start:imports]
 import fdtdx
 import gdsfactory as gf
-import bifrost as bf
-from gdsfactory.technology import LayerLevel, LayerStack
+from gdsfactory.technology import LayerLevel, LayerStack, LogicalLayer
 
 gf.gpdk.PDK.activate()
-
-component = gf.components.straight(length=5)  # a 5 um long, 500 nm wide waveguide with ports o1 and o2
 # --8<-- [end:imports]
 
 # --8<-- [start:bare]
-# 1. One level and two materials: a silicon core in a uniform silica cladding.
+# 1. One level and two isotropic materials: a 220 nm silicon core in silica cladding.
 layer_stack = LayerStack(
-    layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
+    layers={
+        "core": LayerLevel(
+            layer=gf.gpdk.LAYER.WG,
+            zmin=0.0,
+            thickness=0.22,
+            material="core",
+            mesh_order=1,
+        ),
+    }
 )
 materials = {
     "core": fdtdx.Material(permittivity=3.48**2),
     "clad": fdtdx.Material(permittivity=1.444**2),
 }
-stack = bf.StackDevice(
-    component, layer_stack, materials,
-    background="clad",                              # fills everything no level covers
-    zrange_layers=["core"],                         # the box's z range starts as the core's
-    extend_ports=(("o1", 1.0), ("o2", 1.0)),        # straight leads out of both ports
-    boundary_offset=(0, 0, 1.5, -1.5, 1.5, -1.5),   # (x+, x-, y+, y-, z+, z-) in um
-    name="stack",
-)
-print("box (um):", [round(float(s) * 1e6, 3) for s in stack.partial_real_shape])
 # --8<-- [end:bare]
 
 # --8<-- [start:substrate]
-# 2. The same guide on a 2 um silica substrate under air. "WAFER" is in inverted_layers by
-#    default, so with no polygons drawn on it its inverse covers the whole plane.
+# 2. A silicon core on a 2 um buried-oxide (BOX) substrate under air.
 substrate_stack = LayerStack(
     layers={
         "box": LayerLevel(layer="WAFER", zmin=-2.0, thickness=2.0, material="silica", mesh_order=9),
@@ -46,43 +41,61 @@ substrate_stack = LayerStack(
 substrate_materials = {
     "silicon": fdtdx.Material(permittivity=3.48**2),
     "silica": fdtdx.Material(permittivity=1.444**2),
-    "air": fdtdx.Material(),
+    "air": fdtdx.Material(permittivity=1.0),
 }
-on_substrate = bf.StackDevice(
-    component, substrate_stack, substrate_materials,
-    background="air",
-    zrange_layers=["core"],
-    extend_ports=(("o1", 1.0), ("o2", 1.0)),
-    boundary_offset=(0, 0, 1.5, -1.5, 1.5, -1.5),
-    name="on_substrate",
-)
-print("box (um):", [round(float(s) * 1e6, 3) for s in on_substrate.partial_real_shape])
 # --8<-- [end:substrate]
 
-# --8<-- [start:inverted]
-# 3. Negative-tone guide: polygons on DEEP_ETCH define etched trenches, so inverting
-#    DEEP_ETCH applies silicon everywhere outside them, leaving a 500 nm core between.
-etched = gf.Component()
-etched.add_polygon([(0.0, 0.25), (5.0, 0.25), (5.0, 2.0), (0.0, 2.0)], layer=gf.gpdk.LAYER.DEEP_ETCH)
-etched.add_polygon([(0.0, -2.0), (5.0, -2.0), (5.0, -0.25), (0.0, -0.25)], layer=gf.gpdk.LAYER.DEEP_ETCH)
-etched.add_port("o1", center=(0.0, 0.0), width=0.5, orientation=180, layer=gf.gpdk.LAYER.DEEP_ETCH)
-etched.add_port("o2", center=(5.0, 0.0), width=0.5, orientation=0, layer=gf.gpdk.LAYER.DEEP_ETCH)
+# --8<-- [start:linbo3]
+# 3. X-cut thin-film lithium niobate (TFLN) ridge with 20 deg sloped sidewalls and
+#    diagonally anisotropic permittivity on a 3 um silica bottom oxide in air.
+n_o, n_e = 2.211, 2.138  # ordinary (x, z) and extraordinary (optic axis along y) at 1.55 um
 
+linbo3_stack = LayerStack(
+    layers={
+        "box": LayerLevel(layer="WAFER", zmin=-3.0, thickness=3.0, material="silica", mesh_order=9),
+        "core": LayerLevel(
+            layer=gf.gpdk.LAYER.WG,
+            zmin=0.0,
+            thickness=0.50,
+            sidewall_angle=20.0,
+            material="linbo3",
+            mesh_order=1,
+        ),
+    }
+)
+linbo3_materials = {
+    "linbo3": fdtdx.Material(permittivity=(n_o**2, n_e**2, n_o**2)),
+    "silica": fdtdx.Material(permittivity=1.444**2),
+    "air": fdtdx.Material(permittivity=1.0),
+}
+# --8<-- [end:linbo3]
+
+# --8<-- [start:derived]
+# 4. Partial-etch rib waveguide using LogicalLayer boolean expressions: a 220 nm rib
+#    where WG is not etched by SLAB150, over a 90 nm slab across the union of both.
+wg = LogicalLayer(layer=gf.gpdk.LAYER.WG)
+etch = LogicalLayer(layer=gf.gpdk.LAYER.SLAB150)
+
+rib_stack = LayerStack(
+    layers={
+        "box": LayerLevel(layer="WAFER", zmin=-2.0, thickness=2.0, material="silica", mesh_order=9),
+        "slab": LayerLevel(
+            layer=wg | etch, derived_layer=wg, zmin=0.0, thickness=0.09, material="silicon", mesh_order=2
+        ),
+        "rib": LayerLevel(
+            layer=wg - etch, derived_layer=wg, zmin=0.0, thickness=0.22, material="silicon", mesh_order=1
+        ),
+    }
+)
+# --8<-- [end:derived]
+
+# --8<-- [start:inverted]
+# 5. Negative-tone trench-etch stack: DEEP_ETCH polygons mark etched trenches, so
+#    treating DEEP_ETCH as inverted applies silicon everywhere outside the trenches.
 negative_stack = LayerStack(
     layers={
         "box": LayerLevel(layer="WAFER", zmin=-2.0, thickness=2.0, material="silica", mesh_order=9),
         "core": LayerLevel(layer=gf.gpdk.LAYER.DEEP_ETCH, zmin=0.0, thickness=0.22, material="silicon", mesh_order=1),
     }
 )
-negative_guide = bf.StackDevice(
-    etched, negative_stack, substrate_materials,
-    background="air",
-    zrange_layers=["core"],
-    extend_ports=(("o1", 1.0), ("o2", 1.0)),
-    boundary_offset=(0, 0, 0, 0, 1.5, -1.5),
-    inverted_layers=("WAFER", gf.gpdk.LAYER.DEEP_ETCH),
-    name="negative_guide",
-)
 # --8<-- [end:inverted]
-
-viewer = bf.view(on_substrate)  # in a notebook cell, end the cell with `viewer`

@@ -152,7 +152,7 @@ def _run(path: str, *args: str, timeout: int = 600) -> subprocess.CompletedProce
 LIGHT = [
     ("examples/check_install.py", ["devices", "bifrost", "fdtdx"]),
     ("examples/straight_waveguide.py", []),
-    ("examples/guide/layer_stacks.py", ["box (um): [7.0, 3.5, 3.22]"]),
+    ("examples/guide/layer_stacks.py", []),
     ("examples/guide/simulation_setup.py", ["grid cells: (405, 95, 83)", "source", "out"]),
     ("examples/guide/options.py", ["default", "fast", "corner_lines=0"]),
     ("examples/guide/diagnostics.py", ["narrower than"]),
@@ -160,7 +160,6 @@ LIGHT = [
 
 
 OUTPUT_PAGES = {  # the guide pages that show an example's printed output, in a ```text block
-    "examples/guide/layer_stacks.py": "guide/layer-stacks.md",
     "examples/guide/simulation_setup.py": "guide/simulation-setup.md",
     "examples/guide/options.py": "guide/options.md",
     "examples/guide/diagnostics.py": "guide/diagnostics.md",
