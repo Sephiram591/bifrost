@@ -73,7 +73,7 @@ def build_stack(overlap: float) -> bf.stack.StackDevice:
     """The component with its stack; the box is the polygons' bbox (extensions included),
     grown in y and z by ``boundary_offset`` to the domain."""
     (_, _), (y0, y1), (z0, z1) = domain(overlap)
-    return bf.stack.StackDevice.from_layer_stack(
+    return bf.stack.StackDevice(
         elevator_coupler(overlap), LAYER_STACK, MATERIALS, background="air", name="stack",
         zrange_layers=["lower", "upper"],    # z: the two SiN levels, -0.21 to 0.19 um
         extend_ports=(("o1", EXTENSION), ("o2", EXTENSION)),

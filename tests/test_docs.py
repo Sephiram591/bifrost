@@ -286,7 +286,7 @@ def _simulation_setup_device():
         "core": fdtdx.Material(permittivity=3.48**2),
         "clad": fdtdx.Material(permittivity=1.444**2),
     }
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         component, layer_stack, materials, background="clad", zrange_layers=["core"],
         extend_ports=(("o1", 2.0), ("o2", 2.0)), boundary_offset=(0.0, 0.0, 1.55, -1.55, 1.59, -1.59), name="stack",
     )
@@ -392,7 +392,7 @@ def test_convergence_testing_guide_recipe() -> None:
         "silica": fdtdx.Material(permittivity=1.444**2),
         "air": fdtdx.Material(permittivity=1.0),
     }
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         component, layer_stack, materials, background="air", zrange_layers=["core"],
         extend_ports=(("o1", 2.0), ("o2", 2.0)), boundary_offset=(1.5, 0.0, 0.0, -1.5, 1.4, -1.4), name="stack",
     )

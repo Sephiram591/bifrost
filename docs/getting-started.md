@@ -53,7 +53,7 @@ constant-index silicon for the core and silica for the cladding.
 
 ### 3. The device
 
-`StackDevice.from_layer_stack` voxelizes the component through the stack. `background="clad"` fills everything the core
+`StackDevice` voxelizes the component through the stack. `background="clad"` fills everything the core
 does not. `extend_ports` continues both ports straight out by 2.5 µm, so the guide runs through the absorbing boundary
 instead of ending inside the simulation. `boundary_offset` sets the simulation size by offsetting each face from the boundary of the GDS cell and the zrange_layers: the faces that hold a port stay put, the others
 move out by 2.25 µm in x and y, and the box is 3.4 µm tall, 10 × 10 × 3.4 µm in all.

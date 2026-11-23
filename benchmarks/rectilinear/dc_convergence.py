@@ -55,7 +55,7 @@ def run(kind: str) -> dict:
         f, h = float(frac), float(kind.split("-")[1]) * 1e-3
         dy = dc.HALF_SPAN[0] - (dc.PORT_GAP + 2 * dc.WIDTH) / 2
         dz = dc.HALF_SPAN[1] - dc.HEIGHT / 2
-        stack = bf.stack.StackDevice.from_layer_stack(
+        stack = bf.stack.StackDevice(
             dc.directional_coupler(), dc.LAYER_STACK, dc.MATERIALS, background="clad", name="stack",
             zrange_layers=["core"], extend_ports=tuple((p, dc.EXTENSION) for p in ("o1", "o2", "o3", "o4")),
             boundary_offset=(0.0, 0.0, dy, -dy, dz + (1 - f) * h, -(dz + f * h)), averaging=dc.AVERAGING,

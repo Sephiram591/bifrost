@@ -87,7 +87,7 @@ def run(kind: str, fine: float, coarse: float, band: float, with_slab: bool, pol
     ls = LayerStack(layers={"slab": LayerLevel(layer=gf.gpdk.LAYER.WAFER, zmin=SLAB_Z, thickness=THICKNESS,
                                                 material="slab", mesh_order=1)})
     # the box is the whole volume, -HALF to HALF
-    device = bf.StackDevice.from_layer_stack(
+    device = bf.StackDevice(
         c, ls, mats, background="air", name="stack", zrange_layers=["slab"],
         boundary_offset=(0.0, 0.0, 0.0, 0.0, HALF - SLAB_Z - THICKNESS, -HALF - SLAB_Z), diagnostics=False,
         averaging=averaging,

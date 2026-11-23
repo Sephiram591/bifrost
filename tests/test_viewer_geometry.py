@@ -70,7 +70,7 @@ def f2_stack() -> bf.stack.StackDevice:
             ),
         }
     )
-    return bf.stack.StackDevice.from_layer_stack(
+    return bf.stack.StackDevice(
         c, ls, MATERIALS, background="air", name="stack",
         zrange_layers=["box", "core"],
         boundary_offset=(0.5, -0.5, 0.5, -0.5, 0.0, 0.0),
@@ -101,7 +101,7 @@ def f3_stack() -> bf.stack.StackDevice:
             ),
         }
     )
-    return bf.stack.StackDevice.from_layer_stack(
+    return bf.stack.StackDevice(
         c, ls, MATERIALS, background="air", name="stack",
         zrange_layers=["box", "core", "slab"],
         boundary_offset=(0.5, -0.5, 0.5, -0.5, 0.0, 0.0),
@@ -245,7 +245,7 @@ def _xor_derived_stack() -> bf.stack.StackDevice:
             ),
         }
     )
-    device = bf.stack.StackDevice.from_layer_stack(
+    device = bf.stack.StackDevice(
         c, ls, MATERIALS, background="air", name="xor_stack",
         zrange_layers=["xor_sloped"],
         boundary_offset=(0.4, -0.4, 0.4, -0.4, 0.0, 0.0),
@@ -279,7 +279,7 @@ def test_zero_thickness_z_to_bias_no_nan() -> None:
             ),
         }
     )
-    device = bf.stack.StackDevice.from_layer_stack(
+    device = bf.stack.StackDevice(
         c, ls, MATERIALS, background="air", name="zero_t",
         zrange_layers=["box"],
         boundary_offset=(0.3, -0.3, 0.3, -0.3, 0.0, 0.0),

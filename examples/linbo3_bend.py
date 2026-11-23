@@ -85,7 +85,7 @@ MATERIALS = {
 def build_stack(averaging: str = "subpixel") -> bf.StackDevice:
     """Build the voxelized X-cut LiNbO3 bend with straight extensions to the box faces."""
     z_margin = (BOX_HEIGHT - THICKNESS) / 2
-    return bf.StackDevice.from_layer_stack(
+    return bf.StackDevice(
         component,
         LAYER_STACK,
         MATERIALS,

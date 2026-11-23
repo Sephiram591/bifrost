@@ -75,7 +75,7 @@ def stacked(t_core):
 ```
 
 Every level in the box is computed over the whole box height, so `zmin`, thickness and roughness can move it anywhere
-inside the box. Levels outside the box are not part of the device: `level_margin=` (µm) in `from_layer_stack` includes
+inside the box. Levels outside the box are not part of the device: `level_margin=` (µm) in `StackDevice` includes
 the levels within that distance of the box, so they can be moved into it.
 
 To differentiate with respect to a cell parameter, rebuild the component inside the objective and swap in its vertices
@@ -108,11 +108,11 @@ When a device is built, `StackDevice` extracts combinatorial topology from the i
 
 Whenever `component` is concrete (outside `jax.jit` or `jax.grad`), `pack` runs `stack.check_topology(component)` and raises a `ValueError` naming any layer whose topology changed. Traced components inside `jax.grad` or `jax.jit` skip the check, so it adds zero overhead inside optimization loops. Small numerical noise, layout snapping, and topology-preserving moves (such as sliding a taper along an MMI side or moving abutting polygons together) pass; pass `pack(component, check=False)` to skip the concrete check explicitly.
 
-All topology checks share one distance tolerance, `topology_tol`: vertices within `topology_tol` of an edge lie on it, vertices within `topology_tol` of each other coincide, and vertices within `topology_tol` of a port face lie on it. The default is 2 database units (`gf.kcl.dbu`, typically 2 nm) plus `float32` coordinate round-off (`2 * eps * max_coord`, about 1.2 nm at 5000 µm from the origin), which accommodates 1 nm grid snapping on rotated edges (`sqrt(2)` nm) without leaving slits between polygons. Pass `topology_tol=...` (µm) to `from_layer_stack` to override it.
+All topology checks share one distance tolerance, `topology_tol`: vertices within `topology_tol` of an edge lie on it, vertices within `topology_tol` of each other coincide, and vertices within `topology_tol` of a port face lie on it. The default is 2 database units (`gf.kcl.dbu`, typically 2 nm) plus `float32` coordinate round-off (`2 * eps * max_coord`, about 1.2 nm at 5000 µm from the origin), which accommodates 1 nm grid snapping on rotated edges (`sqrt(2)` nm) without leaving slits between polygons. Pass `topology_tol=...` (µm) to `StackDevice` to override it.
 
 The check also reports polygons on a stack layer that had none when the device was built: the levels read such a layer
 as empty, and a level that needs it (e.g. a slab level of a device built from a strip waveguide) was not drawn at all.
-Only `StackDevice.from_layer_stack` builds a device for them; `retopologize` raises.
+Only `StackDevice` builds a device for them; `retopologize` raises.
 
 When the new topology is intended, `stack.retopologize(component)` returns the same device (box, levels, materials,
 placement) with the topology of the new component, whose polygons may also change in number and size. Swap it into the

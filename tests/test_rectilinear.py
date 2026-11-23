@@ -137,7 +137,7 @@ def device(**kwargs) -> bf.StackDevice:
         "under": LayerLevel(layer=L.WAFER, zmin=-1.0, thickness=0.85, material="sio2", mesh_order=9),
     })
     # the box: 1.6 x 1.2 x 0.8 um (x -0.2 to 1.4, y -0.2 to 1.0, z 0 to 0.8), whole 0.02 and 0.4 um cells
-    return bf.StackDevice.from_layer_stack(
+    return bf.StackDevice(
         c, ls, MATERIALS, background="air", name="s", zrange_layers=["core"],
         boundary_offset=(0.4, -0.2, 0.5, -0.2, 0.58, 0.0), diagnostics=False, **kwargs,
     )
@@ -193,7 +193,7 @@ def slab_device(angle: float = 0.0, width: float | None = None, **kwargs) -> bf.
         # air over the whole box: sets the box, paints nothing
         "frame": LayerLevel(layer=L.SLAB150, zmin=-0.2, thickness=0.5, material="air", mesh_order=9),
     })
-    return bf.StackDevice.from_layer_stack(
+    return bf.StackDevice(
         c, ls, MATERIALS, background="air", name="s", zrange_layers=["slab"],
         boundary_offset=(-0.2, 0.2, -0.2, 0.2, 0.17, -0.2), diagnostics=False, **kwargs,
     )
@@ -439,7 +439,7 @@ def test_port_planes_snap_on_an_asymmetric_box():
         "frame": LayerLevel(layer=L.SLAB150, zmin=-0.2, thickness=0.7, material="air", mesh_order=9),
     })
     # box: x [-0.3, 1.3], y [-0.3, 0.7] (port y 0.05 to 0.45), z [-0.2, 0.5] (slab 0 to 0.13)
-    d = bf.StackDevice.from_layer_stack(
+    d = bf.StackDevice(
         c, ls, MATERIALS, background="air", name="s", zrange_layers=["slab"],
         boundary_offset=(-0.2, 0.2, -0.3, 0.2, 0.37, -0.2), diagnostics=False, corner_lines=0,
     )
@@ -510,7 +510,7 @@ def lateral_device(polygon, angle: float = 0.0, transpose: bool = False, shrink=
         "frame": LayerLevel(layer=L.SLAB150, zmin=-0.1, thickness=0.42, material="air", mesh_order=9),
     })
     sx, sy = shrink
-    return bf.StackDevice.from_layer_stack(
+    return bf.StackDevice(
         c, ls, MATERIALS, background="air", name="s", zrange_layers=["core"],
         boundary_offset=(-sx, sx, -sy, sy, 0.1, -0.1), diagnostics=False, **kwargs,
     )
@@ -864,7 +864,7 @@ def test_mode_source_and_overlap_are_port_area_invariant_on_graded_grids():
         "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
         "box": LayerLevel(layer=L.WAFER, zmin=-1.5, thickness=1.5, material="sio2", mesh_order=2),
     })
-    d = bf.StackDevice.from_layer_stack(
+    d = bf.StackDevice(
         c, ls, MATERIALS, background="air", name="s", zrange_layers=["core"],
         boundary_offset=(1.4, -1.2, 1.8, -1.2, 1.0, -1.2), extend_ports=(("o1", 0.6), ("o2", 0.6)),
         diagnostics=False,
@@ -945,7 +945,7 @@ def test_long_uniform_float32_axis_recognized_by_frame_and_port_snap():
         "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
         "frame": LayerLevel(layer=L.SLAB150, zmin=-1.0, thickness=2.2, material="sio2", mesh_order=9),
     })
-    d = bf.StackDevice.from_layer_stack(
+    d = bf.StackDevice(
         c, ls, MATERIALS, background="sio2", name="s", zrange_layers=["frame"], diagnostics=False,
     )
     m = bf.mesh(d, 1.55, ppw=14, pml=1.0)
@@ -970,7 +970,7 @@ def test_mesh_subpixel_gradients_match_finite_differences_all_params(averaging: 
         "box": LayerLevel(layer=L.SLAB150, zmin=-0.5, thickness=0.52, material="sio2", mesh_order=2),
         "frame": LayerLevel(layer=L.SLAB150, zmin=-0.5, thickness=1.1, material="air", mesh_order=9),
     })
-    d = bf.StackDevice.from_layer_stack(
+    d = bf.StackDevice(
         make_wg(0.44), ls, MATERIALS, background="air", name="s", zrange_layers=["frame"],
         averaging=averaging, dtype=jnp.float64, diagnostics=False,
     )
@@ -1034,7 +1034,7 @@ def test_mesh_fdtd_value_and_grad_compiles_once_and_matches_fd():
         "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=2),
         "box": LayerLevel(layer=L.WAFER, zmin=-1.0, thickness=1.0, material="sio2", mesh_order=3),
     })
-    d = bf.StackDevice.from_layer_stack(
+    d = bf.StackDevice(
         make_device(0.50), ls, MATERIALS, background="sio2", name="s", zrange_layers=["core"],
         boundary_offset=(0.0, 0.0, 0.9, -0.9, 0.8, -0.8), extend_ports=(("o1", 0.6), ("o2", 0.6)),
         dtype=jnp.float64, diagnostics=False,
@@ -1126,7 +1126,7 @@ def test_rectilinear_mesh_coarse_vertices_reticle_offset_and_origin_check():
     ls = LayerStack(layers={
         "core": LayerLevel(layer=L.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
     })
-    d = bf.StackDevice.from_layer_stack(
+    d = bf.StackDevice(
         c, ls, MATERIALS, background="sio2", name="s", zrange_layers=["core"],
         boundary_offset=(0.0, 0.0, 0.0, 0.0, 0.4, -0.4), diagnostics=False,
     )

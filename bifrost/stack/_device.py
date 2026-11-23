@@ -15,7 +15,8 @@ from enum import Enum
 from functools import lru_cache, partial
 from typing import Any, Literal, Self
 from fdtdx.config import SimulationConfig
-from fdtdx.core.jax.pytrees import autoinit, field, frozen_field
+from fdtdx.core.jax.pytrees import field, frozen_field
+from fdtdx.core.null import NULL
 from fdtdx.dispersion import DispersionModel, Pole, compute_pole_coefficients
 from fdtdx.fdtd.container import ObjectContainer
 from fdtdx.materials import (
@@ -231,7 +232,7 @@ def _validate_stack_options(
 class StackOptions:
     """Geometry features of a `StackDevice`, all enabled by default for maximum accuracy.
 
-    Pass `options=` to `StackDevice.from_layer_stack` or override individual fields directly as keyword arguments
+    Pass `options=` to `StackDevice` or override individual fields directly as keyword arguments
     (not both). `StackOptions.fast()` turns off the slower accuracy features for quick previews of a device.
     """
 
@@ -303,11 +304,11 @@ def _homogenize_diag_from_d6(
     return jnp.moveaxis(out_z, 0, 2)
 
 
-@autoinit
 class StackDevice(StaticMultiMaterialObject):
     """A component with its LayerStack as one differentiable fdtdx object.
 
-    Build it with `from_layer_stack`, get the matching volume with
+    Build it with `StackDevice(component, layer_stack, ...)` (or from pre-compiled
+    fields with `from_raw`), get the matching volume with
     `get_simulation_volume`, and add sources and detectors on the component's
     ports with the `create_*_at` methods. Merge `init_stack_params` into
     the fdtdx params, update the vertices with `pack`, and apply the device
@@ -402,7 +403,7 @@ class StackDevice(StaticMultiMaterialObject):
             device is placed on a grid (None before placement).
     """
 
-    #: compiled levels (see `from_layer_stack`)
+    #: compiled levels
     levels: tuple[_Level, ...] = frozen_field()
     #: (param key, layer index) per source layer with polygons
     source_layers: tuple[tuple[str, int], ...] = frozen_field()
@@ -514,7 +515,7 @@ class StackDevice(StaticMultiMaterialObject):
     #: precision of the simulation, jnp.float32 or jnp.float64 (see the class docstring); any
     #: spelling of the two is accepted and stored as jnp.float32 / jnp.float64
     dtype: jnp.dtype = frozen_field(default=jnp.float32)
-    #: (name, nominal bottom, top in um) of the levels from_layer_stack left out as outside the box
+    #: (name, nominal bottom, top in um) of the levels left out when the device was built as outside the box
     #: (beyond level_margin and a small slack); place_on_grid warns when the grid samples one of them
     dropped_levels: tuple[tuple[str, float, float], ...] = frozen_field(default=())
     #: the static grid frame (`_Frame`), set by place_on_grid from the resolved grid
@@ -559,10 +560,56 @@ class StackDevice(StaticMultiMaterialObject):
 
     # ------------------------------------------------------------ construction
 
+    def _init_raw(self, _caller: str, **kwargs: Any) -> None:
+        """Populates all TreeClass fields on ``self`` from ``kwargs`` and defaults, then runs ``__post_init__``."""
+        remaining = dict(kwargs)
+        missing: list[str] = []
+        for f in self.get_class_fields():
+            if f.init:
+                key = f.alias or f.name
+                if key in remaining:
+                    object.__setattr__(self, f.name, remaining.pop(key))
+                elif f.default is NULL:
+                    missing.append(key)
+                else:
+                    object.__setattr__(self, f.name, f.default)
+            else:
+                object.__setattr__(self, f.name, f.default)
+        if remaining:
+            unexpected = next(iter(remaining))
+            raise TypeError(f"{_caller}() got an unexpected keyword argument {unexpected!r}")
+        if missing:
+            names = ", ".join(repr(k) for k in missing)
+            raise TypeError(f"{_caller}() missing {len(missing)} required keyword-only argument(s): {names}")
+        self.__post_init__()
+
     @classmethod
-    @timed("from_layer_stack")
-    def from_layer_stack(
-        cls,
+    def from_raw(cls, **kwargs: Any) -> Self:
+        """Builds a `StackDevice` directly from its pre-compiled fields.
+
+        Low-level constructor taking the `TreeClass` keyword fields of `StackDevice`
+        and `StaticMultiMaterialObject` (`materials`, `levels`, `source_layers`,
+        `source_vertices`, `source_sizes`, `background`, ...). Use
+        `StackDevice(component, layer_stack, ...)` to build a device from a
+        component and a `LayerStack`.
+
+        Args:
+            **kwargs: Keyword fields of `StackDevice` and its `fdtdx` base classes.
+
+        Returns:
+            The initialized `StackDevice`.
+
+        Raises:
+            TypeError: Missing required fields, unexpected keyword arguments, or invalid option types.
+            ValueError: Invalid option or field values.
+        """
+        device = object.__new__(cls)
+        device._init_raw(f"{cls.__qualname__}.from_raw", **kwargs)
+        return device
+
+    @timed("init")
+    def __init__(
+        self,
         component: Any,
         layer_stack: Any,
         materials: dict[str, fdtdx.Material],
@@ -575,7 +622,7 @@ class StackDevice(StaticMultiMaterialObject):
         inverted_layers: Sequence[Any] | None = None,
         options: StackOptions | None = None,
         **kwargs: Any,
-    ) -> Self:
+    ) -> None:
         """Builds the device and its box from a component and a LayerStack.
 
         ``extend_ports`` first adds a straight waveguide to each listed port. The
@@ -586,7 +633,9 @@ class StackDevice(StaticMultiMaterialObject):
         the final box (or comes within ``level_margin`` of it) is drawn, also
         levels outside ``zrange_layers``, unless no polygon is on its layers.
         Levels within 0.1 um more need a material too; those that do not reach
-        the box once fdtdx has placed it on its grid are dropped then.
+        the box once fdtdx has placed it on its grid are dropped then. The
+        resulting ``partial_real_shape`` is the box (fdtdx rounds it to whole
+        cells around the box center).
 
         Args:
             component: the component; polygons and ports are read with gradients
@@ -633,10 +682,6 @@ class StackDevice(StaticMultiMaterialObject):
                 ``partial_real_shape``, ``partial_grid_shape``, ``center`` and
                 ``z_center`` are not accepted.
 
-        Returns:
-            The device; its ``partial_real_shape`` is the box (fdtdx rounds it
-            to whole cells around the box center).
-
         Raises:
             KeyError: unknown level or port names, or a level in the box (or the
                 background) whose material is not in ``materials``.
@@ -656,7 +701,8 @@ class StackDevice(StaticMultiMaterialObject):
         for key in ("partial_real_shape", "partial_grid_shape", "center", "z_center"):
             if key in kwargs:
                 raise TypeError(
-                    f"from_layer_stack sets {key!r} from zrange_layers, extend_ports and boundary_offset"
+                    f"StackDevice sets {key!r} from zrange_layers, extend_ports and boundary_offset "
+                    "(use StackDevice.from_raw for pre-compiled fields)"
                 )
         offset = tuple(float(o) for o in boundary_offset)
         if len(offset) != 6 or not all(math.isfinite(o) for o in offset):
@@ -889,7 +935,8 @@ class StackDevice(StaticMultiMaterialObject):
         _check_materials(mats, kwargs.get("averaging", "subpixel"), kwargs.get("name", "stack"))
 
         lap("select_levels")
-        device = cls(
+        self._init_raw(
+            f"{type(self).__qualname__}.__init__",
             materials=align_material_poles(mats),
             levels=tuple(compiled),
             source_layers=tuple(sources),
@@ -907,7 +954,7 @@ class StackDevice(StaticMultiMaterialObject):
             ports=tuple(ports),
             **kwargs,
         )
-        return device._with_derived_layers()
+        object.__setattr__(self, "derived_layers", self._compute_derived_layers())
 
     @property
     def options(self) -> StackOptions:
@@ -915,8 +962,8 @@ class StackDevice(StaticMultiMaterialObject):
         return StackOptions(**{f.name: getattr(self, f.name) for f in dataclasses.fields(StackOptions)})
 
     @timed("derived_shapes")
-    def _with_derived_layers(self) -> Self:
-        """The device with ``derived_layers`` built from its ``source_vertices`` (see ``derived_shapes``)."""
+    def _compute_derived_layers(self) -> tuple[_DerivedShape, ...]:
+        """Computes ``derived_layers`` from ``source_vertices`` (see ``derived_shapes``)."""
         shapes: tuple[_DerivedShape, ...] = ()
         if self.derived_shapes == "exact":
             shapes = _derived_shapes(
@@ -925,7 +972,11 @@ class StackDevice(StaticMultiMaterialObject):
             )
         elif self.derived_shapes != "composite":
             raise ValueError(f"derived_shapes must be 'exact' or 'composite', got {self.derived_shapes!r}")
-        return self.aset("derived_layers", shapes)
+        return shapes
+
+    def _with_derived_layers(self) -> Self:
+        """The device with ``derived_layers`` built from its ``source_vertices`` (see ``derived_shapes``)."""
+        return self.aset("derived_layers", self._compute_derived_layers())
 
     def _slots(self) -> list[tuple[str, int]]:
         """(key, layer index) per layer slot: the source layers, then the derived shapes' nonempty parts."""
@@ -1018,7 +1069,7 @@ class StackDevice(StaticMultiMaterialObject):
                 raise ValueError(
                     f"Polygon topology of {k} changed: device has {len(own)} polygons with sizes "
                     f"{own}, got {len(s)} with {s}. Build a device for the new polygons with "
-                    "device.retopologize(component), or StackDevice.from_layer_stack."
+                    "device.retopologize(component), or StackDevice(component, layer_stack, ...)."
                 )
             ext_ports = [component.ports[name] for name, *_ in exts]
             concrete = not has_tracers(polys) and not has_tracers(
@@ -1090,13 +1141,13 @@ class StackDevice(StaticMultiMaterialObject):
           the layer reaches the face in more, fewer or other places), and
           polygons on a stack layer that had none when the device was built
           (`empty_layers`): the levels read it as empty and those that need
-          it are not drawn, so only `from_layer_stack` builds a device
+          it are not drawn, so only `StackDevice(component, layer_stack, ...)` builds a device
           for them.
 
         Relations are found with the device's topology tolerance
         (`topology_tol`, 2 database units by default, plus float32 round-off;
         computed from the new vertices for them), as `retopologize` and
-        `from_layer_stack` find them: what held for the device's vertices
+        `StackDevice` find them: what held for the device's vertices
         counts as kept while it holds within it, and what holds within it now
         but did not is new. So layout snapping, round-off and moves that keep
         the topology (a taper sliding along an MMI side, abutting polygons
@@ -1156,7 +1207,7 @@ class StackDevice(StaticMultiMaterialObject):
         {**params[name], **objects[name].pack(c)}`.
 
         Args:
-            vertices: a component, read like `from_layer_stack` does: its
+            vertices: a component, read like `StackDevice` does: its
                 polygons may also differ in number and size, the ports are read
                 again and the port extensions are found again from its polygons
                 and ports, on the layers they may continue. Or device parameters
@@ -1175,7 +1226,7 @@ class StackDevice(StaticMultiMaterialObject):
                 the parameters lack a layer's vertices.
             ValueError: if a source layer has no polygons left, the component
                 has polygons on a stack layer the device was built without
-                (`empty_layers`: only `from_layer_stack` adds the levels
+                (`empty_layers`: only `StackDevice` adds the levels
                 and source layers for them), or the parameters have another
                 number of vertices.
         """
@@ -1189,7 +1240,7 @@ class StackDevice(StaticMultiMaterialObject):
                 raise ValueError(
                     f"StackDevice {self.name!r} cannot take the component's polygons on layers it was built "
                     "without:\n" + "\n".join(f"  - {p}" for p in new)
-                    + "\nBuild a new device for the component with StackDevice.from_layer_stack."
+                    + "\nBuild a new device for the component with StackDevice(component, layer_stack, ...)."
                 )
             polygons = {
                 index: [np.asarray(to_numpy(p), dtype=float).reshape(-1, 2) for p in polys]
@@ -1214,7 +1265,7 @@ class StackDevice(StaticMultiMaterialObject):
                 polys = [*polygons.get(index, []), *rectangles.get(index, [])]
                 if not polys:
                     raise ValueError(
-                        f"{k} has no polygons in the component; build a new device with StackDevice.from_layer_stack"
+                        f"{k} has no polygons in the component; build a new device with StackDevice(component, layer_stack, ...)"
                     )
                 verts.append(np.concatenate(polys))
                 sizes.append(tuple(len(q) for q in polys))
@@ -1303,7 +1354,7 @@ class StackDevice(StaticMultiMaterialObject):
             return
         if new:
             fix = (
-                "Build a new device for the component with StackDevice.from_layer_stack (retopologize keeps the "
+                "Build a new device for the component with StackDevice(component, layer_stack, ...) (retopologize keeps the "
                 "levels and source layers)."
             )
         else:
@@ -3112,7 +3163,7 @@ class StackDevice(StaticMultiMaterialObject):
             )
         self = self.aset("grid_frame", frame)
         self = self._keep_reachable_levels(grid_slice_tuple, config)
-        # aligned pole slots also for devices built without from_layer_stack;
+        # aligned pole slots also for devices built via StackDevice.from_raw;
         # fdtdx allocates the slots from the placed objects' materials
         mats = {k: v for k, v in self.materials.items() if k != _ANISOTROPY_SENTINEL}
         _check_materials(mats, self.averaging, self.name)
@@ -3249,7 +3300,7 @@ class StackDevice(StaticMultiMaterialObject):
     def _warn_dropped_levels(self, bottom: float, top: float) -> None:
         """Warns about levels left out when the device was built that the placed grid samples.
 
-        ``from_layer_stack`` keeps the levels within ``level_margin`` plus a slack of the box; a
+        ``StackDevice`` keeps the levels within ``level_margin`` plus a slack of the box; a
         coarse cell at the box's bottom face samples below that, so a level there is missing.
 
         Args:
@@ -3339,12 +3390,12 @@ class StackDevice(StaticMultiMaterialObject):
         if self.averaging == "subpixel" and n_comp == 1:
             raise ValueError(
                 "averaging='subpixel' needs diagonally anisotropic arrays; build the "
-                "device with from_layer_stack(..., averaging='subpixel')"
+                "device with StackDevice(..., averaging='subpixel')"
             )
         if self.averaging == "subpixel_full" and n_comp != 9:
             raise ValueError(
                 "averaging='subpixel_full' needs fully anisotropic (9-component) arrays; build the "
-                "device with from_layer_stack(..., averaging='subpixel_full')"
+                "device with StackDevice(..., averaging='subpixel_full')"
             )
         if self.averaging == "subpixel_full":
             return self.write_with_status(arrays, params, noise_key, apply_roughness)[0]
@@ -3486,7 +3537,7 @@ class StackDevice(StaticMultiMaterialObject):
         if arrays.inv_permittivities.shape[0] != 9:
             raise ValueError(
                 "averaging='subpixel_full' needs fully anisotropic (9-component) arrays; build the "
-                "device with from_layer_stack(..., averaging='subpixel_full')"
+                "device with StackDevice(..., averaging='subpixel_full')"
             )
         _check_materials(self.materials, self.averaging, self.name)
         dtype = arrays.inv_permittivities.dtype
@@ -3895,7 +3946,7 @@ class StackDevice(StaticMultiMaterialObject):
         device (a `RectilinearGrid`'s edges are converted to it too):
 
         ```python
-        stack = bf.StackDevice.from_layer_stack(..., dtype=jnp.float64)
+        stack = bf.StackDevice(..., dtype=jnp.float64)
         config = stack.get_simulation_config(time=100e-15, grid=UniformGrid(spacing=50e-9))
         ```
 

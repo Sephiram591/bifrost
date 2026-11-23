@@ -13,7 +13,7 @@ default  averaging=subpixel yee_staggered=True corner_lines=2 diagnostics=True
 fast     averaging=inverse yee_staggered=False corner_lines=0 diagnostics=False
 ```
 
-Pass `options=` to `from_layer_stack`, or pass individual fields such as `corner_lines=0`, but not both. `device.options` returns the resolved options of a built device.
+Pass `options=` to `StackDevice`, or pass individual fields such as `corner_lines=0`, but not both. `device.options` returns the resolved options of a built device.
 
 ## What each option buys
 

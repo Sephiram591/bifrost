@@ -89,7 +89,7 @@ def place(device: bf.stack.StackDevice, extra=()):
 
 
 def box(ls: LayerStack, z_range=(-0.3, 0.6), padding=0.3) -> dict:
-    """from_layer_stack box arguments: all levels, then offsets to z_range and an xy padding (um)."""
+    """StackDevice box arguments: all levels, then offsets to z_range and an xy padding (um)."""
     spans = [sorted((lv.zmin, lv.zmin + lv.thickness)) for lv in ls.layers.values()]
     lo, hi = min(a for a, _ in spans), max(b for _, b in spans)
     return dict(
@@ -102,7 +102,7 @@ def build(c=None, ls=None, materials=None, z_range=(-0.3, 0.6), padding=0.3, **k
     ls = ls or stack()
     if "zrange_layers" not in kwargs:
         kwargs.update(box(ls, z_range, padding))
-    return bf.stack.StackDevice.from_layer_stack(
+    return bf.stack.StackDevice(
         c or circuit(),
         ls,
         materials or MATERIALS,
@@ -354,7 +354,7 @@ def test_gpdk_layer_stack_smoke() -> None:
     mats = {lv.material: fdtdx.Material(permittivity=4.0) for lv in ls.layers.values() if lv.material}
     mats["air"] = fdtdx.Material()
     c = gf.components.straight(length=2.0)
-    device = bf.stack.StackDevice.from_layer_stack(
+    device = bf.stack.StackDevice(
         c, ls, mats, background="air", name="stack",
         zrange_layers=["core"], boundary_offset=(0.2, -0.2, 0.2, -0.2, 0.28, -0.4),
     )
@@ -598,7 +598,7 @@ def _placed(component, ls, materials, size, center, z_center=0.14, **kwargs):
     spans = [sorted((lv.zmin, lv.zmin + lv.thickness)) for lv in ls.layers.values()]
     lo, hi = min(a for a, _ in spans), max(b for _, b in spans)
     (cx, cy), (sx, sy, sz) = center, size
-    device = bf.stack.StackDevice.from_layer_stack(
+    device = bf.stack.StackDevice(
         component, ls, materials, background="air", name="s", zrange_layers=list(ls.layers),
         boundary_offset=(cx + sx / 2 - bx1, cx - sx / 2 - bx0, cy + sy / 2 - by1, cy - sy / 2 - by0,
                          z_center + sz / 2 - hi, z_center - sz / 2 - lo),
@@ -2315,7 +2315,7 @@ def test_get_simulation_volume_fits_the_device() -> None:
 def test_sources_and_detectors_on_ports(rotation: float) -> None:
     ls = LayerStack(layers={k: stack().layers[k] for k in ("box", "core", "clad")})
     along = rotation == 0
-    d = bf.stack.StackDevice.from_layer_stack(
+    d = bf.stack.StackDevice(
         _straight(rotation), ls, MATERIALS, background="air", name="stack", zrange_layers=["core"],
         extend_ports=(("o1", 0.4), ("o2", 0.4)),
         boundary_offset=((0, 0, 0.6, -0.6) if along else (0.6, -0.6, 0, 0)) + (0.4, -0.3),
@@ -2387,7 +2387,7 @@ def test_sources_and_detectors_on_ports(rotation: float) -> None:
 
 
 def test_port_errors() -> None:
-    d = bf.stack.StackDevice.from_layer_stack(
+    d = bf.stack.StackDevice(
         _straight(0), stack(), MATERIALS, background="air", name="stack", zrange_layers=["core"]
     )
     wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
@@ -2407,12 +2407,12 @@ def test_levels_without_polygons_need_no_material() -> None:
     c = gf.components.straight(length=2.0)
     mats = {"si": MATERIALS["si"], "sio2": MATERIALS["sio2"], "air": MATERIALS["air"]}
     # z [-0.5, 2.0] reaches the etch, slab, nitride, ge, via, metal and heater levels: no polygons there
-    d = bf.stack.StackDevice.from_layer_stack(
+    d = bf.stack.StackDevice(
         c, ls, mats, background="air", zrange_layers=["core"], boundary_offset=(0, 0, 0, 0, 1.78, -0.5)
     )
     assert {lv.name for lv in d.levels} == {"box", "core", "clad"}
     with pytest.raises(KeyError, match="Level 'box'"):  # WAFER level: fills the plane without polygons
-        bf.stack.StackDevice.from_layer_stack(
+        bf.stack.StackDevice(
             c, ls, {k: v for k, v in mats.items() if k != "sio2"}, background="air",
             zrange_layers=["core"], boundary_offset=(0, 0, 0, 0, 0, -0.5),
         )
@@ -2440,7 +2440,7 @@ def test_sizing_rejects_what_a_sum_cannot_draw(sized, match) -> None:
         bf.stack._sizing(sized(LogicalLayer(layer=WG)))
 
 
-def test_from_layer_stack_rejects_an_opening() -> None:
+def test_init_rejects_an_opening() -> None:
     ls = stack()
     core = ls.layers["core"]
     ls.layers["core"] = core.model_copy(update={"layer": LogicalLayer(layer=WG).sized((-100, 100))})
@@ -2453,7 +2453,7 @@ def test_from_layer_stack_rejects_an_opening() -> None:
 
 def _unplaced(component, **kwargs) -> bf.stack.StackDevice:
     """A core-only device for the component, not placed (enough for pack and the topology checks)."""
-    return bf.stack.StackDevice.from_layer_stack(
+    return bf.stack.StackDevice(
         component, _core(), CORE_ONLY, background="air", name="s", zrange_layers=["core"], **kwargs
     )
 
@@ -2646,7 +2646,7 @@ def test_topology_with_layout_snapping(name: str, monkeypatch: pytest.MonkeyPatc
 
 def test_retopologize_keeps_what_the_check_keeps(monkeypatch: pytest.MonkeyPatch) -> None:
     """Junction corners within the topology tolerance of an MMI side pass the check, and the device built for
-    them (retopologize, from the component or the parameters, or from_layer_stack) keeps the junctions: it
+    them (retopologize, from the component or the parameters, or StackDevice) keeps the junctions: it
     equals the merged polygon through the moved corners. The MMI side lies inside voxels, where a dropped
     junction leaves a slit (fill off by ~0.3). Also with the 1 nm snapping of a rotated component."""
     pieces, merged = JUNCTIONS["taper on MMI"]
@@ -2714,12 +2714,12 @@ def test_polygons_on_a_layer_the_device_was_built_without() -> None:
     assert [lv.name for lv in d.levels] == ["box", "core", "clad"]
     with pytest.raises(
         ValueError, match=r"vertices/SLAB\w*: 1 polygon on a layer the device was built without \(level 'slab' is "
-        r"not drawn\)(.|\n)*StackDevice.from_layer_stack"
+        r"not drawn\)(.|\n)*StackDevice\("
     ):
         d.pack(_rib_to(2.0))
     with pytest.raises(ValueError, match=r"level 'slab' is not drawn"):
         d.check_topology(_rib_to(2.0))
-    with pytest.raises(ValueError, match=r"level 'slab' is not drawn(.|\n)*from_layer_stack"):
+    with pytest.raises(ValueError, match=r"level 'slab' is not drawn(.|\n)*StackDevice\("):
         d.retopologize(_rib_to(2.0))
     etched = _waveguide_to(2.0, 2.0)
     etched.add_polygon(_rect(1.0, -0.5, 1.2, 0.5), layer=ETCH)
@@ -2749,7 +2749,7 @@ def _diagnose(
     component, resolution=RES, xy_subsamples=1, ls=None, derived_shapes="exact", **level
 ) -> dict[str, bf.stack.StackDiagnostic]:
     """Findings by kind of an unplaced device for the component (a core on WG with ``level``, or ``ls``)."""
-    device = bf.stack.StackDevice.from_layer_stack(
+    device = bf.stack.StackDevice(
         component, ls or _core(**level), CORE_ONLY, background="air", name="s", zrange_layers=["core"],
         boundary_offset=(0.3, -0.3, 0.3, -0.3, 0.0, 0.0), xy_subsamples=xy_subsamples, derived_shapes=derived_shapes,
     )
@@ -2836,7 +2836,7 @@ def _etched_end(extend: float, beyond: float, derived_shapes: str = "exact") -> 
     """
     c = _waveguide()
     c.add_polygon(_rect(1.4, -0.5, 2.0, 0.5), layer=ETCH)
-    return bf.stack.StackDevice.from_layer_stack(
+    return bf.stack.StackDevice(
         c, LayerStack(layers={"core": stack().layers["core"]}), CORE_ONLY, background="air", name="s",
         zrange_layers=["core"], extend_ports=(("o2", extend),) if extend else (),
         boundary_offset=(beyond, 0.0, 0.3, -0.3, 0.0, 0.0), derived_shapes=derived_shapes,
@@ -3070,7 +3070,7 @@ def test_narrow_places_outside_the_box_are_not_diagnosed() -> None:
     anchors = (_rect(-1, -1, -0.99, -0.99), _rect(2.99, 2.99, 3, 3))  # with the offsets, the box is [0.3, 1.7]^2
     # the gap 0.35 um past the box's corner, or across the box (measured on its part in the box)
     for center, expected in (((1.806, 1.806), None), ((0.6, 0.6), (0.745, 0.745))):
-        device = bf.stack.StackDevice.from_layer_stack(
+        device = bf.stack.StackDevice(
             _polygons(*anchors, *strips(center)), _core(), CORE_ONLY, background="air", name="s",
             zrange_layers=["core"], boundary_offset=(-1.3, 1.3, -1.3, 1.3, 0.0, 0.0),
         )
@@ -3088,7 +3088,7 @@ def test_narrow_places_are_measured_in_the_box() -> None:
     narrowest width of the whole edges (review finding I4-4)."""
     c = _polygons(_rect(0, 0, 2, 0.5), [(0, 0.505), (2, 0.525), (2, 1.0), (0, 1.0)])  # 0.005 + 0.01 x wide
     for x_offsets, size, x in (((0.0, 1.0), 0.015, 1.0), ((0.3, -0.3), 0.005, 0.0)):  # box x in [1, 2], [-0.3, 2.3]
-        device = bf.stack.StackDevice.from_layer_stack(
+        device = bf.stack.StackDevice(
             c, _core(), CORE_ONLY, background="air", name="s", zrange_layers=["core"],
             boundary_offset=(*x_offsets, 0.3, -0.3, 0.0, 0.0),
         )
@@ -3402,8 +3402,8 @@ def test_step_timings_change_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
         assert np.array_equal(a, b)
     steps = timings.by_leaf()
     expected = {
-        "from_layer_stack", "from_layer_stack.compile_levels", "from_layer_stack.polygons",
-        "from_layer_stack.port_extensions", "from_layer_stack.select_levels", "derived_shapes",
+        "init", "init.compile_levels", "init.polygons",
+        "init.port_extensions", "init.select_levels", "derived_shapes",
         "place_on_grid", "keep_reachable_levels", "place_on_grid.pole_alignment", "corner_budget", "diagnose",
         "pack", "pack_vertices", "topology_check", "apply_stack", "apply_stack.write_stacks",
         "apply_stack.apply_params", "write", "write.Ex", "write.Ey", "write.Ez", "write.set_permittivity",
@@ -3527,7 +3527,7 @@ def test_subpixel_normal_gradient() -> None:
 
 def _exact_device(component, expr, **level) -> bf.stack.StackDevice:
     """A StackDevice drawing a layer expression (exact derived shapes), the box 0.3 um around the polygons."""
-    return bf.stack.StackDevice.from_layer_stack(
+    return bf.stack.StackDevice(
         component, _core_of(expr, **level), CORE_ONLY, background="air", name="s", zrange_layers=["core"],
         boundary_offset=(0.3, -0.3, 0.3, -0.3, 0.0, 0.0),
     )
@@ -3712,7 +3712,7 @@ def test_fdtd_solve_forward_and_gradient() -> None:
     whose outputs are waited for, compile and backward pass included), which the timing plugin reports."""
 
     ls = LayerStack(layers={k: stack().layers[k] for k in ("box", "core", "clad")})
-    d = bf.stack.StackDevice.from_layer_stack(
+    d = bf.stack.StackDevice(
         _straight(0.0, width=0.5), ls, MATERIALS, background="air", name="stack", zrange_layers=["core"],
         boundary_offset=(0.0, 0.0, 0.3, -0.3, 0.3, -0.2),
     )
@@ -3752,7 +3752,7 @@ def test_mode_objects_on_a_stack_see_the_stack_permittivity() -> None:
     wrote: fdtdx (0.6.3) applies objects that overlap none of its own Devices only in place_objects, on the
     dominant-material painting. A second call with the same parameters reuses them; a thicker core solves again."""
     ls = LayerStack(layers={k: stack().layers[k] for k in ("box", "core", "clad")})
-    d = bf.stack.StackDevice.from_layer_stack(
+    d = bf.stack.StackDevice(
         _straight(0.0), ls, MATERIALS, background="air", name="stack", zrange_layers=["core"],
         extend_ports=(("o1", 0.4),), boundary_offset=(0, 0, 0.6, -0.6, 0.4, -0.3),
     )
@@ -3855,21 +3855,21 @@ def test_material_contract_rejects_what_it_cannot_write() -> None:
     and non-finite tensors, and the reserved placeholder name, are rejected when the device is built."""
     poly = _polygons(_rect(-0.5, -0.3, 0.5, 0.3))
     with pytest.raises(ValueError, match="subpixel_full"):
-        bf.stack.StackDevice.from_layer_stack(poly, _core(), ANISO_MATERIALS, background="air", zrange_layers=["core"])
+        bf.stack.StackDevice(poly, _core(), ANISO_MATERIALS, background="air", zrange_layers=["core"])
     bad = np.diag([2.0, 3.0, 4.0])
     bad[0, 1] = 0.5
     with pytest.raises(ValueError, match="non-symmetric"):
-        bf.stack.StackDevice.from_layer_stack(
+        bf.stack.StackDevice(
             poly, _core(), {"air": fdtdx.Material(), "si": fdtdx.Material(permittivity=tuple(map(tuple, bad)))},
             background="air", zrange_layers=["core"], averaging="subpixel_full",
         )
     with pytest.raises(ValueError, match="reserved"):
-        bf.stack.StackDevice.from_layer_stack(
+        bf.stack.StackDevice(
             poly, _core(), {**CORE_ONLY, "__diagonal_anisotropy__": fdtdx.Material()}, background="air",
             zrange_layers=["core"],
         )
     # diagonal anisotropy stays allowed with "subpixel" (each E component takes its diagonal entry)
-    bf.stack.StackDevice.from_layer_stack(
+    bf.stack.StackDevice(
         poly, _core(), {"air": fdtdx.Material(), "si": fdtdx.Material(permittivity=(11.0, 12.0, 13.0))},
         background="air", zrange_layers=["core"],
     )
@@ -4150,7 +4150,7 @@ def test_plane_extents_rejects_bad_padding_or_a_missing_wavelength() -> None:
 def test_a_detector_without_a_wave_needs_a_wavelength_for_its_padding() -> None:
     """Field, energy and flux detectors take ``wavelength_um`` as the padding's unit."""
     ls = LayerStack(layers={"core": LayerLevel(layer=(1, 0), zmin=0.0, thickness=0.22, material="si", mesh_order=1)})
-    d = bf.stack.StackDevice.from_layer_stack(
+    d = bf.stack.StackDevice(
         _straight(0.0, width=0.5), ls, MATERIALS, background="air", name="stack", zrange_layers=["core"],
         boundary_offset=(0.0, 0.0, 0.3, -0.3, 0.3, -0.2),
     )
@@ -4208,7 +4208,7 @@ def test_inverted_layers_geometry_bias_sidewall_and_voxelizer_parity() -> None:
 
     weights = {}
     for voxelizer in ("greens", "legacy"):
-        d = bf.stack.StackDevice.from_layer_stack(c, ls_vert, name="s", voxelizer=voxelizer, **common)
+        d = bf.stack.StackDevice(c, ls_vert, name="s", voxelizer=voxelizer, **common)
         assert len(d.derived_layers) == 1 and d.derived_layers[0].recipes[0].negate
         objects, _, params = _place_own_volume(d)
         placed = objects["s"]
@@ -4221,7 +4221,7 @@ def test_inverted_layers_geometry_bias_sidewall_and_voxelizer_parity() -> None:
 
     # Check total shrunk-hole cross-sectional area at z = 0.11 um matches exact analytical area:
     # box around ETCH is 0.8 x 0.5 um^2 minus shrunk rectangle [-0.26, 0.26] x [-0.11, 0.11] (0.52 * 0.22)
-    d0 = bf.stack.StackDevice.from_layer_stack(c, ls_vert, name="s", **common)
+    d0 = bf.stack.StackDevice(c, ls_vert, name="s", **common)
     objs0, _, pars0 = _place_own_volume(d0)
     k_mid = cell(objs0["s"], 0.0, 0.0, 0.11)[2]
     si_area = float(weights["greens"][:, :, k_mid].sum()) * (RES**2)
@@ -4230,7 +4230,7 @@ def test_inverted_layers_geometry_bias_sidewall_and_voxelizer_parity() -> None:
     # Sloped sidewall (> 0): inverted material narrows toward the top, so etched hole widens toward the top.
     s_weights = {}
     for voxelizer in ("greens", "legacy"):
-        ds = bf.stack.StackDevice.from_layer_stack(c, ls_sloped, name="s", voxelizer=voxelizer, **common)
+        ds = bf.stack.StackDevice(c, ls_sloped, name="s", voxelizer=voxelizer, **common)
         objs, _, pars = _place_own_volume(ds)
         placed = objs["s"]
         names, w = placed.material_weights(pars["s"])
@@ -4248,7 +4248,7 @@ def test_inverted_layers_default_wafer_override_and_deprecated_fill_layers() -> 
         build(fill_layers=(WAFER,))  # type: ignore[call-arg]
 
     c_no_wafer = _straight(0.0)
-    d_default = bf.stack.StackDevice.from_layer_stack(
+    d_default = bf.stack.StackDevice(
         c_no_wafer, stack(), MATERIALS, background="air", name="stack", zrange_layers=["core"]
     )
     box_lv = next(lv for lv in d_default.levels if lv.name == "box")
@@ -4270,7 +4270,7 @@ def test_inverted_layers_default_wafer_override_and_deprecated_fill_layers() -> 
             "core": LayerLevel(layer=WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1),
         }
     )
-    d_cutout = bf.stack.StackDevice.from_layer_stack(
+    d_cutout = bf.stack.StackDevice(
         c_with_wafer,
         ls_wafer,
         {"air": MATERIALS["air"], "sio2": MATERIALS["sio2"], "si": MATERIALS["si"]},
@@ -4287,7 +4287,7 @@ def test_inverted_layers_default_wafer_override_and_deprecated_fill_layers() -> 
     assert float(w_map["air"][cell(placed, 1.0, 0.0, -0.1)]) == pytest.approx(1.0)
 
     # Disabling inverted_layers=() treats WAFER as a normal positive polygon layer.
-    d_pos = bf.stack.StackDevice.from_layer_stack(
+    d_pos = bf.stack.StackDevice(
         c_with_wafer,
         ls_wafer,
         {"air": MATERIALS["air"], "sio2": MATERIALS["sio2"], "si": MATERIALS["si"]},
@@ -4345,7 +4345,7 @@ def test_inverted_layers_derived_expressions() -> None:
     mats = {"air": MATERIALS["air"], "si": MATERIALS["si"], "sio2": MATERIALS["sio2"]}
     with warnings.catch_warnings():
         warnings.simplefilter("error", bf.stack.StackDiagnosticWarning)
-        d = bf.stack.StackDevice.from_layer_stack(
+        d = bf.stack.StackDevice(
             c,
             ls,
             mats,
@@ -4399,7 +4399,7 @@ def test_inverted_layers_negative_tone_waveguide_end_to_end(port_width_mode: str
         }
     )
     mats = {"air": MATERIALS["air"], "sio2": MATERIALS["sio2"], "si": MATERIALS["si"]}
-    d = bf.stack.StackDevice.from_layer_stack(
+    d = bf.stack.StackDevice(
         neg_wg(0.5),
         ls,
         mats,
@@ -4460,3 +4460,34 @@ def test_inverted_layers_negative_tone_waveguide_end_to_end(port_width_mode: str
     assert vs.styles["box"].opacity == state.FILL_OPACITY
     assert vs.styles["core"].opacity == state.LEVEL_OPACITY
     assert solids._port_level(placed, int(gf.get_layer(ETCH))).name == "core"
+
+
+def test_from_raw_roundtrip_and_validation() -> None:
+    """StackDevice.from_raw rebuilds an immutable StackDevice from public fields and validates args."""
+    assert not hasattr(bf.StackDevice, "from_layer_stack")
+    d = _unplaced(circuit())
+    raw_kwargs = {f.name: f.value for f in d.get_public_fields()}
+    d_raw = bf.StackDevice.from_raw(**raw_kwargs)
+    assert isinstance(d_raw, bf.StackDevice)
+    assert d_raw.levels == d.levels
+    assert d_raw.background == d.background
+    assert d_raw.partial_real_shape == d.partial_real_shape
+    assert d_raw.dtype == d.dtype
+    assert d_raw._grid_slice_tuple == fdtdx.typing.INVALID_SLICE_TUPLE_3D
+    assert getattr(d_raw, "_config", None) is not None
+    with pytest.raises(AttributeError):
+        d_raw.averaging = "inverse"  # type: ignore[misc]
+
+    # Round-trip a placed device resets placement-private state while keeping public fields.
+    objects, _, _ = place(d)
+    placed = objects["s"]
+    placed_raw = bf.StackDevice.from_raw(**{f.name: f.value for f in placed.get_public_fields()})
+    assert placed_raw._grid_slice_tuple == fdtdx.typing.INVALID_SLICE_TUPLE_3D
+    assert placed_raw.grid_frame == placed.grid_frame
+
+    with pytest.raises(TypeError, match="missing .* required keyword-only argument"):
+        bf.StackDevice.from_raw()
+    with pytest.raises(TypeError, match="unexpected keyword argument 'bogus'"):
+        bf.StackDevice.from_raw(**raw_kwargs, bogus=1)
+    with pytest.raises(ValueError, match="edge_width"):
+        bf.StackDevice.from_raw(**{**raw_kwargs, "edge_width": 0.0})

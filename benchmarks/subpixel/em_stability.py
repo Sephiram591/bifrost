@@ -88,7 +88,7 @@ def main() -> None:
         "clad": LayerLevel(layer=L.WAFER, zmin=0.0, thickness=0.5, material="sio2", mesh_order=10),
         "pad": LayerLevel(layer=L.M1, zmin=0.4, thickness=0.1, material="pad", mesh_order=1),
     })
-    device = bf.stack.StackDevice.from_layer_stack(
+    device = bf.stack.StackDevice(
         c, ls, mats, background="air", name="stack", zrange_layers=list(ls.layers),
         boundary_offset=(0.3, -0.3, 0.3, -0.3, 0.1, 0.0), averaging=args.averaging, diagnostics=False,
     )

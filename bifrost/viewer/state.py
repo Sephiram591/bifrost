@@ -216,7 +216,7 @@ class ViewerState:
         ``boundary_offset`` is ``(x+, x-, y+, y-, z+, z-)`` in µm, an offset
         from the box the device was **built** with. Each value moves its face
         along the axis, positive towards +x, +y or +z — the same convention
-        :meth:`~bifrost.stack.StackDevice.from_layer_stack` uses, so
+        :class:`~bifrost.stack.StackDevice` uses, so
         ``(1, -1, 0, 0, 0, 0)`` grows the box by 1 µm on each x side. The
         geometry is not rebuilt — the same :class:`StackDevice` is
         reconstructed with the moved faces (the fields it bakes the box into
@@ -237,7 +237,7 @@ class ViewerState:
         base_shape, base_center, base_z = self._base_box
         # each axis' +face takes the even offset and its -face the odd one, so
         # the box grows by ``offset[even] - offset[odd]`` and shifts by their
-        # mean (the same faces ``from_layer_stack`` builds the box from). The
+        # mean (the same faces ``StackDevice`` builds the box from). The
         # offset is in µm; ``partial_real_shape`` is in metres, the centers µm.
         shape = (
             base_shape[0] + (offset[0] - offset[1]) * 1e-6,
@@ -644,12 +644,18 @@ def _rebox_stack(device: Any, shape: tuple[float, float, float], center: tuple[f
     """A copy of ``device`` with its box fields replaced (spec R13).
 
     :class:`~bifrost.stack.StackDevice` is an immutable pytreeclass
-    tree, so the box fields cannot be set in place. Its generated ``__init__``
-    takes every field as a keyword, though, so the device is reconstructed with
+    tree, so the box fields cannot be set in place. :meth:`~bifrost.stack.StackDevice.from_raw`
+    takes every public field as a keyword, so the device is reconstructed with
     each field read back from the original and the three box fields overridden.
     The polygons, levels and materials are shared, not rebuilt — only the box
     the viewer draws and clips to changes.
     """
+    if hasattr(type(device), "from_raw") and hasattr(device, "get_public_fields"):
+        kwargs = {f.name: f.value for f in device.get_public_fields()}
+        kwargs["partial_real_shape"] = tuple(shape)
+        kwargs["center"] = tuple(center)
+        kwargs["z_center"] = float(z_center)
+        return type(device).from_raw(**kwargs)
     import inspect
 
     names = [p for p in inspect.signature(type(device).__init__).parameters if p != "self"]

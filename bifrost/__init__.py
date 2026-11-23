@@ -4,7 +4,7 @@ Import it as ``import bifrost as bf``::
 
     import bifrost as bf
 
-    stack = bf.stack.StackDevice.from_layer_stack(component, layer_stack, ...)
+    stack = bf.StackDevice(component, layer_stack, ...)
     viewer = bf.view(stack)
 """
 

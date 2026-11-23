@@ -68,7 +68,7 @@ def _make_bend_device(target_nx: int, target_nz: int, averaging: str, voxelizer:
     raw_span_x = r_mid + 0.5 * width + ext_len  # o1 shifts min_x to -ext_len, o2 shifts max_y to r_mid + ext_len
     pad_xy = span_xy - raw_span_x
     pad_z = 0.5 * (box_z - 0.22)
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         c,
         lstack,
         mats,

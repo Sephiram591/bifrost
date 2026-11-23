@@ -61,7 +61,7 @@ MATERIALS = {
 def build_stack() -> bf.StackDevice:
     """The bend voxelized with its layer stack, with both ports extended straight to the box."""
     z_margin = (BOX_HEIGHT - THICKNESS) / 2  # cladding above and below the core
-    return bf.StackDevice.from_layer_stack(
+    return bf.StackDevice(
         component, LAYER_STACK, MATERIALS,
         background="clad",
         zrange_layers=["core"],    # the box's z range starts as the core's: 0 to 0.22 um

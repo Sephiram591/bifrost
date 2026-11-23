@@ -154,7 +154,7 @@ source, placing = stack.create_mode_plane_source_at("o1", (0.5, 0.5), wave, grid
 The whole simulation runs in the `StackDevice`'s `dtype`, `jnp.float32` (the default) or `jnp.float64`, and the device is the single place to configure it:
 
 ```python
-stack = bf.StackDevice.from_layer_stack(
+stack = bf.StackDevice(
     component, layer_stack, materials, background="clad", zrange_layers=["core"], dtype=jnp.float64
 )
 mesh = bf.mesh(stack, 1.55)

@@ -22,7 +22,7 @@ materials = {
     "core": fdtdx.Material(permittivity=3.48**2),
     "clad": fdtdx.Material(permittivity=1.444**2),
 }
-stack = bf.StackDevice.from_layer_stack(
+stack = bf.StackDevice(
     component, layer_stack, materials, background="clad", zrange_layers=["core"],
     extend_ports=(("o1", 2.0), ("o2", 2.0)),          # the leads end at the box faces ...
     # ... which are 1.5 um from the guide in y and z (a 9 x 3.5 x 3.22 um box)

@@ -169,7 +169,7 @@ def test_complete_tensor_warn_fallback_and_subpixel_full_grad_finite() -> None:
     """subpixel_full closure stays finite, SPD, and differentiable even under capacity overflow."""
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})
     comp = _poly_comp({WG: [_rect(-0.26, -0.22, 0.26, 0.22)]})
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp,
         ls,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -241,7 +241,7 @@ def test_nested_island_in_hole_preserved_by_fold_rings_recipe_and_diagnose() -> 
             )
         }
     )
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp,
         ls,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -299,19 +299,19 @@ def test_stack_options_and_device_validation() -> None:
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.2, material="si", mesh_order=1)})
     base_kw = dict(materials={"air": MATERIALS["air"], "si": MATERIALS["si"]}, background="air", zrange_layers=["core"])
     with pytest.raises(ValueError, match="edge_width"):
-        StackDevice.from_layer_stack(comp, ls, edge_width=0.0, **base_kw)
+        StackDevice(comp, ls, edge_width=0.0, **base_kw)
     with pytest.raises(TypeError, match="edge_width"):
-        StackDevice.from_layer_stack(comp, ls, edge_width=True, **base_kw)
+        StackDevice(comp, ls, edge_width=True, **base_kw)
     with pytest.raises(ValueError, match="edge_chunk"):
-        StackDevice.from_layer_stack(comp, ls, edge_chunk=0, **base_kw)
+        StackDevice(comp, ls, edge_chunk=0, **base_kw)
     with pytest.raises(ValueError, match="corner_columns"):
-        StackDevice.from_layer_stack(comp, ls, corner_columns=-1, **base_kw)
+        StackDevice(comp, ls, corner_columns=-1, **base_kw)
     with pytest.raises(ValueError, match="junction_voxels"):
-        StackDevice.from_layer_stack(comp, ls, junction_voxels=-1, **base_kw)
+        StackDevice(comp, ls, junction_voxels=-1, **base_kw)
     with pytest.raises(ValueError, match="level_margin"):
-        StackDevice.from_layer_stack(comp, ls, level_margin=-0.1, **base_kw)
+        StackDevice(comp, ls, level_margin=-0.1, **base_kw)
     with pytest.raises(TypeError, match="noise_seed"):
-        StackDevice.from_layer_stack(comp, ls, noise_seed=False, **base_kw)
+        StackDevice(comp, ls, noise_seed=False, **base_kw)
 
 
 def test_junction_inputs_asymmetric_per_x_and_per_y() -> None:
@@ -319,7 +319,7 @@ def test_junction_inputs_asymmetric_per_x_and_per_y() -> None:
     comp = _poly_comp({WG: [_rect(-0.24, -0.24, 0.24, 0.24)]})
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})
     for jcells in ((2, 4, 4), (4, 2, 4)):
-        dev = StackDevice.from_layer_stack(
+        dev = StackDevice(
             comp,
             ls,
             {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -342,7 +342,7 @@ def test_junction_inputs_asymmetric_per_x_and_per_y() -> None:
         assert not bool(status["failed"])
         assert bool(jnp.all(jnp.isfinite(out_arr.inv_permittivities)))
 
-        dev_g = StackDevice.from_layer_stack(
+        dev_g = StackDevice(
             comp,
             ls,
             {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -363,7 +363,7 @@ def test_degenerate_90deg_corner_isotropic_subpixel_full_grad_finite() -> None:
     """Symmetric 90-degree corner centered on cell boundaries yields finite primal and grad."""
     comp = _poly_comp({WG: [_rect(-0.20, -0.20, 0.20, 0.20)]})
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp,
         ls,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -391,7 +391,7 @@ def test_init_params_and_pack_match_device_dtype() -> None:
     comp = _poly_comp({WG: [_rect(-0.3, -0.2, 0.3, 0.2)]})
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.2, material="si", mesh_order=1)})
     for dt in (jnp.float32, jnp.float64):
-        dev = StackDevice.from_layer_stack(
+        dev = StackDevice(
             comp,
             ls,
             {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -418,9 +418,9 @@ def test_float32_large_reticle_offset_warns_and_preserves_local_geometry() -> No
         zrange_layers=["core"],
         boundary_offset=(0.16, -0.16, 0.16, -0.16, 0.08, -0.08),
     )
-    d0 = StackDevice.from_layer_stack(comp0, ls, dtype=jnp.float32, **kw)
-    d1_f32 = StackDevice.from_layer_stack(comp1, ls, dtype=jnp.float32, **kw)
-    d1_f64 = StackDevice.from_layer_stack(comp1, ls, dtype=jnp.float64, **kw)
+    d0 = StackDevice(comp0, ls, dtype=jnp.float32, **kw)
+    d1_f32 = StackDevice(comp1, ls, dtype=jnp.float32, **kw)
+    d1_f64 = StackDevice(comp1, ls, dtype=jnp.float64, **kw)
 
     with warnings.catch_warnings(record=True) as rec0:
         warnings.simplefilter("always")
@@ -475,7 +475,7 @@ def test_zero_thickness_nonzero_sidewall_angle_finite_primal_and_grad() -> None:
                 )
             }
         )
-        dev = StackDevice.from_layer_stack(
+        dev = StackDevice(
             comp,
             ls,
             {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -505,7 +505,7 @@ def test_retopologize_grows_junction_voxels_and_check_topology_fill_only() -> No
     """retopologize grows junction_voxels under legacy and handles denser topologies dynamically under greens."""
     comp_simple = _poly_comp({WG: [_rect(-0.8, -0.1, 0.8, 0.1)]})
     ls_core = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp_simple,
         ls_core,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -532,7 +532,7 @@ def test_retopologize_grows_junction_voxels_and_check_topology_fill_only() -> No
     _, status = retop.write_with_status(arrays, retop.pack(comp_dense))
     assert int(status["junction_overflow"]) == 0
 
-    dev_g = StackDevice.from_layer_stack(
+    dev_g = StackDevice(
         comp_simple,
         ls_core,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -550,7 +550,7 @@ def test_retopologize_grows_junction_voxels_and_check_topology_fill_only() -> No
 
     comp_fill = _poly_comp({SLAB: [_rect(-0.3, -0.3, 0.3, 0.3)]})
     ls_fill = LayerStack(layers={"sub": LayerLevel(layer=WAFER, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})
-    fill_dev = StackDevice.from_layer_stack(
+    fill_dev = StackDevice(
         comp_fill,
         ls_fill,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -562,7 +562,7 @@ def test_retopologize_grows_junction_voxels_and_check_topology_fill_only() -> No
     assert fill_dev.check_topology({}) is None
 
     comp_inv = _poly_comp({WAFER: [_rect(-0.3, -0.3, 0.3, 0.3)]})
-    inv_dev = StackDevice.from_layer_stack(
+    inv_dev = StackDevice(
         comp_inv,
         ls_fill,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -594,7 +594,7 @@ def test_top_roughness_validation_and_finite_grad() -> None:
 
     comp = _poly_comp({WG: [_rect(-0.24, -0.20, 0.24, 0.20)]})
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp,
         ls,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -631,7 +631,7 @@ def test_roughness_reach_5rms_and_fill_above_keep_reachable_levels() -> None:
     keep_uncoupled, _ = _roughness_reach(items, (TopRoughness(level="base", rms=0.005, fill_above=False),), 0.0, 0.3)
     assert keep_uncoupled == {"cap"}
 
-    # Placed integration: base below box is kept in from_layer_stack, then retained iff 5 * rms reaches box bottom.
+    # Placed integration: base below box is kept in StackDevice(...), then retained iff 5 * rms reaches box bottom.
     comp = _poly_comp({SLAB: [_rect(-0.24, -0.24, 0.24, 0.24)], WG: [_rect(-0.24, -0.24, 0.24, 0.24)]})
     ls = LayerStack(
         layers={
@@ -639,7 +639,7 @@ def test_roughness_reach_5rms_and_fill_above_keep_reachable_levels() -> None:
             "core": LayerLevel(layer=WG, zmin=0.0, thickness=0.20, material="si", mesh_order=1),
         }
     )
-    dev_keep = StackDevice.from_layer_stack(
+    dev_keep = StackDevice(
         comp,
         ls,
         MATERIALS,
@@ -653,7 +653,7 @@ def test_roughness_reach_5rms_and_fill_above_keep_reachable_levels() -> None:
     assert {lv.name for lv in objs_keep["stack"].levels} == {"base", "core"}
     assert [r.level for r in objs_keep["stack"].roughness] == ["base"]
 
-    dev_drop = StackDevice.from_layer_stack(
+    dev_drop = StackDevice(
         comp,
         ls,
         MATERIALS,
@@ -679,7 +679,7 @@ def test_sigma_9_component_yee_weighting() -> None:
     }
     comp = _poly_comp({WG: [_rect(-0.24, -0.24, 0.02, 0.24)]})
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.16, material="cond", mesh_order=1)})
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp,
         ls,
         mats,
@@ -725,8 +725,8 @@ def test_rectilinear_grid_validation_and_float32_edge_collapse() -> None:
         zrange_layers=["core"],
         boundary_offset=(0.2, -0.2, 0.2, -0.2, 0.1, -0.1),
     )
-    dev32 = StackDevice.from_layer_stack(comp, ls, dtype=jnp.float32, **base_kw)
-    dev64 = StackDevice.from_layer_stack(comp, ls, dtype=jnp.float64, **base_kw)
+    dev32 = StackDevice(comp, ls, dtype=jnp.float32, **base_kw)
+    dev64 = StackDevice(comp, ls, dtype=jnp.float64, **base_kw)
 
     for bad in (0.0, -0.05, float("nan"), float("inf")):
         with pytest.raises(ValueError, match="spacing_um"):
@@ -750,7 +750,7 @@ def test_write_with_status_checks_materials_and_rejects_magnetic() -> None:
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})
 
     with pytest.raises(ValueError, match="magnetic"):
-        StackDevice.from_layer_stack(
+        StackDevice(
             comp,
             ls,
             {"air": MATERIALS["air"], "si": fdtdx.Material(permittivity=2.0, permeability=2.0)},
@@ -758,7 +758,7 @@ def test_write_with_status_checks_materials_and_rejects_magnetic() -> None:
             zrange_layers=["core"],
         )
 
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp,
         ls,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -792,7 +792,7 @@ def test_apply_stack_omits_fixed_keys_checks_overlap_and_dtype() -> None:
         zrange_layers=["core"],
         boundary_offset=(0.12, -0.12, 0.12, -0.12, 0.08, -0.08),
     )
-    s1 = StackDevice.from_layer_stack(comp1, ls, name="s1", dtype=jnp.float32, **kw)
+    s1 = StackDevice(comp1, ls, name="s1", dtype=jnp.float32, **kw)
     objects, arrays, _, _ = _place(s1)
     arrays_out, _, info = apply_stack(arrays, objects, {}, jax.random.PRNGKey(0))
     assert bool(jnp.all(jnp.isfinite(arrays_out.inv_permittivities)))
@@ -804,8 +804,8 @@ def test_apply_stack_omits_fixed_keys_checks_overlap_and_dtype() -> None:
         apply_stack(arrays64, objects, {}, jax.random.PRNGKey(0))
 
     # Disjoint vs overlapping / mixed-dtype stacks inside one volume.
-    s2 = StackDevice.from_layer_stack(comp2, ls, name="s2", dtype=jnp.float32, **kw)
-    s_ov = StackDevice.from_layer_stack(comp_overlap, ls, name="s_ov", dtype=jnp.float32, **kw)
+    s2 = StackDevice(comp2, ls, name="s2", dtype=jnp.float32, **kw)
+    s_ov = StackDevice(comp_overlap, ls, name="s_ov", dtype=jnp.float32, **kw)
     vol = fdtdx.SimulationVolume(partial_real_shape=(2.4e-6, 0.8e-6, 0.4e-6))
     cfg32 = s1.get_simulation_config(time=10e-15, grid=UniformGrid(spacing=RES * 1e-6), backend=jax.default_backend())
 
@@ -849,52 +849,52 @@ def test_apply_stack_omits_fixed_keys_checks_overlap_and_dtype() -> None:
 # --------------------------------------------------------------------------- E-BF-12
 
 
-def test_from_layer_stack_validation_and_list_bias() -> None:
-    """from_layer_stack validates levels, extend_ports, sidewall_angle, z_to_bias, and list bias."""
+def test_init_validation_and_list_bias() -> None:
+    """StackDevice validates levels, extend_ports, sidewall_angle, z_to_bias, and list bias."""
     comp = gf.components.straight(length=1.0, width=0.5)
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.2, material="si", mesh_order=1)})
     kw = dict(materials={"air": MATERIALS["air"], "si": MATERIALS["si"]}, background="air", zrange_layers=["core"])
 
     with pytest.raises(ValueError, match="Duplicate level names"):
-        StackDevice.from_layer_stack(comp, ls, levels=["core", "core"], **kw)
+        StackDevice(comp, ls, levels=["core", "core"], **kw)
     with pytest.raises(TypeError, match="levels must be a sequence"):
-        StackDevice.from_layer_stack(comp, ls, levels="core", **kw)
+        StackDevice(comp, ls, levels="core", **kw)
     with pytest.raises(KeyError, match="Unknown levels"):
-        StackDevice.from_layer_stack(comp, ls, levels=["missing"], **kw)
+        StackDevice(comp, ls, levels=["missing"], **kw)
 
     with pytest.raises(ValueError, match="Duplicate extend_ports"):
-        StackDevice.from_layer_stack(comp, ls, extend_ports=(("o1", 0.3), ("o1", 0.4)), **kw)
+        StackDevice(comp, ls, extend_ports=(("o1", 0.3), ("o1", 0.4)), **kw)
     with pytest.raises(ValueError, match="extend_ports"):
-        StackDevice.from_layer_stack(comp, ls, extend_ports=(("o1",),), **kw)  # type: ignore[arg-type]
+        StackDevice(comp, ls, extend_ports=(("o1",),), **kw)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="length > 0"):
-        StackDevice.from_layer_stack(comp, ls, extend_ports=(("o1", -0.2),), **kw)
+        StackDevice(comp, ls, extend_ports=(("o1", -0.2),), **kw)
 
     for bad_angle in (90.0, -90.0, float("nan")):
         ls_bad_ang = LayerStack(
             layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.2, sidewall_angle=bad_angle, material="si")}
         )
         with pytest.raises(ValueError, match="sidewall_angle"):
-            StackDevice.from_layer_stack(comp, ls_bad_ang, **kw)
+            StackDevice(comp, ls_bad_ang, **kw)
 
     for bad_z2b in (([], []), ([0.0, 0.5], [0.0]), ([0.5, 0.5], [0.0, 0.1])):
         lvl = LayerLevel(layer=WG, zmin=0.0, thickness=0.2, z_to_bias=bad_z2b, material="si")  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="z_to_bias"):
-            StackDevice.from_layer_stack(comp, LayerStack(layers={"core": lvl}), **kw)
+            StackDevice(comp, LayerStack(layers={"core": lvl}), **kw)
     lvl_bad_len = LayerLevel.model_construct(
         layer=WG, zmin=0.0, thickness=0.2, z_to_bias=([0.0],), material="si"
     )
     with pytest.raises(ValueError, match="z_to_bias"):
-        StackDevice.from_layer_stack(
+        StackDevice(
             comp, LayerStack.model_construct(layers={"core": lvl_bad_len}), **kw
         )
 
     lvl_ok = LayerLevel(layer=WG, zmin=0.0, thickness=0.2, bias=[0.01, 0.01], material="si")  # type: ignore[arg-type]
-    dev_ok = StackDevice.from_layer_stack(comp, LayerStack(layers={"core": lvl_ok}), **kw)
+    dev_ok = StackDevice(comp, LayerStack(layers={"core": lvl_ok}), **kw)
     assert dev_ok.levels[0].bias == pytest.approx(0.01)
 
     lvl_aniso = LayerLevel(layer=WG, zmin=0.0, thickness=0.2, bias=[0.01, 0.02], material="si")  # type: ignore[arg-type]
     with pytest.raises(NotImplementedError, match="Anisotropic bias"):
-        StackDevice.from_layer_stack(comp, LayerStack(layers={"core": lvl_aniso}), **kw)
+        StackDevice(comp, LayerStack(layers={"core": lvl_aniso}), **kw)
 
 
 # --------------------------------------------------------------------------- E-BF-13 (M2 Option A)
@@ -904,7 +904,7 @@ def test_gaussian_source_default_radius_uses_snapped_span() -> None:
     """M2 Option A: default GaussianPlaneSource radius comes from grid-snapped spans on non-uniform grids."""
     comp = gf.components.straight(length=2.0, width=0.4)
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1)})
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp,
         ls,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -928,7 +928,7 @@ def test_point_dipole_polarization_validation() -> None:
     """create_point_dipole_source_at rejects bool/non-int types and out-of-range axes."""
     comp = gf.components.straight(length=1.0, width=0.4)
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.2, material="si", mesh_order=1)})
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp, ls, {"air": MATERIALS["air"], "si": MATERIALS["si"]}, background="air", zrange_layers=["core"]
     )
     wave = fdtdx.WaveCharacter(wavelength=1.55e-6)
@@ -953,7 +953,7 @@ def test_plane_frame_port_offset_moves_along_in_and_outward_positive() -> None:
     """M2 Option A: plane port_offset > 0 shifts along 'in' (-axis) with direction='-'."""
     comp = _poly_comp({WG: [_rect(-0.5, -0.5, 0.5, 0.5)]})
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.2, material="si", mesh_order=1)})
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp,
         ls,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -984,7 +984,7 @@ def test_interface_status_returns_python_scalars_and_matches_write() -> None:
     """interface_status uses JIT core and returns Python int/float scalars matching write_with_status."""
     comp = _poly_comp({WG: [_rect(-0.24, -0.22, 0.24, 0.22)]})
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.16, material="si", mesh_order=1)})
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp,
         ls,
         {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -1014,7 +1014,7 @@ def test_write_dispersion_yee_weights_and_slot_consistency() -> None:
     }
     comp = _poly_comp({WG: [_rect(-0.20, -0.20, 0.02, 0.20)]})
     ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.16, material="disp", mesh_order=1)})
-    dev = StackDevice.from_layer_stack(
+    dev = StackDevice(
         comp,
         ls,
         mats,
@@ -1060,7 +1060,7 @@ def test_reapply_cache_bounded_and_avoids_stack_materials_retention() -> None:
     try:
         comp = gf.components.straight(length=1.2, width=0.5)
         ls = LayerStack(layers={"core": LayerLevel(layer=WG, zmin=0.0, thickness=0.22, material="si", mesh_order=1)})
-        dev = StackDevice.from_layer_stack(
+        dev = StackDevice(
             comp,
             ls,
             {"air": MATERIALS["air"], "si": MATERIALS["si"]},
@@ -1115,8 +1115,8 @@ def test_sloped_sidewall_float32_matches_float64_precision() -> None:
         zrange_layers=["core"],
         boundary_offset=(0.16, -0.16, 0.16, -0.16, 0.08, -0.08),
     )
-    objs32, _, params32, _ = _place(StackDevice.from_layer_stack(comp, ls, dtype=jnp.float32, **kw), spacing=0.02)
-    objs64, _, params64, _ = _place(StackDevice.from_layer_stack(comp, ls, dtype=jnp.float64, **kw), spacing=0.02)
+    objs32, _, params32, _ = _place(StackDevice(comp, ls, dtype=jnp.float32, **kw), spacing=0.02)
+    objs64, _, params64, _ = _place(StackDevice(comp, ls, dtype=jnp.float64, **kw), spacing=0.02)
     w32 = np.asarray(objs32["stack"].material_weights(params32["stack"], apply_roughness=False)[1], dtype=float)
     w64 = np.asarray(objs64["stack"].material_weights(params64["stack"], apply_roughness=False)[1], dtype=float)
     np.testing.assert_allclose(w32, w64, atol=2e-5)

@@ -752,7 +752,7 @@ def _suite_fdtd_bifrost() -> dict[str, Any]:
         "air": fdtdx.Material(permittivity=1.0),
     }
     comp = gf.components.straight(length=l0, width=0.40)
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         comp,
         ls,
         materials,

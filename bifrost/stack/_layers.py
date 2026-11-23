@@ -24,7 +24,7 @@ PortDirection = Literal["in", "out"]  # into the component through the port, or 
 _BIG = 1e6  # "infinitely" far, in cells
 
 
-# um: from_layer_stack keeps the levels this close to the box (beyond
+# um: StackDevice keeps the levels this close to the box (beyond
 # level_margin), to cover fdtdx's rounding of the box to whole cells and the
 # half cell sampled below it on grids up to ~130 nm; the levels that do not
 # reach the placed box are dropped in place_on_grid
@@ -392,7 +392,7 @@ def _port_extensions(
     tol: float | None = None,
     inverted: Container[int] = (),
 ) -> tuple[dict[int, list[tuple[str, float, _FaceEnd, _FaceEnd]]], dict[int, list[np.ndarray]]]:
-    """The port extensions of every layer (see ``extend_ports`` of :meth:`StackDevice.from_layer_stack`).
+    """The port extensions of every layer (see ``extend_ports`` of :class:`StackDevice`).
 
     Args:
         polygons: static polygons (um) per layer index.

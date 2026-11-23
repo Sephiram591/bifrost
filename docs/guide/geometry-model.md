@@ -87,7 +87,7 @@ Materials can carry an `fdtdx.DispersionModel` (Lorentz or Drude poles), in whic
 `TopRoughness` displaces the top surface of a level with a Gaussian random field:
 
 ```python
-stack = bf.StackDevice.from_layer_stack(
+stack = bf.StackDevice(
     ...,
     roughness=[bf.TopRoughness(level="core", rms=0.005, correlation_length=0.05)],
 )

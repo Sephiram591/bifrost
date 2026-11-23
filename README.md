@@ -49,7 +49,7 @@ materials = {
     "clad": fdtdx.Material(permittivity=1.444**2),
 }
 
-stack = bf.StackDevice.from_layer_stack(
+stack = bf.StackDevice(
     component, layer_stack, materials,
     background="clad",                               # fills everything the core does not
     zrange_layers=["core"],                          # the box's z range is the core's

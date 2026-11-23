@@ -122,7 +122,7 @@ def _place_test_stack(
         dz_extra = max(0.0, 0.5 * (box_size[2] - (z_hi - z_lo)))
         boundary_offset = (dx_extra, -dx_extra, dy_extra, -dy_extra, dz_extra, -dz_extra)
 
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         c,
         levels,
         mats,
@@ -337,7 +337,7 @@ def test_rectilinear_edge_width_and_subsamples() -> None:
     poly = np.array([[-0.6, -0.22], [0.6, -0.22], [0.6, 0.22], [-0.6, 0.22]])
     c = gf.Component()
     c.add_polygon(poly, layer=(1, 0))
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         c,
         lstack,
         mats,

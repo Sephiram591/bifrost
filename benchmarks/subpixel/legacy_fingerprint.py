@@ -49,7 +49,7 @@ def main(out: str) -> None:
         "inverse": {"averaging": "inverse"},
         "nocorner": {"corner_lines": 0},
     }.items():
-        d = bf.stack.StackDevice.from_layer_stack(
+        d = bf.stack.StackDevice(
             c, ls, mats, background="air", name="s", zrange_layers=["core"],
             boundary_offset=(0.2, -0.2, 0.2, -0.2, 0.1, -0.1), **kwargs,
         )

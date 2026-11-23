@@ -110,7 +110,7 @@ materials = {
     "silica": fdtdx.Material(permittivity=1.444**2),
     "air": fdtdx.Material(permittivity=1.0),
 }
-stack = bf.StackDevice.from_layer_stack(
+stack = bf.StackDevice(
     component, layer_stack, materials, background="air", zrange_layers=["core"],
     extend_ports=(("o1", 2.0), ("o2", 2.0)), boundary_offset=(1.5, 0.0, 0.0, -1.5, 1.4, -1.4), name="stack",
 )

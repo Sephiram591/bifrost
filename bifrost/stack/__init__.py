@@ -84,7 +84,7 @@ Example:
     import gdsfactory as gf
     import bifrost as bf
 
-    stack = bf.stack.StackDevice.from_layer_stack(
+    stack = bf.stack.StackDevice(
         my_circuit(gap=0.2), gf.gpdk.LAYER_STACK,
         materials={"si": fdtdx.Material(permittivity=12.1), "sio2": fdtdx.Material(permittivity=2.1)},
         background="sio2",

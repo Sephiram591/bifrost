@@ -389,7 +389,7 @@ def test_axis_mapping_is_asymmetric() -> None:
         layers={"core": LayerLevel(layer=(1, 0), zmin=0.0, thickness=0.2, material="si", mesh_order=1)}
     )
     materials = {"air": fdtdx.Material(), "si": fdtdx.Material(permittivity=12.0)}
-    device = bf.stack.StackDevice.from_layer_stack(
+    device = bf.stack.StackDevice(
         component, layer_stack, materials, background="air", name="stack",
         zrange_layers=["core"], boundary_offset=(0.5, -0.5, 0.5, -0.5, 0.0, 0.0),
     )

@@ -1485,7 +1485,7 @@ one wire — and every routing decision keyed on the active tab.
 
 - `docs/fdtdx.md`: workflow and the "Geometry model" section
 - `bifrost/stack.py`:
-  - `StackDevice` and its attributes (D8), `from_layer_stack`
+  - `StackDevice` and its attributes (D8), `from_raw`
   - `_Level` and `_Port` (compiled level and port data)
   - `_compile_layer` / `_compile_level` (expression nodes, fill / background
     handling) and `_sizing` (layer grows)

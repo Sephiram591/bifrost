@@ -115,7 +115,7 @@ def build_stack(gap: float = GAP, averaging: str = AVERAGING) -> bf.stack.StackD
     grown in y and z by ``boundary_offset`` to the domain."""
     y_edge = (PORT_GAP + 2 * WIDTH) / 2
     dy, dz = HALF_SPAN[0] - y_edge, HALF_SPAN[1] - HEIGHT / 2
-    return bf.stack.StackDevice.from_layer_stack(
+    return bf.stack.StackDevice(
         directional_coupler(gap), LAYER_STACK, MATERIALS, background="clad", name="stack",
         zrange_layers=["core"],  # z: the core level, -0.1 to 0.1 um
         extend_ports=tuple((port, EXTENSION) for port in ("o1", "o2", "o3", "o4")),

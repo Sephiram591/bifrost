@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- [Inverted layers](guide/layer-stacks.md#negative-tone-and-inverted-layers): replaced `fill_layers` in `StackDevice.from_layer_stack` with `inverted_layers` (default `WAFER`), applying a level's material to the inverse of the layer's drawn polygons (covering the whole plane when the layer has no polygons, and supporting negative-tone trench-etched waveguides with `extend_ports` and port-attached sources and monitors).
+- `StackDevice(component, layer_stack, ...)` is now the constructor directly (`__init__`), replacing `StackDevice.from_layer_stack`; raw field construction is `StackDevice.from_raw(...)`.
+- [Inverted layers](guide/layer-stacks.md#negative-tone-and-inverted-layers): replaced `fill_layers` in `StackDevice` with `inverted_layers` (default `WAFER`), applying a level's material to the inverse of the layer's drawn polygons (covering the whole plane when the layer has no polygons, and supporting negative-tone trench-etched waveguides with `extend_ports` and port-attached sources and monitors).
 - [Automatic meshing](guide/simulation-setup.md#automatic-meshing): `bf.mesh(stack, band, refine=bf.Refine(...))` builds a graded simulation grid from the device geometry, wavelength band, and optimization motion bounds (`Refine.dilation` per layer or per vertex, `Refine.z_padding` per level):
   - Refines materials to `lambda / (n ppw)` where they exist or may move, extends fine grids by 3 evanescent decay lengths past lower-index boundaries, resolves narrow features and gaps (`feature_cells`), and supports explicit refinement regions (`Refine.regions`) and substrate coarsening (`Refine.material_cells`).
   - Places continuous real-valued cell edges along each axis (`bf.axis_edges`, or discrete multiples via `bf.lattice_edges` when `quantum` is set), satisfying dual-cell targets, neighbor `growth` limits, uniform PML regions, mirror symmetry, and mid-cell centering of static horizontal interfaces (`center_faces=True`).
@@ -12,7 +13,7 @@
 - `bf.ModePlaneSource` and `bf.ModeOverlapDetector` (returned by `create_mode_plane_source_at` and `create_mode_overlap_detector_at`) normalize launched mode fields and overlap area weights against the simulation-wide `min_spacing**2` on non-uniform `RectilinearGrid`s, removing port-area bias across planes of different sizes, paddings, or orientations.
 - Viewer support for non-uniform grids, adaptive meshing controls (defaulting to adaptive `ppw=15` with per-layer dilation sub-cards), and client-side MP4 video export via WebCodecs and `wrap_video`.
 - `averaging="subpixel_full"`: junction sub-cells whose two dominant interface directions carry nearly equal weight blend smoothly toward axis-weighted laminates so the homogenized tensor and its derivatives stay continuous across corner crossings.
-- `place_on_grid` warns when a level excluded during `from_layer_stack` (beyond `level_margin + 0.1` µm) is sampled by a coarse cell at a box face.
+- `place_on_grid` warns when a level excluded during `StackDevice(...)` construction (beyond `level_margin + 0.1` µm) is sampled by a coarse cell at a box face.
 
 ## 0.2.0
 

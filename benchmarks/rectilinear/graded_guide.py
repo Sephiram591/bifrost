@@ -121,7 +121,7 @@ def build(kind: str):
     ls = LayerStack(layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=THICKNESS, material="si",
                                                mesh_order=1, sidewall_angle=ANGLE)})
     mats = {"si": fdtdx.Material(permittivity=N_CORE**2), "clad": fdtdx.Material(permittivity=N_CLAD**2)}
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         c, ls, mats, background="clad", zrange_layers=["core"], name="stack", diagnostics=False,
         boundary_offset=(0.0, 0.0, y1 - h, y0 + h, z1 - THICKNESS, z0),
     )

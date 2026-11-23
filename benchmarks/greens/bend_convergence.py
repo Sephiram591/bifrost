@@ -98,7 +98,7 @@ def _run_soi(kind: str, averaging: str, voxelizer: str, shift_frac: float = 0.0)
     }
     ext = 2.1
     boff = (1.10 + shift_um, 0.05 + shift_um, -0.05 + shift_um, -1.10 + shift_um, 1.09 + shift_um, -1.09 + shift_um)
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         _soi_bend_component(),
         lstack,
         mats,
@@ -191,7 +191,7 @@ def _run_soi_grad_check(averaging: str) -> dict[str, Any]:
         "air": fdtdx.Material(permittivity=1.0),
     }
     boff = (1.10, 0.05, -0.05, -1.10, 1.09, -1.09)
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         _soi_bend_component(0.0),
         lstack,
         mats,
@@ -270,7 +270,7 @@ def _run_sin(kind: str, averaging: str, voxelizer: str) -> dict[str, Any]:
 
     assert Path(bf.__file__).resolve().is_relative_to(WT_ROOT), bf.__file__
     z_margin = (invd.BOX_HEIGHT - invd.THICKNESS) / 2
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         invd.tight_bend(invd.UNIFORM),
         invd.layer_stack,
         invd.materials,

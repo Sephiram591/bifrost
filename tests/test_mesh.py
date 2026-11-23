@@ -467,7 +467,7 @@ def device(rects=(), levels: dict | None = None, mats: dict | None = None, angle
         "frame": LayerLevel(layer=LAYER.SLAB150, zmin=-0.6, thickness=1.6, material="sio2", mesh_order=9),
         **levels,
     }
-    return bf.StackDevice.from_layer_stack(
+    return bf.StackDevice(
         c, LayerStack(layers=stack), mats or MATS, background="sio2", name="s", zrange_layers=["frame"],
         diagnostics=False, **kwargs,
     )
@@ -717,7 +717,7 @@ def test_mesh_reproduces_the_hand_set_bend_grid(pdk):
     import inverse_design as ex
 
     z_margin = (ex.BOX_HEIGHT - ex.THICKNESS) / 2
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         ex.tight_bend(ex.UNIFORM), ex.layer_stack, ex.materials, background="air", zrange_layers=["core"],
         extend_ports=(("o1", ex.EXTENSION), ("o2", ex.EXTENSION)),
         boundary_offset=(ex.MARGIN, 0, 0, -ex.MARGIN, z_margin, -z_margin), name="stack",
@@ -940,7 +940,7 @@ def test_coarse_vertices_empty_layer_boundary_float32_and_summary_outside(pdk):
     c_flush = gf.Component()
     for layer in (LAYER.SLAB150, LAYER.WG):
         c_flush.add_polygon([(-0.3, -0.3), (0.3, -0.3), (0.3, 0.3), (-0.3, 0.3)], layer=layer)
-    d_flush = bf.StackDevice.from_layer_stack(
+    d_flush = bf.StackDevice(
         c_flush,
         LayerStack(layers={
             "core": LayerLevel(layer=LAYER.WG, zmin=0.0, thickness=0.22, material="si", mesh_order=2),

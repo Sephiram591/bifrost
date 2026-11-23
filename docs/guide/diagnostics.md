@@ -25,7 +25,7 @@ One `StackDiagnosticWarning` is emitted per level and diagnostic category:
   - Derived levels are checked on the exact shape they draw (see [Geometry model](geometry-model.md)). With `derived_shapes="composite"`, or for expressions that fall back to composite evaluation, coincident edges across layers (such as `WG - ETCH` ending flush with the waveguide) produce a sliver of twice the offset width when grown.
 - **Overlapping polygons on a shrunk layer** (only with `derived_shapes="composite"`, or when an expression falls back to it), due to a sidewall angle above `z_ref`, negative `bias`, `z_to_bias`, or sizing, or a growing level that subtracts the layer. Composite distance evaluation shrinks each polygon individually rather than their union, opening a slit where an overlap is narrower than twice the shrink. Abutting polygons sharing an edge are not flagged, and grows are exact. With the default `derived_shapes="exact"`, overlapping polygons are unioned before offsetting and do not trigger this issue.
 
-`stack.diagnose(resolution)` returns the findings programmatically as `StackDiagnostic` tuples (`level`, `kind`, `size`, `cells`, `threshold`, `location`, `z`, `count`, `layers`, `message`); pass the grid resolution in µm when calling `diagnose` before placement. To suppress warnings, pass `diagnostics=False` to `from_layer_stack`, or filter the warning class:
+`stack.diagnose(resolution)` returns the findings programmatically as `StackDiagnostic` tuples (`level`, `kind`, `size`, `cells`, `threshold`, `location`, `z`, `count`, `layers`, `message`); pass the grid resolution in µm when calling `diagnose` before placement. To suppress warnings, pass `diagnostics=False` to `StackDevice`, or filter the warning class:
 
 ```python
 import warnings
@@ -41,7 +41,7 @@ Step timing is disabled by default (costing a single global lookup per call) and
 
 ```python
 with bf.record_timings() as timings:
-    device = bf.StackDevice.from_layer_stack(...)
+    device = bf.StackDevice(...)
     objects, arrays, params, config, _ = fdtdx.place_objects(...)
     arrays, objects, _ = bf.apply_stack(arrays, objects, params, key)
 print(timings.table())  # per step: calls, wall, trace, compile, run (s)
@@ -49,7 +49,7 @@ print(timings.table())  # per step: calls, wall, trace, compile, run (s)
 
 Recorded steps and sub-step laps:
 
-- **`from_layer_stack`** (laps `compile_levels`, `polygons`, `port_extensions`, `select_levels`) and **`derived_shapes`**
+- **`init`** (laps `compile_levels`, `polygons`, `port_extensions`, `select_levels`) and **`derived_shapes`**
 - **`pack`** (`pack_vertices`, `topology_check`), **`check_topology`**, and **`retopologize`**
 - **`place_on_grid`** (`keep_reachable_levels`, `pole_alignment`, `corner_budget`, `junction_budget` for `"subpixel_full"`, `diagnose`)
 - **`apply_stack`** (runs `write_complete` per device, then `write_stacks`, `apply_params`, `reapply_objects`)

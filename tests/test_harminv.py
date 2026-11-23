@@ -250,7 +250,7 @@ def test_field_detector_interface_and_errors() -> None:
     comp = gf.components.straight(length=0.8, width=0.5)
     ls = LayerStack(layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="core")})
     mats = {"core": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Material(permittivity=1.444**2)}
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         comp,
         ls,
         mats,
@@ -349,7 +349,7 @@ def test_simplest_bifrost_fabry_perot_resonator_forward_meep_and_grad() -> None:
     }
 
     comp = gf.components.straight(length=L0, width=0.40)
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         comp,
         ls,
         materials,
@@ -507,7 +507,7 @@ def test_3d_strip_resonator_multichannel_detector_and_thickness_grad() -> None:
         "air": fdtdx.Material(permittivity=1.0),
     }
     comp = gf.components.straight(length=1.68, width=0.48)
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         comp,
         ls,
         materials,

@@ -232,7 +232,7 @@ def export_all(geom_dir: Path) -> None:
         }
     )
     sg_mats = {"si": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Material(permittivity=1.444**2)}
-    sg_stack = bf.StackDevice.from_layer_stack(
+    sg_stack = bf.StackDevice(
         sg_c, sg_ls, sg_mats, background="clad", zrange_layers=["core"], name="stack",
         diagnostics=False, boundary_offset=(0.0, 0.0, y1 - h, y0 + h, z1 - 0.22, z0),
     )
@@ -253,7 +253,7 @@ def export_all(geom_dir: Path) -> None:
 
     # 3. sin_bend
     z_margin_sb = (invd.BOX_HEIGHT - invd.THICKNESS) / 2
-    sb_stack = bf.StackDevice.from_layer_stack(
+    sb_stack = bf.StackDevice(
         invd.tight_bend(invd.UNIFORM), invd.layer_stack, invd.materials, background="air",
         zrange_layers=["core"], extend_ports=(("o1", invd.EXTENSION), ("o2", invd.EXTENSION)),
         boundary_offset=(invd.MARGIN, 0.0, 0.0, -invd.MARGIN, z_margin_sb, -z_margin_sb),
@@ -273,7 +273,7 @@ def export_all(geom_dir: Path) -> None:
     (geom_dir / "geometry_sin_bend.json").write_text(json.dumps(sb_spec, indent=2))
 
     # 4. elevator_coupler
-    ec_stack = bf.StackDevice.from_layer_stack(
+    ec_stack = bf.StackDevice(
         ec.elevator_coupler(3.80), ec.LAYER_STACK, ec.MATERIALS, background="air", name="stack",
         zrange_layers=["lower", "upper"], extend_ports=(("o1", ec.EXTENSION), ("o2", ec.EXTENSION)),
         boundary_offset=(0.0, 0.0, 2.0 - ec.W_MAX / 2, -2.0 + ec.W_MAX / 2, 1.60 - 0.19, -1.60 + 0.21),

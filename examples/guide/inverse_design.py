@@ -84,7 +84,7 @@ materials = {
 def place(ppw):
     """The uniform bend, placed on an adaptive mesh of this ppw with its source and monitors."""
     z_margin = (BOX_HEIGHT - THICKNESS) / 2  # the silica runs through the bottom face, the air through the top
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         tight_bend(UNIFORM), layer_stack, materials, background="air", zrange_layers=["core"],
         extend_ports=(("o1", EXTENSION), ("o2", EXTENSION)),
         boundary_offset=(MARGIN, 0, 0, -MARGIN, z_margin, -z_margin), name="stack",

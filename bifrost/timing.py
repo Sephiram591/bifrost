@@ -5,7 +5,7 @@ nothing to traced code. Turn it on with `record_timings`:
 
 ```python
 with record_timings() as timings:
-    device = StackDevice.from_layer_stack(...)
+    device = StackDevice(...)
     objects, arrays, *_ = fdtdx.place_objects(...)
     arrays, *_ = apply_stack(arrays, objects, params, key)
 print(timings.table())

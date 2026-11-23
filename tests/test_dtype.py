@@ -46,7 +46,7 @@ def _device(dtype: Any = _DEFAULT) -> bf.StackDevice:
     )
     materials = {"core": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Material(permittivity=1.444**2)}
     extra = {} if dtype is _DEFAULT else {"dtype": dtype}
-    return bf.StackDevice.from_layer_stack(
+    return bf.StackDevice(
         _component(), layer_stack, materials, background="clad", zrange_layers=["core"],
         extend_ports=(("o1", 1.5), ("o2", 1.5)), boundary_offset=(0, 0, 1.0, -1.0, 1.0, -1.0),
         name="stack", **extra,

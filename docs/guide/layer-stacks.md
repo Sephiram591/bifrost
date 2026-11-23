@@ -17,7 +17,7 @@ The smallest useful stack has one level and two materials: a core in a uniform c
 --8<-- "examples/guide/layer_stacks.py:bare"
 ```
 
-`from_layer_stack` derives the simulation box size from the polygons and `zrange_layers`:
+`StackDevice` derives the simulation box size from the polygons and `zrange_layers`:
 
 ```text
 box (um): [7.0, 3.5, 3.22]
@@ -58,7 +58,7 @@ substrate appears in the geometry without enlarging the simulation.
 
 ## Parameters
 
-Besides the arguments above, `from_layer_stack` takes:
+Besides the arguments above, `StackDevice` takes (and pre-compiled raw fields can be passed via `StackDevice.from_raw(...)`):
 
 | Argument | Meaning |
 | --- | --- |

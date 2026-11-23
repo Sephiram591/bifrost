@@ -23,7 +23,7 @@ materials = {
     "core": fdtdx.Material(permittivity=3.48**2),
     "clad": fdtdx.Material(permittivity=1.444**2),
 }
-stack = bf.StackDevice.from_layer_stack(
+stack = bf.StackDevice(
     component, layer_stack, materials,
     background="clad",                              # fills everything no level covers
     zrange_layers=["core"],                         # the box's z range starts as the core's
@@ -48,7 +48,7 @@ substrate_materials = {
     "silica": fdtdx.Material(permittivity=1.444**2),
     "air": fdtdx.Material(),
 }
-on_substrate = bf.StackDevice.from_layer_stack(
+on_substrate = bf.StackDevice(
     component, substrate_stack, substrate_materials,
     background="air",
     zrange_layers=["core"],
@@ -74,7 +74,7 @@ negative_stack = LayerStack(
         "core": LayerLevel(layer=gf.gpdk.LAYER.DEEP_ETCH, zmin=0.0, thickness=0.22, material="silicon", mesh_order=1),
     }
 )
-negative_guide = bf.StackDevice.from_layer_stack(
+negative_guide = bf.StackDevice(
     etched, negative_stack, substrate_materials,
     background="air",
     zrange_layers=["core"],

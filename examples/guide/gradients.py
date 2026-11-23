@@ -24,7 +24,7 @@ materials = {"core": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Materia
 # a gdsfactory bend (any differentiable cell works); the ports are extended 2 um, and the box is 6 x 6 x 3.4 um.
 # 2 um is tighter than the strip's 3.5 um minimum radius, so that check is off.
 component = gf.components.bend_circular(radius=RADIUS, angle=90, allow_min_radius_violation=True)
-stack = bf.StackDevice.from_layer_stack(
+stack = bf.StackDevice(
     component, layer_stack, materials, background="clad", zrange_layers=["core"],
     extend_ports=(("o1", 2.0), ("o2", 2.0)), boundary_offset=(1.75, 0, 0, -1.75, 1.59, -1.59), name="stack",
 )

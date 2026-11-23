@@ -117,7 +117,7 @@ def _run_aniso_slab_one(
             )
         }
     )
-    device = bf.StackDevice.from_layer_stack(
+    device = bf.StackDevice(
         c,
         ls,
         mats,
@@ -230,7 +230,7 @@ def run_aniso_slab(kind: str, averaging: str) -> dict[str, Any]:
             "air": fdtdx.Material(),
             "slab": fdtdx.Material(permittivity=tuple(tuple(float(x) for x in row) for row in eps_tensor)),
         }
-        device = bf.StackDevice.from_layer_stack(
+        device = bf.StackDevice(
             c,
             ls,
             mats,
@@ -336,7 +336,7 @@ def run_sloped_guide(kind: str, averaging: str) -> dict[str, Any]:
         }
     )
     mats = {"si": fdtdx.Material(permittivity=n_core**2), "clad": fdtdx.Material(permittivity=n_clad**2)}
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         c,
         ls,
         mats,
@@ -500,7 +500,7 @@ def run_soi_bragg(kind: str, averaging: str) -> dict[str, Any]:
         "sio2": fdtdx.Material(permittivity=1.444**2),
         "air": fdtdx.Material(permittivity=1.0),
     }
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         _bragg_component(),
         ls,
         mats,
@@ -610,7 +610,7 @@ def run_elevator_coupler(kind: str, averaging: str) -> dict[str, Any]:
 
     assert Path(bf.__file__).resolve().is_relative_to(WT_ROOT), bf.__file__
     overlap = 3.80
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         ec.elevator_coupler(overlap),
         ec.LAYER_STACK,
         ec.MATERIALS,
@@ -727,7 +727,7 @@ def run_sin_bend(kind: str, averaging: str) -> dict[str, Any]:
 
     assert Path(bf.__file__).resolve().is_relative_to(WT_ROOT), bf.__file__
     z_margin = (invd.BOX_HEIGHT - invd.THICKNESS) / 2
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         invd.tight_bend(invd.UNIFORM),
         invd.layer_stack,
         invd.materials,
@@ -870,7 +870,7 @@ def run_linbo3_bend(kind: str, averaging: str) -> dict[str, Any]:
 
     assert Path(bf.__file__).resolve().is_relative_to(WT_ROOT), bf.__file__
     z_margin = (lb.BOX_HEIGHT - lb.THICKNESS) / 2
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         lb.component,
         lb.LAYER_STACK,
         lb.MATERIALS,

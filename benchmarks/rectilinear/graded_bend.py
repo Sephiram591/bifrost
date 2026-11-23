@@ -68,7 +68,7 @@ def place(kind: str, checkpoints: int = 60):
     import bifrost as bf
 
     z_margin = (ex.BOX_HEIGHT - ex.THICKNESS) / 2
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         ex.tight_bend(ex.UNIFORM), ex.layer_stack, ex.materials, background="air", zrange_layers=["core"],
         extend_ports=(("o1", ex.EXTENSION), ("o2", ex.EXTENSION)),
         boundary_offset=(ex.MARGIN, 0, 0, -ex.MARGIN, z_margin, -z_margin), name="stack",

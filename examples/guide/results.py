@@ -18,7 +18,7 @@ layer_stack = LayerStack(
     layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
 )
 materials = {"core": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Material(permittivity=1.444**2)}
-stack = bf.StackDevice.from_layer_stack(
+stack = bf.StackDevice(
     component, layer_stack, materials, background="clad", zrange_layers=["core"],
     extend_ports=(("o1", 2.0), ("o2", 2.0)), name="stack",
     boundary_offset=(0, 0, 1.5, -1.5, 1.5, -1.5),

@@ -68,7 +68,7 @@ def build(kind: str, averaging: str, zmin: float = 0.0):
                                                mesh_order=1, sidewall_angle=8.0)})
     mats = {"si": fdtdx.Material(permittivity=3.48**2), "clad": fdtdx.Material(permittivity=1.444**2)}
     (_, _), (y0, y1), (z0, z1) = BOX
-    stack = bf.StackDevice.from_layer_stack(
+    stack = bf.StackDevice(
         c, ls, mats, background="clad", zrange_layers=["core"], name="stack", dtype=jnp.float64,
         boundary_offset=(0.0, 0.0, y1 - by1, y0 + 0.25, z1 - 0.22 - zmin, z0 - zmin), diagnostics=False,
         averaging=averaging,

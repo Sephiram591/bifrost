@@ -66,7 +66,7 @@ def _run_one(kind: str, averaging: str, voxelizer: str) -> dict[str, Any]:
         f_val, h = float(frac), float(base_kind.split("-")[1]) * 1e-3
         dy = dc.HALF_SPAN[0] - (dc.PORT_GAP + 2 * dc.WIDTH) / 2
         dz = dc.HALF_SPAN[1] - dc.HEIGHT / 2
-        stack = bf.StackDevice.from_layer_stack(
+        stack = bf.StackDevice(
             dc.directional_coupler(),
             dc.LAYER_STACK,
             dc.MATERIALS,
@@ -83,7 +83,7 @@ def _run_one(kind: str, averaging: str, voxelizer: str) -> dict[str, Any]:
         half_w = (dc.PORT_GAP + 2 * dc.WIDTH) / 2
         dy = dc.HALF_SPAN[0] - half_w
         dz = dc.HALF_SPAN[1] - dc.HEIGHT / 2
-        stack = bf.StackDevice.from_layer_stack(
+        stack = bf.StackDevice(
             dc.directional_coupler(),
             dc.LAYER_STACK,
             dc.MATERIALS,
