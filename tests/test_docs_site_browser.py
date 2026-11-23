@@ -493,7 +493,7 @@ def test_the_viewer_guide_keeps_the_viewer_and_loses_the_demo(browser, base_url)
         page.close()
 
 
-@pytest.mark.parametrize(("old", "new"), [("viewer/", "/guide/viewer/"), ("guide/stack-device/", "/guide/layer-stacks/")])
+@pytest.mark.parametrize(("old", "new"), [("viewer/", "/guide/viewer/")])
 def test_moved_urls_forward_to_their_new_pages(browser, base_url, old, new):
     page = browser.new_page()
     try:

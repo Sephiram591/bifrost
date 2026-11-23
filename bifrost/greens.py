@@ -639,6 +639,7 @@ def rasterize_noncontiguous_boxes_2d(
             else y_inter
         )
 
+        @jax.checkpoint
         def _col_step(xy_i: tuple[Array, Array]) -> tuple[Array, Array, Array, Array]:
             f, mx, my, bs = _clip_segments_to_box_x(q0, q1, act, xy_i[0], xy_i[1], ye_j, res_um, need_moments)
             return f[0::2], mx[0::2], my[0::2], bs[0::2]
@@ -647,9 +648,11 @@ def rasterize_noncontiguous_boxes_2d(
         return jax.tree.map(lambda a: a.astype(dtype), out)
 
     # General overlapping y boxes (edge_width > 1): process per y_j strip via lax.map
+    @jax.checkpoint
     def _row_step(yy_j: tuple[Array, Array]) -> tuple[Array, Array, Array, Array]:
         y2 = jnp.stack([yy_j[0], yy_j[1]])
 
+        @jax.checkpoint
         def _col_inner(xx_i: tuple[Array, Array]) -> tuple[Array, Array, Array, Array]:
             f, mx, my, bs = _clip_segments_to_box_x(q0, q1, act, xx_i[0], xx_i[1], y2, res_um, need_moments)
             return f[0], mx[0], my[0], bs[0]
@@ -2323,6 +2326,7 @@ def _greens_single_shift(
 
     vec_ok = (
         _BATCHED_SLICES
+        and grid["contiguous"]
         and not has_rough
         and knots_1d is None
         and sum(pattern_flags_all) < 2
