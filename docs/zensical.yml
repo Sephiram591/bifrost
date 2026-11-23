@@ -21,7 +21,6 @@ nav:
       - Simulation setup and ports: guide/simulation-setup.md
       - Convergence testing: guide/convergence-testing.md
       - Results and field monitors: guide/results.md
-      - Viewer: guide/viewer.md
       - Geometry options: guide/options.md
       - Gradients: guide/gradients.md
       - Inverse design: guide/inverse-design.md

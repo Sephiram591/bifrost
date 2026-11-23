@@ -6,6 +6,7 @@ checked separately, on suitable hardware: ``BIFROST_HARDWARE=1 pytest tests/test
 from __future__ import annotations
 
 import ast
+import inspect
 import os
 import re
 import shutil
@@ -463,8 +464,26 @@ def test_the_widget_demo_page_holds_only_the_iframe_and_the_notebook_holds_the_t
     body = (DOCS / "live-demo.md").read_text().split("---", 2)[2]
     assert re.sub(r"<div.*</div>", "", body, flags=re.S).strip() == ""
     source = NOTEBOOK.read_text()
-    for heading in ("What the demo can and cannot do", "How it was made"):
+    for heading in (
+        "Open the viewer",
+        "Run a simulation from the viewer",
+        "Load a finished simulation",
+        "Exporting video and images",
+        "Troubleshooting",
+    ):
         assert f"## {heading}" in source
+    assert "## What the demo can and cannot do" not in source
+    assert "## How it was made" not in source
+    md_blocks = [
+        inspect.cleandoc(node.value)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and "## Open the viewer" in node.value
+    ]
+    assert len(md_blocks) == 1
+    assert (
+        PY_BLOCK.findall(md_blocks[0])[0].rstrip("\n")
+        == _extract_snippet("examples/straight_waveguide.py", "straight").rstrip("\n")
+    )
 
 
 def test_the_notebooks_site_links_point_at_real_pages_and_headings() -> None:
@@ -479,8 +498,10 @@ def test_the_notebooks_site_links_point_at_real_pages_and_headings() -> None:
         page = DOCS / f"{path.rstrip('/')}.md"
         assert page.is_file(), f"the notebook links to ../../{href}, which is not a page"
         if anchor:
-            headings = {slug(h) for h in HEADING.findall(FENCE.sub("", page.read_text()))}
-            assert anchor in headings, f"the notebook links to ../../{href}: no such heading"
+            page_text = page.read_text()
+            headings = {slug(h) for h in HEADING.findall(FENCE.sub("", page_text))}
+            api_anchors = set(re.findall(r"^:::\s+(\S+)", page_text, re.M))
+            assert anchor in headings | api_anchors, f"the notebook links to ../../{href}: no such heading"
 
 
 def test_the_notebook_opens_in_dark_mode() -> None:
@@ -492,7 +513,12 @@ def test_the_notebook_opens_in_dark_mode() -> None:
 def test_the_notebook_never_imports_bifrost_and_the_bundle_still_offers_what_it_calls() -> None:
     """A browser kernel has no jax, fdtdx or gdsfactory, so the notebook only replays the exported files."""
     source = NOTEBOOK.read_text()
-    assert not re.search(r"^\s*(import|from)\s+bifrost", source, re.MULTILINE)
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            assert not any(a.name == "bifrost" or a.name.startswith("bifrost.") for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            assert module != "bifrost" and not module.startswith("bifrost.")
     assert "mountInto" in source and "mountInto" in (DOCS / "demo" / "viewer-demo.js").read_text()
 
 

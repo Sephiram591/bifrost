@@ -24,7 +24,7 @@ playwright_sync = pytest.importorskip("playwright.sync_api")
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "docs" / "_build" / "html"
 CHROMIUM_ARGS = ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
-PAGES = ["", "installation/", "getting-started/", "live-demo/", "guide/layer-stacks/", "guide/convergence-testing/", "guide/viewer/", "examples/waveguide-bend/", "examples/linbo3-bend/"]
+PAGES = ["", "installation/", "getting-started/", "live-demo/", "guide/layer-stacks/", "guide/convergence-testing/", "examples/waveguide-bend/", "examples/linbo3-bend/"]
 
 if not (ROOT / "docs" / "demo" / "data" / "manifest.json").exists():
     pytest.skip("the demo data is not generated (python scripts/build_demo.py)", allow_module_level=True)
@@ -179,15 +179,15 @@ def test_the_embedded_demo_loads_with_run_disabled(browser, base_url):
         page.close()
 
 
-def test_the_full_screen_link_and_the_poster_are_served(browser, base_url):
+def test_the_demo_link_and_the_poster_are_served(browser, base_url):
     page = browser.new_page()
     try:
         page.goto(f"{base_url}/live-demo/")
         # the page's text, this link included, is in the notebook the iframe shows
-        link = page.frame_locator("iframe[title*='bifrost viewer']").get_by_role("link", name="Open the Widget Demo full screen")
+        link = page.frame_locator("iframe[title*='bifrost viewer']").get_by_role("link", name="Explorer demo")
         link.wait_for(timeout=120000)
         target = link.evaluate("(a) => a.href")  # as the browser resolves it
-        assert target == f"{base_url}/demo/notebook/index.html"
+        assert target == f"{base_url}/demo/index.html"
         assert page.request.get(target).ok
         poster = page.request.get(f"{base_url}/images/viewer-demo.png")
         assert poster.ok and len(poster.body()) > 10_000
@@ -482,18 +482,21 @@ def test_search_highlighted_bifrost_is_styled_without_matching_identifiers(brows
         page.close()
 
 
-def test_the_viewer_guide_keeps_the_viewer_and_loses_the_demo(browser, base_url):
+def test_the_user_guide_has_no_viewer_section_and_widget_demo_has_viewer_docs(browser, base_url):
     page = browser.new_page(viewport={"width": 1600, "height": 900})
     try:
-        page.goto(f"{base_url}/guide/viewer/")
-        assert page.locator("h1").first.inner_text().strip().startswith("Viewer")
-        assert page.locator("iframe").count() == 0
+        page.goto(f"{base_url}/guide/layer-stacks/")
         assert page.locator(".md-sidebar--primary").is_visible()
+        nav_links = [t.strip() for t in page.locator(".md-sidebar--primary .md-nav__link").all_inner_texts()]
+        assert "Viewer" not in nav_links, nav_links
+        page.goto(f"{base_url}/live-demo/")
+        frame = page.frame_locator("iframe[title*='bifrost viewer']")
+        frame.get_by_role("heading", name="Open the viewer").wait_for(timeout=120000)
     finally:
         page.close()
 
 
-@pytest.mark.parametrize(("old", "new"), [("viewer/", "/guide/viewer/")])
+@pytest.mark.parametrize(("old", "new"), [("viewer/", "/live-demo/")])
 def test_moved_urls_forward_to_their_new_pages(browser, base_url, old, new):
     page = browser.new_page()
     try:

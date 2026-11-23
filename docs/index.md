@@ -80,6 +80,6 @@ print("transmission:", float(abs(objects["out"].compute_overlap(arrays.detector_
 
 - **[Read the user guide](guide/layer-stacks.md)**
 
-    Layer stacks, simulation setup, convergence testing, results, the viewer, gradients, inverse design and diagnostics.
+    Layer stacks, simulation setup, convergence testing, results, gradients, inverse design and diagnostics.
 
 </div>

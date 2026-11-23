@@ -26,16 +26,13 @@ app = marimo.App(width="full", app_title="bifrost viewer demo")
 
 @app.cell(hide_code=True)
 def _():
-    import json
-    import pathlib
-
     import anywidget
     import marimo as mo
     import traitlets
 
     # the text keeps a readable line length under the viewer, which spans the whole window
     PROSE = {"max-width": "61rem", "margin": "0 auto", "padding": "0 1rem"}
-    return PROSE, anywidget, json, mo, pathlib, traitlets
+    return PROSE, anywidget, mo, traitlets
 
 
 @app.cell(hide_code=True)
@@ -57,13 +54,6 @@ def _(anywidget, mo, traitlets):
               link.href = sheet;
               into.append(link);
             }
-            const eczar = "https://fonts.googleapis.com/css2?family=Eczar:wght@400&display=swap";
-            if (![...document.head.querySelectorAll("link")].some((l) => l.href === eczar)) {
-              const font = document.createElement("link");
-              font.rel = "stylesheet";
-              font.href = eczar;
-              document.head.append(font);
-            }
             el.style.height = model.get("height");
             const demo = await import(bundle);
             await demo.mountInto(el, model.get("src"));
@@ -83,89 +73,96 @@ def _(anywidget, mo, traitlets):
 @app.cell(hide_code=True)
 def _(PROSE, mo):
     mo.md(
-        """
-        Explore the waveguide bend simulation from the <a href="../../getting-started/" target="_top">bend tutorial</a>
-        directly in your browser with no installation and no local Python. Drag to orbit, scroll to zoom, and use the
-        **Result** tab to choose what to display.
+        r"""
+        # Viewer
 
-        <a href="index.html" target="_blank">Open the Widget Demo full screen</a> ·
-        <a href="../index.html" target="_blank">open the Explorer demo without the notebook</a>
+        `bf.view(stack)` returns an <a href="https://anywidget.dev" target="_blank">anywidget</a> viewer for a `bf.StackDevice` in Jupyter and marimo. It displays the device in 3D and 2D cross-sections, lets you configure sources and monitors, runs simulations in the background, and visualizes the recorded fields.
 
-        The Widget Demo is a <a href="https://marimo.io" target="_blank">marimo</a> notebook that runs in your browser:
-        it starts a Python runtime there (Pyodide), so the first load takes a few seconds longer than the standalone
-        Explorer demo. It needs a browser with WebGL. If it does not load, the picture behind it shows the same result;
-        reload the page to try again, or open the <a href="../index.html" target="_blank">Explorer demo</a>.
-        """
-    ).style(PROSE)
-    return
+        ## Open the viewer
 
+        Display a straight silicon waveguide in the viewer by ending a Jupyter or marimo cell with `viewer`:
 
-@app.cell(hide_code=True)
-def _(PROSE, json, mo, pathlib):
-    def _read(where) -> str:
-        if str(where).startswith("http"):  # in the browser, where the notebook's location is a URL
-            from pyodide.http import open_url
+        ```python
+        import fdtdx
+        import gdsfactory as gf
+        import bifrost as bf
+        from gdsfactory.technology import LayerLevel, LayerStack
 
-            return open_url(str(where)).read()
-        return pathlib.Path(where).read_text()
+        gf.gpdk.PDK.activate()
 
-    _here = mo.notebook_location()
-    # exported to docs/demo/notebook, the data is a sibling folder; from docs/notebooks it is under demo/
-    _data = _here.parent / "data" if str(_here).startswith("http") else _here.parent / "demo" / "data"
-    _m = json.loads(_read(_data / "manifest.json"))
-    _p, _r = _m["parameters"], _m["result"]
-    mo.md(
-        f"A {_p['width_um']} × {_p['thickness_um']} µm silicon waveguide ({_p['core_index']}) in oxide "
-        f"({_p['clad_index']}) turning through a {_p['radius_um']} µm bend at {_p['wavelength_um']} µm, "
-        f"simulated with fdtdx on `{_m['device']}` with adaptive meshing (`ppw={_p['ppw']:g}`): "
-        f"transmission **{_r['transmission']:.3f}** in {_r['wall_seconds']} s. "
-        f"Source: `{_p['example']}` at commit `{_m['source']['commit'][:7]}`."
-    ).style(PROSE)
-    return
+        component = gf.components.straight(length=5)  # a 5 um long, 500 nm wide waveguide with ports o1 and o2
 
+        # one 220 nm thick level on the waveguide layer; silicon core in a silica cladding
+        layer_stack = LayerStack(
+            layers={"core": LayerLevel(layer=gf.gpdk.LAYER.WG, zmin=0.0, thickness=0.22, material="core", mesh_order=1)}
+        )
+        materials = {
+            "core": fdtdx.Material(permittivity=3.48**2),
+            "clad": fdtdx.Material(permittivity=1.444**2),
+        }
 
-@app.cell(hide_code=True)
-def _(PROSE, mo):
-    mo.md(
-        """
-        ## What the demo can and cannot do
+        stack = bf.StackDevice(
+            component, layer_stack, materials,
+            background="clad",                               # fills everything the core does not
+            zrange_layers=["core"],                          # the box's z range is the core's
+            extend_ports=(("o1", 1.0), ("o2", 1.0)),         # 1 um straight leads out of both ports
+            boundary_offset=(0, 0, 1.5, -1.5, 1.5, -1.5),    # 1.5 um of cladding in y and z
+            name="stack",
+        )
+        viewer = bf.view(stack)  # the interactive 3D viewer
+        viewer
+        ```
 
-        The demo plays back a **precomputed** result, so only what needs no Python works:
+        (In a standalone Python script, `bf.view(stack)` only constructs the widget object without displaying a UI. The precomputed demo above runs in your browser without Python, or you can open the standalone <a href="../index.html" target="_blank">Explorer demo</a>.)
 
-        - Orbit, zoom, fit the view, switch between 3D and 2D, and toggle layers and ports.
-        - Show and style the fields: pick the component and the transform (real, imaginary, magnitude, phase, log), the
-          colors and the opacity, and choose the frame of a monitor that recorded several.
-        - **Play** the recorded movie of the pulse crossing the bend.
-        - Move the cross-section slider. The 2D slices are stored at evenly spaced positions, so the slider **snaps** to
-          them and shows the exact coordinate; there is no field *between* the recorded planes. A field is drawn only on
-          the plane of the monitor that recorded it, and in a 2D slice only where the slice is that plane: the demo has
-          no field volume.
-        - **Run** is disabled and labeled "Precomputed demo"; the setup (sources, monitors, simulation settings) is
-          read-only, and video export requires a live Python kernel and is disabled here. Saving a PNG of the view works.
-        """
-    ).style(PROSE)
-    return
+        The viewer has four tabs on the left:
 
+        | Tab | What it does |
+        | --- | --- |
+        | **Layout / Ports** | Configure level colors, opacities, and visibility, and toggle port markers |
+        | **Sources / Detectors** | Add sources and monitors on component ports, simulation-box plane ports (`xy`, `xz`, `yz`), or absolute coordinates (`None`); double-click a port in 3D to add a monitor |
+        | **Simulation** | Configure wavelength, **Meshing** (`adaptive` or `uniform`), run time, absorbing boundary, and simulation box offsets |
+        | **Result** | Inspect recorded fields on monitor planes, scrub multi-frame detectors, play animations, and export MP4 videos |
 
-@app.cell(hide_code=True)
-def _(PROSE, mo):
-    mo.md(
-        """
-        ## How it was made
+        Use the **3D** and **2D** buttons to switch views. In 2D mode, select a plane (`xy`, `xz`, or `yz`) and scrub the slice slider through the device. The camera button in the menubar exports the current view as a PNG.
 
-        The Widget Demo's data is the output of one real run of `examples/waveguide_bend.py`, exported by
-        `scripts/build_demo.py` (see <a href="../../development/#the-widget-demo" target="_top">Contributing and tests</a>).
-        `docs/demo/data/manifest.json` records the source revision, the package versions, the simulation parameters, and
-        the size of every file. The documentation build only publishes those prepared files; it never reruns the
-        simulation.
+        ### Placing plane ports in Sources / Detectors
 
-        The page around the viewer is this notebook,
-        <a href="https://github.com/Sephiram591/bifrost/blob/main/docs/notebooks/widget_demo.py" target="_blank"><code>docs/notebooks/widget_demo.py</code></a>,
-        exported with `marimo export html-wasm` when the docs are built. It does not import <span class="bf-word" style="font-family: 'Eczar', serif; font-weight: 400; font-size: 1.1655em; line-height: 1; letter-spacing: normal;">bifröst</span> (jax, fdtdx and
-        gdsfactory do not run in a browser): its widget loads the same viewer bundle on the exported files, and one of its
-        cells reads the run's `manifest.json` for the summary under the viewer.
+        In addition to component ports, the **port** dropdown in **Sources / Detectors** offers simulation-box plane ports (`xy`, `xz`, `yz`) and `None` (these virtual planes are not listed in **Layout / Ports**):
 
-        To run the viewer on your own devices, see the <a href="../../guide/viewer/" target="_top">Viewer guide</a>.
+        - **`xy`, `xz`, `yz` (plane ports):** Places the source or monitor through the simulation box's center spanning the box's in-plane extent (`port_padding` defaults to `(0, 0)`). Here `"in"` faces the negative normal axis (`-z`, `-y`, or `-x`), `"out"` faces the positive axis, and a positive `port_offset` shifts along `"in"` (`-axis`). `level` defaults to `(auto)` (the box's mid-height) and can also target a stack level or `z_center`.
+        - **`None` (absolute placement):** Switches to `axis` (`0` = x / yz plane, `1` = y / xz plane, `2` = z / xy plane), `center` `(x, y, z)` in µm (stack coordinates), and `size` `(u, v)` in µm (`"in"` points along `+axis`).
+
+        ## Run a simulation from the viewer
+
+        Add a source and a monitor in the **Sources / Detectors** tab, set the grid and duration in **Simulation**, and click **Run**. The **Meshing** card defaults to `adaptive` (`ppw` = 15, `PML (µm)`, `global dilation`, `global z pad`, `max cell growth`, and per-layer **Dilation layers** sub-cards backed by <a href="../../guide/simulation-setup/#automatic-meshing" target="_top">Automatic meshing</a>), and can be switched to `uniform` (`resolution`, `PML (cells)`). The simulation runs on a background thread with the setup locked while running, and the results populate the **Result** tab. You can also access the prepared objects in Python via `viewer.objects`, `viewer.config`, and `viewer.constraints`, or click **copy launch code** to copy a reproducible script.
+
+        ## Load a finished simulation
+
+        To inspect a simulation run from a script, pass its outputs to `viewer.load_result` (as in <a href="../../getting-started/" target="_top">Getting started</a> and <a href="../../guide/results/" target="_top">Results and field monitors</a>):
+
+        ```python
+        viewer = bf.view(stack)
+        viewer.load_result(objects, arrays, config, stack=stack)
+        ```
+
+        `objects`, `arrays`, and `config` come directly from `fdtdx.place_objects` and `fdtdx.run_fdtd`, and `stack` is the `StackDevice` the result was recorded on.
+
+        The **Result** and **Sources / Detectors** tabs list the run's sources and monitors with their names, types, and planes as read-only entries (representing the placed `fdtdx` objects). To run a new simulation from the viewer, add new sources and monitors; clicking **Run** replaces the adopted ones.
+
+        ## Exporting video and images
+
+        - **PNG screenshots:** The menubar camera button saves the active 3D or 2D viewport (or the entire widget when **Screenshot** is switched to `whole widget` in the **Viewer settings** panel), and the copy button writes the PNG to the clipboard.
+        - **MP4 video recording:** In **Result**, multi-frame detectors (multi-frequency phasor monitors and time-domain `FieldDetector`s) expose **play**, an **fps** input (1–120 in the UI), and a **save video** button that encodes every frame client-side with WebCodecs (`H.264`, or `VP9`/`VP8` fallback). When time-domain detectors are present, the **Detectors** header also shows **play all** and **record all** buttons to export every time-domain detector together as `time-domain-detectors.mp4`.
+        - **Save destination and folder:** In **Viewer settings**, **Save to** switches between `browser (download)` (default) and `server (kernel)`. Server saves write non-clobbering files into `viewer.save_dir`, configurable via `bf.view(stack, save_dir=...)`, `viewer.save_dir`, or the **Save folder** input.
+        - **Video packaging (`wrap_video`):** MP4 packaging from WebCodecs streams runs in the kernel through <a href="../../api/viewer/#bifrost.viewer.widget.wrap_video" target="_top"><code>bifrost.viewer.widget.wrap_video</code></a> (`wrap_video(stream: bytes, codec: str, fps: int) -> bytes`, `1 <= fps <= 240`), which remuxes Annex B `"h264"` streams or transcodes IVF `"vp8"`/`"vp9"` streams to H.264 using `imageio-ffmpeg`'s bundled `ffmpeg`. Video export requires a live Python kernel and is unavailable in the static browser demos.
+
+        ## Troubleshooting
+
+        - **The widget displays as text such as `Viewer(...)`, or nothing appears.** The viewer requires an interactive notebook frontend that supports `anywidget` (Jupyter or marimo), and `viewer` must be the final expression of the cell. Plain scripts do not render the widget.
+        - **The viewer is blank or the 3D view does not draw.** The 3D viewport requires WebGL. Verify that hardware acceleration is enabled in your browser or try another browser.
+        - **Run does nothing or fails.** A simulation requires at least one source, and requires a monitor to record fields. Setup errors are displayed directly in the viewer; for full control over custom placement constraints, use a Python script as shown in <a href="../../guide/simulation-setup/" target="_top">Simulation setup and ports</a>.
+        - **The Result tab says no result is loaded.** Run a simulation from the viewer or call `viewer.load_result(...)` as shown above.
         """
     ).style(PROSE)
     return
