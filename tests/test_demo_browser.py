@@ -474,9 +474,9 @@ def test_the_notebooks_links_reach_the_site_pages_and_leave_the_iframe(browser, 
         site = {
             "Automatic meshing": "guide/simulation-setup/#automatic-meshing",
             "Getting started": "getting-started/",
-            "Results and field monitors": "guide/results/",
+            "Results": "guide/simulation-setup/#results",
             "bifrost.viewer.widget.wrap_video": "api/bifrost/viewer/widget/#bifrost.viewer.widget.wrap_video",
-            "Simulation setup and ports": "guide/simulation-setup/",
+            "Simulation Setup": "guide/simulation-setup/",
         }
         for name, path in site.items():
             link = page.get_by_role("link", name=name)

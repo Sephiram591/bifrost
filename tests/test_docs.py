@@ -295,7 +295,7 @@ def _simulation_setup_device():
 
 
 def test_graded_grids_recipe_in_simulation_setup() -> None:
-    """Exercise the graded-grid and port-source recipe in docs/guide/simulation-setup.md."""
+    """Exercise ``bf.graded_edges`` and ``StackDevice.rectilinear_grid`` with port sources."""
     import fdtdx
     import jax
     import numpy as np

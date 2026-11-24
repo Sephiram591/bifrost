@@ -151,12 +151,10 @@ for the pulse to cross the device and ring down.
 - **The viewer shows nothing in a plain script.** The viewer is a notebook widget: run the code in Jupyter or marimo and
   end the cell with the viewer, or look at the [Widget Demo](live-demo.md) or standalone [Explorer demo](demo/index.html).
 - **The transmission is 0 or absurd.** Check the units (fdtdx wants meters: `1e-6`), that the source is not inside the
-  PML, and that each plane lies inside the box. See [Simulation setup and ports](guide/simulation-setup.md).
+  PML, and that each plane lies inside the box. See [Simulation Setup](guide/simulation-setup.md).
 
 ## Next
 
-- [Simulation setup and ports](guide/simulation-setup.md): sources, monitors and the run, in detail.
+- [Simulation Setup](guide/simulation-setup.md): device setup, sources, monitors, meshing, running, and reading results.
 - [Convergence testing](guide/convergence-testing.md): how automatic non-uniform meshing cuts cell count and memory at fixed accuracy.
-- [Results and field monitors](guide/results.md): reading what the monitors record.
-- [Gradients](guide/gradients.md): differentiate a result with respect to the geometry, through the simulation.
 - [Inverse design](guide/inverse-design.md): optimize the width profile of a tight bend for transmission.

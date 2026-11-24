@@ -18,14 +18,9 @@ nav:
   - Widget Demo: live-demo.md
   - User guide:
       - Layer stacks and materials: guide/layer-stacks.md
-      - Simulation setup and ports: guide/simulation-setup.md
+      - Simulation Setup: guide/simulation-setup.md
       - Convergence testing: guide/convergence-testing.md
-      - Results and field monitors: guide/results.md
-      - Geometry options: guide/options.md
-      - Gradients: guide/gradients.md
       - Inverse design: guide/inverse-design.md
-      - Diagnostics and timing: guide/diagnostics.md
-      - Geometry model: guide/geometry-model.md
   - Examples:
       - Waveguide bend: examples/waveguide-bend.md
       - Elevator coupler: examples/elevator-coupler.md
@@ -34,6 +29,9 @@ nav:
   - API reference
   - Development:
       - Contributing and tests: development.md
+      - Geometry options: guide/options.md
+      - Geometry model: guide/geometry-model.md
+      - Diagnostics and timing: guide/diagnostics.md
       - Validation and benchmarks: validation.md
       - Changelog: changelog.md
 

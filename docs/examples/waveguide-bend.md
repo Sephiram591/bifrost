@@ -32,4 +32,4 @@ memory at four grids are in [Choosing the settings](../getting-started.md#choosi
 - **Use the result elsewhere.** `simulate()` returns a `BendResult` with the stack, the placed objects, the arrays, the
   transmission and the field, for post-processing; `open_viewer(result)` returns the viewer.
 - **Differentiate it.** The transmission is differentiable with respect to the radius and width; see
-  [Gradients and inverse design](../guide/gradients.md).
+  [Inverse design](../guide/inverse-design.md).

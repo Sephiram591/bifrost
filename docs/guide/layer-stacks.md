@@ -5,7 +5,7 @@ Vertical structure and optical properties in bifrost are described by two object
 - a gdsfactory [`LayerStack`](https://gdsfactory.github.io/gdsfactory/notebooks/03_layer_stack/), which maps 2D layout layers (or boolean expressions of layers) to 3D `LayerLevel`s with heights, thicknesses, sidewall profiles, and material names;
 - a `dict[str, fdtdx.Material]` mapping every material name referenced by the stack—plus the background medium—to an [`fdtdx.Material`](https://github.com/ymahlau/fdtdx).
 
-Once defined, a component, its `LayerStack`, and its `materials` dictionary are passed to [`bf.StackDevice`][bifrost.stack.StackDevice] in [Simulation setup and ports](simulation-setup.md).
+Once defined, a component, its `LayerStack`, and its `materials` dictionary are passed to [`bf.StackDevice`][bifrost.stack.StackDevice] in [Simulation Setup](simulation-setup.md).
 
 ## A silicon waveguide in silica
 
@@ -63,7 +63,7 @@ In negative-tone or trench-etch processes, drawn polygons mark where material is
 --8<-- "examples/guide/layer_stacks.py:inverted"
 ```
 
-Listing `DEEP_ETCH` alongside `"WAFER"` in `inverted_layers` when constructing the device (see [Simulation setup and ports](simulation-setup.md)) applies `"silicon"` to the complement of the drawn `DEEP_ETCH` trenches—leaving a ridge waveguide between two trenches—and offsets the remaining silicon when `sidewall_angle` or `bias` is set. Similarly, drawing polygons on `WAFER` cuts openings out of a `"WAFER"` substrate or cladding level.
+Listing `DEEP_ETCH` alongside `"WAFER"` in `inverted_layers` when constructing the device (see [Simulation Setup](simulation-setup.md)) applies `"silicon"` to the complement of the drawn `DEEP_ETCH` trenches—leaving a ridge waveguide between two trenches—and offsets the remaining silicon when `sidewall_angle` or `bias` is set. Similarly, drawing polygons on `WAFER` cuts openings out of a `"WAFER"` substrate or cladding level.
 
 ## Summary of `LayerLevel` and `Material` features
 
@@ -78,4 +78,4 @@ Listing `DEEP_ETCH` alongside `"WAFER"` in `inverted_layers` when constructing t
 | Full 3 × 3 anisotropy | `fdtdx.Material(permittivity=((e_xx, e_xy, e_xz), ...))` (real symmetric positive-definite tensor; requires `averaging="subpixel_full"`, see [Geometry options](options.md)) |
 | Dispersion & loss | `fdtdx.Material(permittivity=eps_inf, dispersion=fdtdx.DispersionModel(poles=(...)), electric_conductivity=sigma)` (see [Geometry model](geometry-model.md)) |
 
-Next: [Simulation setup and ports](simulation-setup.md) turns a component, `LayerStack`, and `materials` dictionary into a [`bf.StackDevice`][bifrost.stack.StackDevice] with adaptive meshing, port sources, and monitors.
+Next: [Simulation Setup](simulation-setup.md) turns a component, `LayerStack`, and `materials` dictionary into a [`bf.StackDevice`][bifrost.stack.StackDevice] with adaptive meshing, port sources, and monitors.

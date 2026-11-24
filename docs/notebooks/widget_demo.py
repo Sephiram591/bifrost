@@ -139,7 +139,7 @@ def _(PROSE, mo):
 
         ## Load a finished simulation
 
-        To inspect a simulation run from a script, pass its outputs to `viewer.load_result` (as in <a href="../../getting-started/" target="_top">Getting started</a> and <a href="../../guide/results/" target="_top">Results and field monitors</a>):
+        To inspect a simulation run from a script, pass its outputs to `viewer.load_result` (as in <a href="../../getting-started/" target="_top">Getting started</a> and <a href="../../guide/simulation-setup/#results" target="_top">Results</a>):
 
         ```python
         viewer = bf.view(stack)
@@ -161,7 +161,7 @@ def _(PROSE, mo):
 
         - **The widget displays as text such as `Viewer(...)`, or nothing appears.** The viewer requires an interactive notebook frontend that supports `anywidget` (Jupyter or marimo), and `viewer` must be the final expression of the cell. Plain scripts do not render the widget.
         - **The viewer is blank or the 3D view does not draw.** The 3D viewport requires WebGL. Verify that hardware acceleration is enabled in your browser or try another browser.
-        - **Run does nothing or fails.** A simulation requires at least one source, and requires a monitor to record fields. Setup errors are displayed directly in the viewer; for full control over custom placement constraints, use a Python script as shown in <a href="../../guide/simulation-setup/" target="_top">Simulation setup and ports</a>.
+        - **Run does nothing or fails.** A simulation requires at least one source, and requires a monitor to record fields. Setup errors are displayed directly in the viewer; for full control over custom placement constraints, use a Python script as shown in <a href="../../guide/simulation-setup/" target="_top">Simulation Setup</a>.
         - **The Result tab says no result is loaded.** Run a simulation from the viewer or call `viewer.load_result(...)` as shown above.
         """
     ).style(PROSE)

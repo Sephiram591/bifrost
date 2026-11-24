@@ -24,8 +24,7 @@ Run it on a GPU; on an NVIDIA L40S its 50 steps took 13489 s.
 - **Both ends are fixed:** 1.6 µm wide and centered, so the ports, their straight leads and the monitors in them never
   change. Only the 70 stations in between move, each edge linear from one to the next.
 - **The topology is fixed:** every profile has the same 144 vertices, one per station and end on each edge, so the
-  device built once, for the uniform bend, takes any profile's vertices with [`stack.pack`][bifrost.stack.StackDevice.pack] (see
-  [polygon topology](gradients.md#polygon-topology)).
+  device built once, for the uniform bend, takes any profile's vertices with [`stack.pack`][bifrost.stack.StackDevice.pack] (verified by [`stack.check_topology`][bifrost.stack.StackDevice.check_topology]).
 - **Two widths per station,** toward the bend's center and away from it. A single width, symmetric about the
   centerline, helps here: narrowing the bend to 1.2 µm raises the transmission to 0.85 (widening it to 2.0 µm lowers
   it to 0.25). Moving the guide toward the center, so the straight guide's mode lines up with the bend's, helps more:
@@ -89,8 +88,7 @@ wall time: 13489 s on NVIDIA L40S
   noisy steps (for example at a higher learning rate) can overshoot before recovering, `optimize` returns the best
   widths it has seen, not the last.
 - **The gain is the device's, not the grid's:** on the finer `ppw = 24` mesh the uniform bend transmits 0.5576 and the
-  optimized one 0.9930. The derivatives are those of the discretized simulation (see
-  [what the derivatives are](gradients.md#what-the-derivatives-are)), so an optimum is worth checking on a finer grid.
+  optimized one 0.9930. Because gradients differentiate the discretized simulation, an optimum is always worth checking on a finer grid.
 - **The time:** 50 steps, each a forward and a backward solve, then four forward solves for the figure and the check.
 
 ## For your own designs
@@ -100,5 +98,5 @@ wall time: 13489 s on NVIDIA L40S
   a smaller learning rate gives a steadier rise and a smoother profile.
 - Bound them through a smooth map (here a sigmoid) instead of clipping, which would stop their gradients at the bounds.
 - Keep the ports and the leads that hold the monitors fixed, and keep the number of vertices fixed; for a change of
-  topology, rebuild the device with [`retopologize`][bifrost.stack.StackDevice.retopologize] (see [polygon topology](gradients.md#polygon-topology)).
+  topology, rebuild the device with [`retopologize`][bifrost.stack.StackDevice.retopologize].
 - Keep the best design seen, and check it on a finer grid.
