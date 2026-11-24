@@ -25,7 +25,7 @@ flux ratio: 1.000
 field grid: (405, 95) peak |E|^2: 1214.309814453125
 ```
 
-- **Mode monitors** (`ModeOverlapDetector`) give the complex amplitude of a guided mode on their plane:
+- **Mode monitors** ([`ModeOverlapDetector`][bifrost.stack.ModeOverlapDetector]) give the complex amplitude of a guided mode on their plane:
   `monitor.compute_overlap(states[name])`, one entry per wave character. The squared ratio of the output to the input
   amplitude is the **transmission**, normalized without a reference run because both monitors measure the same mode of
   the same guide. A straight guide transmits about 1: a quick check of the source, the monitors and the run time.
@@ -42,11 +42,11 @@ field grid: (405, 95) peak |E|^2: 1214.309814453125
 
 | You want | Use | Read it with |
 | --- | --- | --- |
-| the power in a guided mode (transmission) | `create_mode_overlap_detector_at` | `compute_overlap(state)` |
-| the power through a plane, any mode | `create_poynting_flux_detector_at` | `state["poynting_flux"]` |
+| the power in a guided mode (transmission) | [`create_mode_overlap_detector_at`][bifrost.stack.StackDevice.create_mode_overlap_detector_at] | `compute_overlap(state)` |
+| the power through a plane, any mode | [`create_poynting_flux_detector_at`][bifrost.stack.StackDevice.create_poynting_flux_detector_at] | `state["poynting_flux"]` |
 | the field's amplitude and phase at a wavelength | `PhasorDetector` | `state["phasor"]` |
 | the field at a sequence of times (a movie) | `FieldDetector` with an `OnOffSwitch(interval=...)` | the recorded frames |
-| the energy in a region | `create_energy_detector_at` | `state["energy"]` |
+| the energy in a region | [`create_energy_detector_at`][bifrost.stack.StackDevice.create_energy_detector_at] | `state["energy"]` |
 
 Mode and flux monitors are placed on ports (see [Simulation setup and ports](simulation-setup.md)); a field monitor is
 any fdtdx detector, sized and placed with constraints, as in the script.
@@ -57,7 +57,7 @@ any fdtdx detector, sized and placed with constraints, as in the script.
 --8<-- "examples/guide/results.py:viewer"
 ```
 
-`viewer.load_result` takes what fdtdx hands out: the placed objects, the arrays and the config. The **Result** tab then
+[`viewer.load_result`][bifrost.viewer.widget.Viewer.load_result] takes what fdtdx hands out: the placed objects, the arrays and the config. The **Result** tab then
 has one read-only entry per monitor, with the field of every plane-shaped monitor drawn on its plane and a frame slider
 for monitors that recorded several frames; the **Sources / Detectors** tab lists the same objects. In a notebook, end the
 cell with `viewer`. More on the [Widget Demo](../live-demo.md) page.

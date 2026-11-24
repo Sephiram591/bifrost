@@ -13,9 +13,9 @@ plots the two together:
 
 ![fdtdx (bf.mesh, ppw=20) vs MEEP (20 nm): TE0 power from o1 to the through (o4) and cross (o3) ports](../images/directional_coupler_spectra.png)
 
-Both runs use the same polygons (the MEEP script reads the ones the fdtdx `StackDevice` draws), the same Gaussian pulse
+Both runs use the same polygons (the MEEP script reads the ones the fdtdx [`StackDevice`][bifrost.stack.StackDevice] draws), the same Gaussian pulse
 (spectral width 10 % of the center frequency), the same 0.5 µm PML, the same 2.0 × 1.4 µm source and monitor planes, and
-the same 400 fs of simulated time; fdtdx uses `bf.mesh` at its default `ppw = 20` (`pml = 0.5` µm), while MEEP runs on a
+the same 400 fs of simulated time; fdtdx uses [`bf.mesh`][bifrost.meshing.mesh] at its default `ppw = 20` (`pml = 0.5` µm), while MEEP runs on a
 uniform 20 nm grid. The transmission is `|a_out / a_in|^2` with `a_in` the forward TE0 amplitude at the input monitor.
 
 ## Run it

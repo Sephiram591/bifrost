@@ -1,6 +1,6 @@
 # Gradients through the simulation
 
-Every number in a `StackDevice` (the vertices of every polygon, the heights, thicknesses and sidewall angles of every
+Every number in a [`StackDevice`][bifrost.stack.StackDevice] (the vertices of every polygon, the heights, thicknesses and sidewall angles of every
 level) is differentiable through the whole simulation. The example differentiates the **phase** a 90° bend adds to the
 light with respect to the bend's **radius** with `jax.value_and_grad`, and compares the result with a central finite
 difference of the same simulation. Run it on a GPU.
@@ -23,10 +23,10 @@ while central finite differences of ±0.01, ±0.02 and ±0.05 µm step across vo
 
 How the script works:
 
-- `stack.pack(component)` returns the stack's vertex parameters for a new component *of the same polygon topology*.
+- [`stack.pack`][bifrost.stack.StackDevice.pack] returns the stack's vertex parameters for a new component *of the same polygon topology*.
   Rebuilding the bend with a new radius inside the objective and merging its vertices into the parameters
   (`{**params["stack"], **placed.pack(bend)}`) makes the result a function of the radius.
-- `bf.apply_stack` writes the stack into the arrays, `fdtdx.run_fdtd` solves, and JAX differentiates through all of it.
+- [`bf.apply_stack`][bifrost.stack.apply_stack] writes the stack into the arrays, `fdtdx.run_fdtd` solves, and JAX differentiates through all of it.
   `fdtdx.GradientConfig(method="checkpointed", ...)` bounds the memory of the backward pass: without a gradient
   configuration the run stores every time step and runs out of memory quickly. Simulations with lossy materials need the
   checkpointed method, because fdtdx's reversible gradients amplify round-off in lossy voxels; `StackDevice` warns about
@@ -106,7 +106,7 @@ refine where an interface whose position you optimize can move.
 
 When a device is built, `StackDevice` extracts combinatorial topology from the initial vertices and uses it to index later parameter updates by polygon and vertex: T-junctions (where a corner lies on another polygon's edge, such as a taper meeting an MMI side), seams between abutting polygons, polygon ordering and orientation, and where port extensions meet polygons at port faces. Any parameter update that breaks these relationships would corrupt the geometry—for instance, pulling a taper off an MMI side, opening a gap between abutting polygons, or reordering polygons.
 
-Whenever `component` is concrete (outside `jax.jit` or `jax.grad`), `pack` runs `stack.check_topology(component)` and raises a `ValueError` naming any layer whose topology changed. Traced components inside `jax.grad` or `jax.jit` skip the check, so it adds zero overhead inside optimization loops. Small numerical noise, layout snapping, and topology-preserving moves (such as sliding a taper along an MMI side or moving abutting polygons together) pass; pass `pack(component, check=False)` to skip the concrete check explicitly.
+Whenever `component` is concrete (outside `jax.jit` or `jax.grad`), [`pack`][bifrost.stack.StackDevice.pack] runs [`stack.check_topology`][bifrost.stack.StackDevice.check_topology] and raises a `ValueError` naming any layer whose topology changed. Traced components inside `jax.grad` or `jax.jit` skip the check, so it adds zero overhead inside optimization loops. Small numerical noise, layout snapping, and topology-preserving moves (such as sliding a taper along an MMI side or moving abutting polygons together) pass; see [`pack`][bifrost.stack.StackDevice.pack] in the API reference for disabling the concrete check.
 
 All topology checks share one distance tolerance, `topology_tol`: vertices within `topology_tol` of an edge lie on it, vertices within `topology_tol` of each other coincide, and vertices within `topology_tol` of a port face lie on it. The default is 2 database units (`gf.kcl.dbu`, typically 2 nm) plus `float32` coordinate round-off (`2 * eps * max_coord`, about 1.2 nm at 5000 µm from the origin), which accommodates 1 nm grid snapping on rotated edges (`sqrt(2)` nm) without leaving slits between polygons. Pass `topology_tol=...` (µm) to `StackDevice` to override it.
 
@@ -114,7 +114,7 @@ The check also reports polygons on a stack layer that had none when the device w
 as empty, and a level that needs it (e.g. a slab level of a device built from a strip waveguide) was not drawn at all.
 Only `StackDevice` builds a device for them; `retopologize` raises.
 
-When the new topology is intended, `stack.retopologize(component)` returns the same device (box, levels, materials,
+When the new topology is intended, [`stack.retopologize`][bifrost.stack.StackDevice.retopologize] returns the same device (box, levels, materials,
 placement) with the topology of the new component, whose polygons may also change in number and size. Swap it into the
 placed objects and refresh its parameters:
 

@@ -24,7 +24,7 @@ Run it on a GPU; on an NVIDIA L40S its 50 steps took 13489 s.
 - **Both ends are fixed:** 1.6 µm wide and centered, so the ports, their straight leads and the monitors in them never
   change. Only the 70 stations in between move, each edge linear from one to the next.
 - **The topology is fixed:** every profile has the same 144 vertices, one per station and end on each edge, so the
-  device built once, for the uniform bend, takes any profile's vertices with `stack.pack` (see
+  device built once, for the uniform bend, takes any profile's vertices with [`stack.pack`][bifrost.stack.StackDevice.pack] (see
   [polygon topology](gradients.md#polygon-topology)).
 - **Two widths per station,** toward the bend's center and away from it. A single width, symmetric about the
   centerline, helps here: narrowing the bend to 1.2 µm raises the transmission to 0.85 (widening it to 2.0 µm lowers
@@ -44,7 +44,7 @@ This example places the source 1 µm and both monitors 0.5 µm out in the straig
 The objective is the normalized TE0 transmission `|a_out / a_in|²`. Each half-width is a bounded function of an
 unbounded parameter, so the optimizer cannot leave 0.25 to 1.25 µm (a guide 0.5 to 2.5 µm wide), and
 [optax](https://optax.readthedocs.io)'s Adam (installed with fdtdx) steps on those parameters. `jax.value_and_grad` of
-the objective is wrapped in [`bf.jit`][bifrost.jitting.jit], so the cell function, `apply_stack`, the simulation and its
+the objective is wrapped in [`bf.jit`][bifrost.jitting.jit], so the cell function, [`apply_stack`][bifrost.stack.apply_stack], the simulation and its
 backward pass compile into one program, once, at the first step: every step has the same shapes, and the cell
 function's structure (144 vertices, no branch on a half-width) does not depend on the parameters, so gdsfactoryx can
 trace it (see [the gdsfactoryx README](https://github.com/Sephiram591/gdsfactoryx#differentiability)). The arrays and
@@ -100,5 +100,5 @@ wall time: 13489 s on NVIDIA L40S
   a smaller learning rate gives a steadier rise and a smoother profile.
 - Bound them through a smooth map (here a sigmoid) instead of clipping, which would stop their gradients at the bounds.
 - Keep the ports and the leads that hold the monitors fixed, and keep the number of vertices fixed; for a change of
-  topology, rebuild the device with `retopologize` (see [polygon topology](gradients.md#polygon-topology)).
+  topology, rebuild the device with [`retopologize`][bifrost.stack.StackDevice.retopologize] (see [polygon topology](gradients.md#polygon-topology)).
 - Keep the best design seen, and check it on a finer grid.

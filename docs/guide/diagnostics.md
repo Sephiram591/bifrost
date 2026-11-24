@@ -1,6 +1,6 @@
 # Geometry diagnostics
 
-When a `StackDevice` is placed, bifrost checks each level's geometry against the grid and warns if any parts or gaps are too narrow for the grid to resolve. `bf.mesh` automatically refines narrow features and gaps (`feature_cells=1.5`) unless capped by `min_cell`; a `min_cell`-limited mesh (shown below) or a coarse `UniformGrid` emits a `StackDiagnosticWarning`. Here is a 40 nm strip placed on a mesh capped at `min_cell=0.05` (~50 nm cells):
+When a [`StackDevice`][bifrost.stack.StackDevice] is placed, bifrost checks each level's geometry against the grid and warns if any parts or gaps are too narrow for the grid to resolve. [`bf.mesh`][bifrost.meshing.mesh] automatically refines narrow features and gaps (`feature_cells`) unless capped by `min_cell`; a `min_cell`-limited mesh (shown below) or a coarse `UniformGrid` emits a [`StackDiagnosticWarning`][bifrost.stack.StackDiagnosticWarning]. Here is a 40 nm strip placed on a mesh capped at `min_cell=0.05` (~50 nm cells):
 
 ```python
 --8<-- "examples/guide/diagnostics.py:diagnostics"
@@ -25,7 +25,7 @@ One `StackDiagnosticWarning` is emitted per level and diagnostic category:
   - Derived levels are checked on the exact shape they draw (see [Geometry model](geometry-model.md)). With `derived_shapes="composite"`, or for expressions that fall back to composite evaluation, coincident edges across layers (such as `WG - ETCH` ending flush with the waveguide) produce a sliver of twice the offset width when grown.
 - **Overlapping polygons on a shrunk layer** (only with `derived_shapes="composite"`, or when an expression falls back to it), due to a sidewall angle above `z_ref`, negative `bias`, `z_to_bias`, or sizing, or a growing level that subtracts the layer. Composite distance evaluation shrinks each polygon individually rather than their union, opening a slit where an overlap is narrower than twice the shrink. Abutting polygons sharing an edge are not flagged, and grows are exact. With the default `derived_shapes="exact"`, overlapping polygons are unioned before offsetting and do not trigger this issue.
 
-`stack.diagnose(resolution)` returns the findings programmatically as `StackDiagnostic` tuples (`level`, `kind`, `size`, `cells`, `threshold`, `location`, `z`, `count`, `layers`, `message`); pass the grid resolution in µm when calling `diagnose` before placement. To suppress warnings, pass `diagnostics=False` to `StackDevice`, or filter the warning class:
+[`stack.diagnose`][bifrost.stack.StackDevice.diagnose] returns the findings programmatically as [`StackDiagnostic`][bifrost.stack.StackDiagnostic] tuples (pass the grid resolution in µm when calling `diagnose` before placement; see the API reference for every field and argument). To suppress warnings, pass `diagnostics=False` to `StackDevice`, or filter the warning class:
 
 ```python
 import warnings
@@ -37,7 +37,7 @@ Diagnostics use KLayout on the component polygons and nominal level heights (the
 
 ## Timing the geometry steps
 
-Step timing is disabled by default (costing a single global lookup per call) and never alters simulation values or gradients. Enable it with `bf.record_timings()`:
+Step timing is disabled by default (costing a single global lookup per call) and never alters simulation values or gradients. Enable it with [`bf.record_timings`][bifrost.timing.record_timings] (see [`bf.timing`][bifrost.timing] for the full timing API):
 
 ```python
 with bf.record_timings() as timings:
@@ -58,6 +58,6 @@ Recorded steps and sub-step laps:
 
 Nested steps are included in their callers' totals.
 
-A step called while JAX traces a function for `jax.jit` attributes its wall time to tracing time (part of compiling). On concrete inputs (including eager `jax.grad` without `jit`), each step blocks on its outputs (`jax.block_until_ready`) when exiting and splits wall time into JAX compile time (tracing, lowering, and XLA compilation events) and run time. Lowering and compilation of outer jitted functions, as well as the backward pass of eager `jax.grad`, occur outside inner steps: read `StepTimings.outside_compile` or wrap the entire call in `bf.timing.timed_step(name)` to measure them.
+A step called while JAX traces a function for `jax.jit` attributes its wall time to tracing time (part of compiling). On concrete inputs (including eager `jax.grad` without `jit`), each step blocks on its outputs (`jax.block_until_ready`) when exiting and splits wall time into JAX compile time (tracing, lowering, and XLA compilation events) and run time. Lowering and compilation of outer jitted functions, as well as the backward pass of eager `jax.grad`, occur outside inner steps: read [`StepTimings.outside_compile`][bifrost.timing.StepTimings.outside_compile] or wrap the entire call in [`bf.timing.timed_step`][bifrost.timing.timed_step] to measure them.
 
 Contributors running the test suite can record timings across tests with `FDTDX_TIMINGS=<name> pytest`; see [Contributing and tests](../development.md).

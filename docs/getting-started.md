@@ -53,7 +53,7 @@ constant-index silicon for the core and silica for the cladding.
 
 ### 3. The device
 
-`StackDevice` voxelizes the component through the stack. `background="clad"` fills everything the core
+[`StackDevice`][bifrost.stack.StackDevice] voxelizes the component through the stack. `background="clad"` fills everything the core
 does not. `extend_ports` continues both ports straight out by 2.5 µm, so the guide runs through the absorbing boundary
 instead of ending inside the simulation. `boundary_offset` sets the simulation size by offsetting each face from the boundary of the GDS cell and the zrange_layers: the faces that hold a port stay put, the others
 move out by 2.25 µm in x and y, and the box is 3.4 µm tall, 10 × 10 × 3.4 µm in all.
@@ -64,7 +64,7 @@ move out by 2.25 µm in x and y, and the box is 3.4 µm tall, 10 × 10 × 3.4 µ
 
 ### 4. Wavelength, grid, duration and boundaries
 
-`bf.mesh` builds a graded grid (20 points per local wavelength by default) and a 1 µm absorbing boundary (PML, placed
+[`bf.mesh`][bifrost.meshing.mesh] builds a graded grid (20 points per local wavelength by default) and a 1 µm absorbing boundary (PML, placed
 later inside each face of the box) from µm inputs. fdtdx objects work in **meters**: `WAVELENGTH` is multiplied by
 `1e-6` where it enters `WaveCharacter`, and `SimulationConfig` takes the simulated time and `mesh.grid`.
 
@@ -74,9 +74,9 @@ later inside each face of the box) from µm inputs. fdtdx objects work in **mete
 
 ### 5. Source and monitors
 
-`create_mode_plane_source_at` launches TE0
+[`create_mode_plane_source_at`][bifrost.stack.StackDevice.create_mode_plane_source_at] launches TE0
 (`mode_index=0, filter_pol="te"`) 1 µm outside `o1`, in the straight extension (a negative `port_offset` moves a plane
-out of the device). `create_mode_overlap_detector_at` makes monitors of the TE0 that passes a plane: one 0.5 µm outside
+out of the device). [`create_mode_overlap_detector_at`][bifrost.stack.StackDevice.create_mode_overlap_detector_at] makes monitors of the TE0 that passes a plane: one 0.5 µm outside
 `o1`, counting the mode travelling *into* the bend, and one 0.5 µm outside `o2`. Each plane extends 0.5 wavelengths past
 the guide's width and 0.3 past its height on each side (`PLANE_PADDING`). A `PhasorDetector` records the electric field
 at the wavelength on the xy plane through the middle of the core, and a `FieldDetector` records the same plane at 40
@@ -88,7 +88,7 @@ time steps: a movie of the pulse for the viewer.
 
 ### 6. Place, apply and run
 
-`fdtdx.place_objects` fits everything onto the grid, `bf.apply_stack` writes the stack into the permittivity (where a
+`fdtdx.place_objects` fits everything onto the grid, [`bf.apply_stack`][bifrost.stack.apply_stack] writes the stack into the permittivity (where a
 plain fdtdx simulation calls `fdtdx.apply_params`), and `fdtdx.run_fdtd` runs the solver.
 
 ```python

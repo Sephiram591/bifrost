@@ -26,10 +26,10 @@ python examples/linbo3_bend.py --ppw 27 --averaging subpixel_full --figure linbo
 
 | Option | Meaning |
 | --- | --- |
-| `--ppw` | points per local wavelength (`bf.mesh(..., ppw=...)`); default `20` |
+| `--ppw` | points per local wavelength passed to [`bf.mesh`][bifrost.meshing.mesh]; default `20` |
 | `--duration` | simulated time in seconds; default `500e-15` |
 | `--averaging` | Kottke homogenization mode: `subpixel` (diagonal, default) or `subpixel_full` (full 3 × 3 tensor) |
-| `--no-coarsen-substrate` | refine the full-wafer silica oxide at the core `ppw` instead of coarsening via `Refine.material_cells` |
+| `--no-coarsen-substrate` | refine the full-wafer silica oxide at the core `ppw` instead of coarsening via [`Refine`][bifrost.meshing.Refine] |
 | `--figure` | where to save the two-panel `|E|^2` / `|E_z|^2` image; default `linbo3_bend_field.png` |
 
 ## Convergence and MEEP comparison

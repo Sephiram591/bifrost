@@ -1,6 +1,6 @@
 # Validation and benchmarks
 
-Validation and accuracy benchmarks for `StackDevice` subpixel homogenization, corner handling, and anisotropic materials live in `benchmarks/subpixel/`, with saved results in `benchmarks/subpixel/results/`. Reproduce any benchmark on a GPU with `python benchmarks/subpixel/<driver>.py out.json`. Each driver prints the installed `jax`, `fdtdx`, and `gdsfactory` versions and uses fixed seeds; GPU runs were recorded on an NVIDIA L40S (`jax` 0.11.2, `fdtdx` 0.6.3, `float32` simulations), and CPU references use NumPy, SciPy, Shapely, and MEEP.
+Validation and accuracy benchmarks for [`StackDevice`][bifrost.stack.StackDevice] subpixel homogenization, corner handling, and anisotropic materials live in `benchmarks/subpixel/`, with saved results in `benchmarks/subpixel/results/`. Reproduce any benchmark on a GPU with `python benchmarks/subpixel/<driver>.py out.json`. Each driver prints the installed `jax`, `fdtdx`, and `gdsfactory` versions and uses fixed seeds; GPU runs were recorded on an NVIDIA L40S (`jax` 0.11.2, `fdtdx` 0.6.3, `float32` simulations), and CPU references use NumPy, SciPy, Shapely, and MEEP.
 
 --8<-- "benchmarks/subpixel/README.md:results"
 
@@ -19,12 +19,12 @@ The table below lists cumulative wall times for each [geometry option](guide/opt
 | `derived_shapes="exact"` (`"composite"`) | < 0.3 min (`derived_shapes` 0.3 s; evaluated within `layer_geometry`, 15 s across all layers) |
 | `diagnostics=True` | 0.4 s |
 
-Sidewall offsets along z sub-intervals, the topology check in `pack` (0.2 s across the suite; `pack(check=False)` skips it), and `retopologize` (1 s) add negligible overhead.
+Sidewall offsets along z sub-intervals, the topology check in [`pack`][bifrost.stack.StackDevice.pack] (0.2 s across the suite; see [`pack`][bifrost.stack.StackDevice.pack] for skipping the concrete check), and [`retopologize`][bifrost.stack.StackDevice.retopologize] (1 s) add negligible overhead.
 
-During `fdtdx.place_objects`, `material_weights` runs eagerly once per placement to build fdtdx's initial material-index map (8.4 min across the 205-test suite). Because `apply_stack` overwrites the permittivity arrays later, that initial mapping rounds to the dominant material and skips the corner pass, keeping first-time placement of a 260 × 180 × 90 device at 7.3 s; the first jitted `write` call compiles and autotunes the corner pass once per device shape.
+During `fdtdx.place_objects`, [`material_weights`][bifrost.stack.StackDevice.material_weights] runs eagerly once per placement to build fdtdx's initial material-index map (8.4 min across the 205-test suite). Because [`apply_stack`][bifrost.stack.apply_stack] overwrites the permittivity arrays later, that initial mapping rounds to the dominant material and skips the corner pass, keeping first-time placement of a 260 × 180 × 90 device at 7.3 s; the first jitted [`write`][bifrost.stack.StackDevice.write] call compiles and autotunes the corner pass once per device shape.
 
-On a jitted 130 × 90 × 45 device on an NVIDIA L40S, `write` with all default `StackOptions()` takes 0.095 s forward and 0.59 s for its gradient (7.0 s gradient at 260 × 180 × 90). `StackOptions.fast()` turns off subpixel averaging, Yee staggering, the corner model, and diagnostics for quick prototyping, evaluating `material_weights` in 12.5 ms forward and 32.6 ms gradient.
+On a jitted 130 × 90 × 45 device on an NVIDIA L40S, `write` with all default [`StackOptions`][bifrost.stack.StackOptions] takes 0.095 s forward and 0.59 s for its gradient (7.0 s gradient at 260 × 180 × 90). [`StackOptions.fast`][bifrost.stack.StackOptions.fast] turns off subpixel averaging, Yee staggering, the corner model, and diagnostics for quick prototyping, evaluating `material_weights` in 12.5 ms forward and 32.6 ms gradient.
 
 ## Adaptive meshing benchmarks
 
-Accuracy-per-cell, VRAM, and MEEP reference convergence sweeps comparing `bf.mesh` against `UniformGrid` across six photonic simulations—under `averaging="subpixel"`, `averaging="subpixel_full"`, and native `mp.Prism`/`mp.Block` uniform-grid MEEP—live in `benchmarks/meshing/` (`accuracy_per_cell.py`, `meep_uniform.py`, `plot_accuracy_per_cell.py`, results in `benchmarks/meshing/results/accuracy_per_cell.json` and `benchmarks/meshing/results/meep_uniform.json`) and are summarized in [Convergence testing](guide/convergence-testing.md).
+Accuracy-per-cell, VRAM, and MEEP reference convergence sweeps comparing [`bf.mesh`][bifrost.meshing.mesh] against `UniformGrid` across six photonic simulations—under `averaging="subpixel"`, `averaging="subpixel_full"`, and native `mp.Prism`/`mp.Block` uniform-grid MEEP—live in `benchmarks/meshing/` (`accuracy_per_cell.py`, `meep_uniform.py`, `plot_accuracy_per_cell.py`, results in `benchmarks/meshing/results/accuracy_per_cell.json` and `benchmarks/meshing/results/meep_uniform.json`) and are summarized in [Convergence testing](guide/convergence-testing.md).

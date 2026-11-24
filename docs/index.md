@@ -57,7 +57,7 @@ _, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=ke
 print("transmission:", float(abs(objects["out"].compute_overlap(arrays.detector_states["out"])[0]) ** 2))
 ```
 
-`bf.StackDevice` is the helper class where all the magic happens, handling adaptive FDTD meshing and allowing you to create sources/detectors on ports. 
+[`bf.StackDevice`][bifrost.stack.StackDevice] is the helper class where all the magic happens, handling adaptive FDTD meshing and allowing you to create sources/detectors on ports. 
 
 !!! warning "LLM Disclaimer"
     bifrost is largely developed using LLM models from providers including Claude, ChatGPT, and Google. We should always validate any code shipped by "AI". Conveniently, the MEEP FDTD package provides a reference against which to test FDTD simulations built by bifrost and run by FDTDX. [See our convergence testing section](guide/convergence-testing.md) for comparison results between bifrost and MEEP.

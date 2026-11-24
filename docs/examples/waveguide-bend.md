@@ -18,7 +18,7 @@ python examples/waveguide_bend.py --ppw 24 --figure bend_fine.png
 
 | Option | Meaning |
 | --- | --- |
-| `--ppw` | points per local wavelength (`bf.mesh(..., ppw=...)`); default `20` |
+| `--ppw` | points per local wavelength passed to [`bf.mesh`][bifrost.meshing.mesh]; default `20` |
 | `--duration` | the simulated time in seconds |
 | `--figure` | where to save the field image |
 
