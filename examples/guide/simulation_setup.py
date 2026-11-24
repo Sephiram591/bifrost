@@ -31,17 +31,19 @@ stack = bf.StackDevice(
 )
 # --8<-- [end:device]
 
-# --8<-- [start:settings]
+# --8<-- [start:config]
 mesh = bf.mesh(stack, 1.55)                                          # graded grid and 1 um PMLs at 1.55 um
 config = stack.get_simulation_config(                                # fdtdx.SimulationConfig, in the device's precision
     time=100e-15,                                                    # seconds of simulated time
     grid=mesh.grid,
 )
+# --8<-- [end:config]
+# --8<-- [start:pulse]
 wave = fdtdx.WaveCharacter(wavelength=1.55e-6)                       # fdtdx works in meters; bifrost's lengths are um
 pulse = fdtdx.GaussianPulseProfile(
     center_wave=wave, spectral_width=fdtdx.WaveCharacter(frequency=0.05 * wave.get_frequency())
 )
-# --8<-- [end:settings]
+# --8<-- [end:pulse]
 
 # --8<-- [start:ports]
 volume, constraints = stack.get_simulation_volume()   # the box, from the device's bounding box

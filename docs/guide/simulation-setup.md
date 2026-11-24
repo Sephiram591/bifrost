@@ -15,11 +15,15 @@ Create the [`StackDevice`][bifrost.stack.StackDevice] from a gdsfactory componen
 
 ## Placing Sources/Detectors
 
-[`stack.get_simulation_volume`][bifrost.stack.StackDevice.get_simulation_volume] returns the simulation box and its placement constraints. The port factory methods on [`StackDevice`][bifrost.stack.StackDevice] return an fdtdx object together with the constraints that place it on a port, centered and normal to the port's direction (here `wave`, `pulse`, and `config` come from [Simulation Settings](#simulation-settings) below):
+[`stack.get_simulation_volume`][bifrost.stack.StackDevice.get_simulation_volume] returns the simulation box and its placement constraints. Define the center wavelength and pulse profile, then use the port factory methods on [`StackDevice`][bifrost.stack.StackDevice] to return each fdtdx source or detector together with the constraints that place it on a port, centered and normal to the port's direction (here `config` comes from [Running the Simulation](#running-the-simulation) below):
 
 ```python
+--8<-- "examples/guide/simulation_setup.py:pulse"
+
 --8<-- "examples/guide/simulation_setup.py:ports"
 ```
+
+- **The pulse.** A Gaussian pulse with a spectral width of 5 % of the center frequency ramps up smoothly and lets one run cover a band (`WaveCharacter` takes wavelengths in meters, `* 1e-6`).
 
 Add each object and its constraints to your lists:
 
@@ -47,17 +51,41 @@ Other fdtdx fields go in as keyword arguments. Boundaries, regular fdtdx devices
 - **Pinning z to box center (`Z_CENTER_LEVEL` in [`bifrost.stack`][bifrost.stack]):** Passing `level=bf.stack.Z_CENTER_LEVEL` centers the plane at `stack.z_center` instead of the middle of the port's or named level's z span. For component ports, the height still comes from the port's level span; for plane ports, `level=None` also centers on `stack.z_center`, while a level name places the plane at that level's span middle.
 - **Non-uniform grid snapping (`grid=`):** Passing `grid=config` (a `SimulationConfig` or resolved `RectilinearGrid`) to any plane factory on [`StackDevice`][bifrost.stack.StackDevice] snaps the plane's faces to the nearest grid edges along any non-uniform in-plane axis and expresses the size in whole cells rather than physical length. This requires the `StackDevice` to fill the simulation volume from [`get_simulation_volume`][bifrost.stack.StackDevice.get_simulation_volume]. [`create_point_dipole_source_at`][bifrost.stack.StackDevice.create_point_dipole_source_at] always occupies one cell and does not take `grid=`.
 
-## Simulation Settings
+## Running the Simulation
 
-Configure the adaptive grid, simulation duration, precision, and optical pulse:
+Build the adaptive grid and simulation configuration, add the PML boundaries from `mesh.boundary`, and run `fdtdx.place_objects` to fit every object onto the grid:
 
 ```python
---8<-- "examples/guide/simulation_setup.py:settings"
+--8<-- "examples/guide/simulation_setup.py:config"
 ```
 
 - **The grid.** [`bf.mesh`][bifrost.meshing.mesh] builds an adaptive non-uniform grid (`mesh.grid`, 20 points per local wavelength by default) and 1 µm PML boundaries (`mesh.boundary`) over any box size; see [Automatic meshing](#automatic-meshing).
-- **The pulse.** A Gaussian pulse with a spectral width of 5 % of the center frequency ramps up smoothly and lets one run cover a band (`WaveCharacter` takes wavelengths in meters, `* 1e-6`).
 - **The configuration and precision.** [`stack.get_simulation_config`][bifrost.stack.StackDevice.get_simulation_config] creates an `fdtdx.SimulationConfig` using the device's `dtype` and forwards time, grid, and solver settings; see [Precision](#precision).
+
+```python
+--8<-- "examples/guide/simulation_setup.py:place"
+```
+
+Output:
+
+```text
+grid cells: (405, 95, 83)
+source   (1, 67, 43) cells at [(67, 68), (14, 81), (20, 63)]
+in       (1, 67, 43) cells at [(90, 91), (14, 81), (20, 63)]
+out      (1, 67, 43) cells at [(315, 316), (14, 81), (20, 63)]
+```
+
+The box is 405 × 95 × 83 non-uniform cells. Each slice is `(start, stop)` cell indices along x, y, and z: each plane is one cell thick along its normal and 67 × 43 cells across, snapped via `grid=config` to the cell edges around the 0.5 µm guide plus 0.5 wavelengths per side in y and 0.3 wavelengths per side in z. The source sits 0.5 µm before the input monitor at x = 0.
+
+After `fdtdx.place_objects`, [`bf.apply_stack`][bifrost.stack.apply_stack] writes the stack into the permittivity arrays, in place of `fdtdx.apply_params`, before calling `fdtdx.run_fdtd` (see [Waveguide bend](../examples/waveguide-bend.md) for a full end-to-end run):
+
+```python
+objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
+arrays, objects, _ = bf.apply_stack(arrays, objects, {**params, **bf.init_stack_params(objects)}, key)
+_, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
+```
+
+fdtdx's own `Device` objects only mix two materials, so `fdtdx.apply_params` does not update a `StackDevice`. `apply_stack` writes every stack into the arrays first and then calls `fdtdx.apply_params`, so regular devices and sources are still updated, and devices win where they overlap a stack. [`bf.init_stack_params`][bifrost.stack.init_stack_params] supplies the stack's own parameters (vertices, heights, thicknesses) for differentiation; see [Inverse design](inverse-design.md).
 
 ### Automatic meshing
 
@@ -98,35 +126,6 @@ config = stack.get_simulation_config(time=100e-15, grid=mesh.grid)
 - The `create_*_at` monitors match the device precision automatically: phasor, mode-overlap, and diffractive monitors use `complex64` or `complex128`, and field, energy, and Poynting-flux monitors use `float32` or `float64`, unless overridden with `dtype=`. fdtdx sources follow the config dtype.
 - Importing `gdsfactory` enables JAX's 64-bit mode globally, and [`bf.apply_stack`][bifrost.stack.apply_stack] keeps fdtdx's PML coefficients in the device's dtype, so `float32` simulations run cleanly with x64 enabled. A `dtype=jnp.float64` device requires JAX's 64-bit mode to remain enabled at placement time.
 - `float64` doubles array memory and is substantially slower on GPUs tuned for single precision. Note that in fdtdx 0.6.3, phasor monitor time windows and uniform-grid mode-overlap face weights still run in `float32`; on non-uniform `RectilinearGrid`s, [`bf.ModeOverlapDetector`][bifrost.stack.ModeOverlapDetector] computes face weights in `float64` when configured for double-precision overlap monitors and `float32` otherwise.
-
-## Running the Simulation
-
-Add the PML boundaries from `mesh.boundary`, then run `fdtdx.place_objects` to fit every object onto the grid:
-
-```python
---8<-- "examples/guide/simulation_setup.py:place"
-```
-
-Output:
-
-```text
-grid cells: (405, 95, 83)
-source   (1, 67, 43) cells at [(67, 68), (14, 81), (20, 63)]
-in       (1, 67, 43) cells at [(90, 91), (14, 81), (20, 63)]
-out      (1, 67, 43) cells at [(315, 316), (14, 81), (20, 63)]
-```
-
-The box is 405 × 95 × 83 non-uniform cells. Each slice is `(start, stop)` cell indices along x, y, and z: each plane is one cell thick along its normal and 67 × 43 cells across, snapped via `grid=config` to the cell edges around the 0.5 µm guide plus 0.5 wavelengths per side in y and 0.3 wavelengths per side in z. The source sits 0.5 µm before the input monitor at x = 0.
-
-After `fdtdx.place_objects`, [`bf.apply_stack`][bifrost.stack.apply_stack] writes the stack into the permittivity arrays, in place of `fdtdx.apply_params`, before calling `fdtdx.run_fdtd` (see [Waveguide bend](../examples/waveguide-bend.md) for a full end-to-end run):
-
-```python
-objects, arrays, params, config, _ = fdtdx.place_objects(objects, config, constraints, key)
-arrays, objects, _ = bf.apply_stack(arrays, objects, {**params, **bf.init_stack_params(objects)}, key)
-_, arrays = fdtdx.run_fdtd(arrays=arrays, objects=objects, config=config, key=key)
-```
-
-fdtdx's own `Device` objects only mix two materials, so `fdtdx.apply_params` does not update a `StackDevice`. `apply_stack` writes every stack into the arrays first and then calls `fdtdx.apply_params`, so regular devices and sources are still updated, and devices win where they overlap a stack. [`bf.init_stack_params`][bifrost.stack.init_stack_params] supplies the stack's own parameters (vertices, heights, thicknesses) for differentiation; see [Inverse design](inverse-design.md).
 
 ## Results
 
