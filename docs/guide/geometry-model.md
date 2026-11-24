@@ -29,7 +29,7 @@ At height `z`, a level offsets its boundary inward by `(z - z_ref) * tan(sidewal
 
 Levels are painted in ascending `mesh_order` by clipping each voxel laterally and vertically between level surfaces, with `background` filling any remaining fraction. Away from corners, each level within a voxel acts as a half-plane defined by its local edge distance and normal.
 
-On a [non-uniform grid](simulation-setup.md#automatic-meshing), voxels are the grid's own cells. Along a graded z axis, each voxel layer is clipped between its bottom and top cell edges, and staggered field components (`Ex` and `Ey` on z cell faces, and similarly for components staggered in x and y) average over the dual cells spanning neighboring cell centers. When x and y cell widths differ, each column is painted on its own physical cell rectangle so distances, normals, sidewall angles, and round joins remain Euclidean.
+On a [non-uniform grid](advanced.md#adaptive-meshing), voxels are the grid's own cells. Along a graded z axis, each voxel layer is clipped between its bottom and top cell edges, and staggered field components (`Ex` and `Ey` on z cell faces, and similarly for components staggered in x and y) average over the dual cells spanning neighboring cell centers. When x and y cell widths differ, each column is painted on its own physical cell rectangle so distances, normals, sidewall angles, and round joins remain Euclidean.
 
 ## Corners
 

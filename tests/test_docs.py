@@ -339,7 +339,7 @@ def test_graded_grids_recipe_in_simulation_setup() -> None:
 
 
 def test_automatic_mesh_recipe_in_simulation_setup() -> None:
-    """Exercise the bf.mesh automatic-meshing recipe in docs/guide/simulation-setup.md."""
+    """Exercise the bf.mesh adaptive-meshing recipe in docs/guide/advanced.md."""
     import fdtdx
     import jax
     import numpy as np

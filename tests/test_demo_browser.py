@@ -472,7 +472,7 @@ def test_the_notebooks_links_reach_the_site_pages_and_leave_the_iframe(browser, 
         page.goto(f"{base_url}/demo/notebook/index.html")
         page.get_by_role("heading", name="Troubleshooting").wait_for(timeout=120000)
         site = {
-            "Automatic meshing": "guide/simulation-setup/#automatic-meshing",
+            "Adaptive meshing": "guide/advanced/#adaptive-meshing",
             "Getting started": "getting-started/",
             "Results": "guide/simulation-setup/#results",
             "bifrost.viewer.widget.wrap_video": "api/bifrost/viewer/widget/#bifrost.viewer.widget.wrap_video",

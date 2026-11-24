@@ -21,6 +21,7 @@ nav:
       - Simulation Setup: guide/simulation-setup.md
       - Convergence testing: guide/convergence-testing.md
       - Inverse design: guide/inverse-design.md
+      - Advanced: guide/advanced.md
   - Examples:
       - Waveguide bend: examples/waveguide-bend.md
       - Elevator coupler: examples/elevator-coupler.md

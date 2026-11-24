@@ -135,7 +135,7 @@ def _(PROSE, mo):
 
         ## Run a simulation from the viewer
 
-        Add a source and a monitor in the **Sources / Detectors** tab, set the grid and duration in **Simulation**, and click **Run**. The **Meshing** card defaults to `adaptive` (`ppw` = 15, `PML (µm)`, `global dilation`, `global z pad`, `max cell growth`, and per-layer **Dilation layers** sub-cards backed by <a href="../../guide/simulation-setup/#automatic-meshing" target="_top">Automatic meshing</a>), and can be switched to `uniform` (`resolution`, `PML (cells)`). The simulation runs on a background thread with the setup locked while running, and the results populate the **Result** tab. You can also access the prepared objects in Python via `viewer.objects`, `viewer.config`, and `viewer.constraints`, or click **copy launch code** to copy a reproducible script.
+        Add a source and a monitor in the **Sources / Detectors** tab, set the grid and duration in **Simulation**, and click **Run**. The **Meshing** card defaults to `adaptive` (`ppw` = 15, `PML (µm)`, `global dilation`, `global z pad`, `max cell growth`, and per-layer **Dilation layers** sub-cards backed by <a href="../../guide/advanced/#adaptive-meshing" target="_top">Adaptive meshing</a>), and can be switched to `uniform` (`resolution`, `PML (cells)`). The simulation runs on a background thread with the setup locked while running, and the results populate the **Result** tab. You can also access the prepared objects in Python via `viewer.objects`, `viewer.config`, and `viewer.constraints`, or click **copy launch code** to copy a reproducible script.
 
         ## Load a finished simulation
 
