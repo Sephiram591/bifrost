@@ -31,15 +31,7 @@ nav:
       - Elevator coupler: examples/elevator-coupler.md
       - Directional coupler: examples/directional-coupler.md
       - Lithium niobate bend: examples/linbo3-bend.md
-  - API reference:
-      - Overview: api/index.md
-      - bf.stack: api/stack.md
-      - bf.geometry: api/geometry.md
-      - bf.grids: api/grids.md
-      - bf.meshing: api/meshing.md
-      - bf.jitting: api/jitting.md
-      - bf.subpixel and bf.timing: api/subpixel-timing.md
-      - bf.viewer: api/viewer.md
+  - API reference
   - Development:
       - Contributing and tests: development.md
       - Validation and benchmarks: validation.md
@@ -102,6 +94,11 @@ extra_javascript:
 
 plugins:
   - search
+  - api-autonav:
+      modules: ["../bifrost"]
+      api_root_uri: api
+      nav_section_title: API reference
+      exclude_private: true
   - mkdocstrings:
       enabled: true
       default_handler: python
@@ -116,4 +113,5 @@ plugins:
             members_order: alphabetical
             show_root_heading: true
             show_root_full_path: false
+            summary: true
   - autorefs

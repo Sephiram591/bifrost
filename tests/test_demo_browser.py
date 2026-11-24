@@ -475,7 +475,7 @@ def test_the_notebooks_links_reach_the_site_pages_and_leave_the_iframe(browser, 
             "Automatic meshing": "guide/simulation-setup/#automatic-meshing",
             "Getting started": "getting-started/",
             "Results and field monitors": "guide/results/",
-            "bifrost.viewer.widget.wrap_video": "api/viewer/#bifrost.viewer.widget.wrap_video",
+            "bifrost.viewer.widget.wrap_video": "api/bifrost/viewer/widget/#bifrost.viewer.widget.wrap_video",
             "Simulation setup and ports": "guide/simulation-setup/",
         }
         for name, path in site.items():

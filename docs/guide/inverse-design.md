@@ -50,7 +50,7 @@ function's structure (144 vertices, no branch on a half-width) does not depend o
 trace it (see [the gdsfactoryx README](https://github.com/Sephiram591/gdsfactoryx#differentiability)). The arrays and
 parameters are arguments of the compiled function rather than constants captured by the trace.
 
-[`bf.jit`][bifrost.jitting.jit] wraps `jax.jit` with an XLA compiler option disabling the `simplify-conditional` pass: under plain `jax.jit`, XLA turns the conditional inside fdtdx's checkpointed backward loop into a `select` and evaluates a time step's VJP on every iteration, including forward recomputations (see [`bf.jit`](../api/jitting.md) for the speedup). With `bf.jit`, the `ppw = 20` optimization below completes in 13489 s on an NVIDIA L40S.
+[`bf.jit`][bifrost.jitting.jit] wraps `jax.jit` with an XLA compiler option disabling the `simplify-conditional` pass: under plain `jax.jit`, XLA turns the conditional inside fdtdx's checkpointed backward loop into a `select` and evaluates a time step's VJP on every iteration, including forward recomputations (see [`bf.jitting`][bifrost.jitting] for the speedup). With `bf.jit`, the `ppw = 20` optimization below completes in 13489 s on an NVIDIA L40S.
 
 ```python
 --8<-- "examples/guide/inverse_design.py:objective"

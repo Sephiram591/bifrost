@@ -282,7 +282,7 @@ def test_the_site_name_in_the_header_is_set_in_eczar(browser, base_url, path):
 
 @pytest.mark.parametrize(
     "path",
-    ["", "installation/", "getting-started/", "guide/simulation-setup/", "api/stack/", "api/jitting/"],
+    ["", "installation/", "getting-started/", "guide/simulation-setup/", "api/bifrost/", "api/bifrost/stack/", "api/bifrost/jitting/"],
 )
 def test_every_non_code_bifrost_is_set_in_regular_eczar_and_code_is_not(browser, base_url, path):
     page = browser.new_page(viewport={"width": 1600, "height": 900})

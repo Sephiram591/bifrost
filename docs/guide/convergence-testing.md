@@ -126,7 +126,7 @@ source, src_placing = stack.create_mode_plane_source_at(
 )
 ```
 
-For full placement rules (`grid=config` on port monitors and `mesh.boundary`), see [Simulation setup and ports](simulation-setup.md#automatic-meshing); for every parameter of `mesh`, `Refine`, and `CoarseVertices`, see [`bf.meshing`](../api/meshing.md).
+For full placement rules (`grid=config` on port monitors and `mesh.boundary`), see [Simulation setup and ports](simulation-setup.md#automatic-meshing); for every parameter of `mesh`, `Refine`, and `CoarseVertices`, see [`bf.meshing`][bifrost.meshing].
 
 ## Fine-grid agreement with MEEP (B200 scale)
 

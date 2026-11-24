@@ -438,6 +438,11 @@ def test_the_documentation_builds_strictly(tmp_path: Path) -> None:
         lambda m: f'{m.group(1)}["{ROOT.as_posix()}"]',
         config_text,
     )
+    config_text = re.sub(
+        r"(?m)^(\s*modules:\s*).*$",
+        lambda m: f'{m.group(1)}["{(ROOT / "bifrost").as_posix()}"]',
+        config_text,
+    )
     staged_config = tmp_path / "zensical.yml"
     staged_config.write_text(config_text)
     done = subprocess.run(
@@ -446,6 +451,8 @@ def test_the_documentation_builds_strictly(tmp_path: Path) -> None:
     )
     assert done.returncode == 0, (done.stdout + done.stderr)[-3000:]
     assert (tmp_path / "site" / "index.html").is_file()
+    for api_page in ("index.html", "stack/index.html", "greens/index.html", "harminv/index.html", "viewer/widget/index.html"):
+        assert (tmp_path / "site" / "api" / "bifrost" / api_page).is_file(), f"missing generated API page: {api_page}"
 
 
 # ------------------------------------------------------------------ the Widget Demo notebook
@@ -495,6 +502,29 @@ def test_the_notebooks_site_links_point_at_real_pages_and_headings() -> None:
     assert hrefs, "the notebook links to no page of the site"
     for href in hrefs:
         path, _, anchor = href.partition("#")
+        if path.startswith("api/"):
+            mod_rel = path.removeprefix("api/").rstrip("/")
+            source = ROOT / f"{mod_rel}.py"
+            if not source.is_file():
+                source = ROOT / mod_rel / "__init__.py"
+            assert source.is_file(), f"the notebook links to ../../{href}, which has no matching module"
+            if anchor:
+                mod_name = mod_rel.replace("/", ".")
+                assert anchor.startswith(f"{mod_name}."), f"the notebook links to ../../{href}: invalid API anchor"
+                symbol = anchor.removeprefix(f"{mod_name}.")
+                tree = ast.parse(source.read_text())
+                top_names: set[str] = set()
+                for node in tree.body:
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        top_names.add(node.name)
+                    elif isinstance(node, ast.Assign):
+                        for target in node.targets:
+                            if isinstance(target, ast.Name):
+                                top_names.add(target.id)
+                    elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                        top_names.add(node.target.id)
+                assert symbol in top_names, f"the notebook links to ../../{href}: {symbol!r} not found in {source.relative_to(ROOT)}"
+            continue
         page = DOCS / f"{path.rstrip('/')}.md"
         assert page.is_file(), f"the notebook links to ../../{href}, which is not a page"
         if anchor:
