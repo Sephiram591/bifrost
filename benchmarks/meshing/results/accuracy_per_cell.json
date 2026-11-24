@@ -11801,5 +11801,246 @@
     "peak_gb": 30.508,
     "summary": "mesh of 'stack': 575 x 575 x 153 = 50,585,625 cells\n  x: 575 cells, 19.47 to 43.06 nm, largest ratio 1.250, PML cells 52 / 24 (aligned)\n  y: 575 cells, 19.47 to 42.79 nm, largest ratio 1.250, PML cells 24 / 52\n  z: 153 cells, 19.23 to 42.59 nm, largest ratio 1.250, PML cells 24 / 24 (faces centered at 0, 0.5 um)\n  time step 36.97 as, 13,525 steps\n  fields (E and H, 32-bit): 1.21 GB\n  starting geometry: 0 of 94 vertices in cells wider than their target (largest cell / target 1.000)",
     "gpu": "NVIDIA L40S"
+  },
+  {
+    "bench": "aniso_slab",
+    "kind": "mesh-160",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      4,
+      4,
+      538
+    ],
+    "cells_z": 538,
+    "total_cells": 8608,
+    "min_dz_nm": 2.54,
+    "t_error": 6.32e-05,
+    "gpu": "NVIDIA B200"
+  },
+  {
+    "bench": "aniso_slab",
+    "kind": "uniform-1.5",
+    "voxelizer": "greens",
+    "averaging": "subpixel_full",
+    "cells": [
+      4,
+      4,
+      2400
+    ],
+    "cells_z": 2400,
+    "total_cells": 38400,
+    "min_dz_nm": 1.5,
+    "max_dz_nm": 1.5,
+    "pml_cells": [
+      400,
+      400
+    ],
+    "t_error": 1.88e-05,
+    "gpu": "NVIDIA B200"
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "mesh-142",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      2041,
+      608,
+      556
+    ],
+    "total_cells": 689955968,
+    "min_cell_nm": [
+      3.14,
+      3.14,
+      3.1
+    ],
+    "max_cell_nm": [
+      3.14,
+      7.53,
+      7.55
+    ],
+    "neff_mode": 2.38076,
+    "neff_fdtd": 2.38084,
+    "peak_gb": 153.8,
+    "gpu": "NVIDIA B200"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "meshsub-84",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1251,
+      1251,
+      358
+    ],
+    "total_cells": 560270358,
+    "min_cell_nm": [
+      9.24,
+      9.24,
+      9.15
+    ],
+    "max_cell_nm": [
+      18.45,
+      18.3,
+      18.37
+    ],
+    "T": 0.56249,
+    "peak_gb": 126.6,
+    "gpu": "NVIDIA B200"
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-11",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1124,
+      1124,
+      436
+    ],
+    "total_cells": 550831936,
+    "min_cell_nm": [
+      11.0,
+      11.0,
+      11.0
+    ],
+    "max_cell_nm": [
+      11.0,
+      11.0,
+      11.0
+    ],
+    "T": 0.56157,
+    "peak_gb": 126.0,
+    "gpu": "NVIDIA B200"
+  },
+  {
+    "bench": "elevator_coupler",
+    "kind": "mesh-52",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      3226,
+      540,
+      383
+    ],
+    "total_cells": 667201320,
+    "min_cell_nm": [
+      5.95,
+      5.95,
+      5.79
+    ],
+    "max_cell_nm": [
+      5.95,
+      8.16,
+      11.83
+    ],
+    "T": 0.53438,
+    "peak_gb": 150.7,
+    "gpu": "NVIDIA B200"
+  },
+  {
+    "bench": "directional_coupler",
+    "kind": "mesh-30",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      4674,
+      640,
+      233
+    ],
+    "total_cells": 696986880,
+    "min_cell_nm": [
+      9.2,
+      9.2,
+      9.09
+    ],
+    "max_cell_nm": [
+      9.2,
+      12.29,
+      12.28
+    ],
+    "split_mid": 0.35619,
+    "total_mid": 0.9891,
+    "peak_gb": 146.1,
+    "gpu": "NVIDIA B200"
+  },
+  {
+    "bench": "directional_coupler",
+    "kind": "uniform-10.13",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      4245,
+      632,
+      257
+    ],
+    "total_cells": 689489880,
+    "min_cell_nm": [
+      10.13,
+      10.13,
+      10.13
+    ],
+    "max_cell_nm": [
+      10.13,
+      10.13,
+      10.13
+    ],
+    "split_mid": 0.35779,
+    "peak_gb": 145.2,
+    "gpu": "NVIDIA B200"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "meshsub-78",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1245,
+      1244,
+      326
+    ],
+    "total_cells": 504902280,
+    "min_cell_nm": [
+      8.99,
+      8.99,
+      8.93
+    ],
+    "max_cell_nm": [
+      19.87,
+      19.85,
+      19.84
+    ],
+    "T": 0.9323,
+    "T_tm0": 0.04296,
+    "peak_gb": 114.1,
+    "gpu": "NVIDIA B200"
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-11.15",
+    "voxelizer": "greens",
+    "averaging": "subpixel",
+    "cells": [
+      1076,
+      1076,
+      430
+    ],
+    "total_cells": 497843680,
+    "min_cell_nm": [
+      11.15,
+      11.15,
+      11.15
+    ],
+    "max_cell_nm": [
+      11.15,
+      11.15,
+      11.15
+    ],
+    "T": 0.93239,
+    "T_tm0": 0.04283,
+    "peak_gb": 113.9,
+    "gpu": "NVIDIA B200"
   }
 ]

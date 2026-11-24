@@ -265,6 +265,7 @@ def _plot_self_conv_panel(
     max_unif_nm: float | None = None,
     has_meshsub: bool = False,
     mesh_start_offset: tuple[tuple[int, int], str, str] = ((-4, 4), "right", "bottom"),
+    unif_fin_offset: tuple[tuple[int, int], str, str] = ((0, 7), "center", "bottom"),
 ) -> None:
     _style_ax(ax, title, "total cells (millions)", ylabel)
     ax.margins(x=0.14, y=0.16)
@@ -280,7 +281,7 @@ def _plot_self_conv_panel(
         u = [d[k] for k in u_keys if k != finest_u]
         m = [r for k, r in d.items() if k.startswith("mesh-")]
         fy = lambda r, rt=ref_t: abs(r["T"] - rt)  # noqa: E731
-        _series(ax, u, mb, fy, color=UNIF, marker="o", label="UniformGrid", avg=avg, fin_offset=((0, 7), "center", "bottom"))
+        _series(ax, u, mb, fy, color=UNIF, marker="o", label="UniformGrid", avg=avg, fin_offset=unif_fin_offset)
         _series(ax, m, mb, fy, color=MESH, marker="s", label="bf.mesh", avg=avg, start_offset=mesh_start_offset)
         if has_meshsub:
             ms = [r for k, r in d.items() if k.startswith("meshsub-")]
@@ -317,12 +318,12 @@ def make_figure(src: Path, dsts: list[Path], *, meep_src: Path | None = None) ->
         u = [r for k, r in slab.items() if k.startswith("uniform-")]
         m = [r for k, r in slab.items() if k.startswith("mesh-") and float(k.split("-")[1]) >= 10]
         _series(ax, u, lambda r: r["cells_z"], lambda r: r["t_error"], color=UNIF, marker="o", label="UniformGrid", avg=avg, label_ends=True)
-        _series(ax, m, lambda r: r["cells_z"], lambda r: r["t_error"], color=MESH, marker="s", label="bf.mesh", avg=avg, label_ends=True)
+        _series(ax, m, lambda r: r["cells_z"], lambda r: r["t_error"], color=MESH, marker="s", label="bf.mesh", avg=avg, label_ends=True, fin_offset=((-6, -3), "right", "top"))
     m_slab = list(_meep_by_bench(meep_rows, "aniso_slab").values())
     _series(ax, m_slab, lambda r: r["cells_z"], lambda r: r["t_error"], color=MEEP, marker="D", ls="-.", label="MEEP · UniformGrid", avg=None, label_ends=False, zorder=2.8)
-    ax.set_xlim(28, 620)
-    ax.set_ylim(3e-4, 3.0e-2)
-    ax.set_xticks([40, 60, 100, 150, 240, 360, 480])
+    ax.set_xlim(28, 3600)
+    ax.set_ylim(1.2e-5, 3.0e-2)
+    ax.set_xticks([40, 100, 240, 480, 1000, 2400])
     ax.text(0.97, 0.97, "subpixel_full only\n(off-diagonal material)", transform=ax.transAxes, ha="right", va="top", fontsize=7.6, color=MUTED)
 
     # (b) Sloped SOI waveguide: mode-solver n_eff against the tidy3d continuum reference
@@ -370,6 +371,7 @@ def make_figure(src: Path, dsts: list[Path], *, meep_src: Path | None = None) ->
     _plot_self_conv_panel(
         axes[1, 2], "(f) X-cut LiNbO3 bend (20° walls)", "|T - T(finest uniform)| at 1.55 µm",
         rows, meep_rows, "linbo3_bend", max_unif_nm=60.0, has_meshsub=True,
+        unif_fin_offset=((-4, -7), "right", "top"),
     )
 
     _finish(fig, axes, dsts)
@@ -412,133 +414,153 @@ def _make_value_figure(src: Path, dsts: list[Path], *, x_axis: Literal["cells", 
         "sloped_guide_mode": [
             ("uniform-50", (5, -4), "left", "top", "50 nm"),
             ("uniform-20", (5, 5), "left", "bottom", "20 nm"),
-            ("uniform-7.2", (0, -7), "center", "top", "7.2 nm"),
+            ("uniform-7.2", (-4, 7), "right", "bottom", "7.2 nm"),
             ("mesh-8", (6, 2), "left", "bottom", "ppw 8"),
             ("mesh-22", (4, 7), "left", "bottom", "ppw 22"),
-            ("mesh-86", (-5, -5), "right", "top", "ppw 86"),
+            ("mesh-142", (-4, 7), "right", "bottom", "ppw 142"),
+            ("meep:uniform-4.71", (-4, -8), "right", "top", "4.71 nm"),
         ],
         "sloped_guide_fdtd": [
             ("uniform-50", (-4, -5), "right", "top", "50 nm"),
             ("uniform-20", (5, 4), "left", "bottom", "20 nm"),
-            ("uniform-7.2", (0, 6), "center", "bottom", "7.2 nm"),
+            ("uniform-7.2", (-4, -8), "right", "top", "7.2 nm"),
             ("mesh-8", (6, 0), "left", "center", "ppw 8"),
             ("mesh-22", (-6, -7), "right", "top", "ppw 22"),
-            ("mesh-86", (-5, -6), "right", "top", "ppw 86"),
+            ("mesh-142", (-4, -8), "right", "top", "ppw 142"),
+            ("meep:uniform-4.71", (-4, 7), "right", "bottom", "4.71 nm"),
         ],
         "sin_bend": [
             ("uniform-60", (-4, -5), "right", "top", "60 nm"),
             ("uniform-40", (5, 4), "left", "bottom", "40 nm"),
-            ("uniform-16.2", (-4, 5), "right", "bottom", "16.2 nm"),
+            ("uniform-11", (-5, -6), "right", "top", "11 nm"),
             ("mesh-12", (5, 2), "left", "bottom", "ppw 12"),
             ("meshsub-20", (-5, -5), "right", "top", "ppw 20 (mc)"),
-            ("mesh-54", (-6, -6), "right", "top", "ppw 54"),
+            ("meshsub-84", (-5, 6), "right", "bottom", "ppw 84 (mc)"),
         ],
         "elevator_coupler": [
             ("uniform-50", (0, 6), "center", "bottom", "50 nm"),
             ("uniform-25", (4, 5), "left", "bottom", "25 nm"),
-            ("uniform-12", (-4, 5), "right", "bottom", "12 nm"),
+            ("uniform-12", (-4, -7), "right", "top", "12 nm"),
             ("mesh-6", (6, -1), "left", "center", "ppw 6"),
             ("mesh-10", (0, -6), "center", "top", "ppw 10"),
-            ("mesh-33", (-4, -6), "right", "top", "ppw 33"),
+            ("mesh-52", (-4, -7), "right", "top", "ppw 52"),
+            ("meep:uniform-7.24", (-4, 6), "right", "bottom", "7.24 nm"),
         ],
         "directional_coupler": [
             ("uniform-50", (5, 2), "left", "bottom", "50 nm"),
-            ("uniform-16.5", (0, 6), "center", "bottom", "16.5 nm"),
+            ("uniform-10.13", (-5, 6), "right", "bottom", "10.13 nm"),
             ("mesh-6", (5, 2), "left", "bottom", "ppw 6"),
             ("mesh-10", (-5, -5), "right", "top", "ppw 10"),
-            ("mesh-18", (-4, -6), "right", "top", "ppw 18"),
+            ("mesh-30", (-4, -7), "right", "top", "ppw 30"),
         ],
         "linbo3_bend": [
             ("uniform-60", (-4, -5), "right", "top", "60 nm"),
             ("uniform-30", (5, 4), "left", "bottom", "30 nm"),
-            ("uniform-17", (0, 6), "center", "bottom", "17 nm"),
+            ("uniform-11.15", (-5, -7), "right", "top", "11.15 nm"),
             ("mesh-10", (5, 2), "left", "bottom", "ppw 10"),
             ("mesh-26", (-5, -5), "right", "top", "ppw 26"),
-            ("mesh-48", (0, -7), "center", "top", "ppw 48"),
+            ("meshsub-78", (-5, 6), "right", "bottom", "ppw 78 (mc)"),
         ],
     }
 
     cells_end_annotations: dict[str, list[tuple[str, tuple[int, int], str, str, str]]] = {
         "sloped_guide_mode": [
             ("mesh-8", (5, 3), "left", "bottom", "ppw 8"),
-            ("mesh-86", (0, 8), "center", "bottom", "ppw 86"),
+            ("mesh-142", (0, 7), "center", "bottom", "ppw 142"),
             ("uniform-64", (4, -5), "left", "top", "64 nm"),
-            ("uniform-7.2", (0, -9), "center", "top", "7.2 nm"),
+            ("uniform-7.2", (-6, 7), "right", "bottom", "7.2 nm"),
+            ("meep:uniform-4.71", (-4, -8), "right", "top", "4.71 nm"),
         ],
         "sloped_guide_fdtd": [
             ("mesh-8", (6, 0), "left", "center", "ppw 8"),
-            ("mesh-86", (0, 7), "center", "bottom", "ppw 86"),
+            ("mesh-142", (0, -8), "center", "top", "ppw 142"),
             ("uniform-64", (-3, -8), "center", "top", "64 nm"),
-            ("uniform-7.2", (0, -9), "center", "top", "7.2 nm"),
+            ("uniform-7.2", (-6, -8), "right", "top", "7.2 nm"),
+            ("meep:uniform-4.71", (-4, 7), "right", "bottom", "4.71 nm"),
         ],
         "sin_bend": [
             ("mesh-12", (5, 3), "left", "bottom", "ppw 12"),
-            ("mesh-54", (0, 7), "center", "bottom", "ppw 54"),
+            ("meshsub-84", (-4, 7), "right", "bottom", "ppw 84 (mc)"),
             ("uniform-60", (0, -8), "center", "top", "60 nm"),
-            ("uniform-16.2", (0, -9), "center", "top", "16.2 nm"),
+            ("uniform-11", (-4, -8), "right", "top", "11 nm"),
         ],
         "elevator_coupler": [
             ("mesh-6", (6, -2), "left", "center", "ppw 6"),
-            ("mesh-33", (4, -8), "left", "top", "ppw 33"),
+            ("mesh-52", (-4, -8), "right", "top", "ppw 52"),
             ("uniform-50", (0, -8), "center", "top", "50 nm"),
-            ("uniform-12", (-6, -8), "right", "top", "12 nm"),
+            ("uniform-12", (-4, -8), "right", "top", "12 nm"),
+            ("meep:uniform-7.24", (-4, 7), "right", "bottom", "7.24 nm"),
         ],
         "directional_coupler": [
             ("mesh-6", (5, 2), "left", "bottom", "ppw 6"),
-            ("mesh-18", (0, -9), "center", "top", "ppw 18"),
+            ("mesh-30", (-4, -8), "right", "top", "ppw 30"),
             ("uniform-50", (5, 2), "left", "bottom", "50 nm"),
-            ("uniform-16.5", (5, 2), "left", "bottom", "16.5 nm"),
+            ("uniform-10.13", (-4, 7), "right", "bottom", "10.13 nm"),
         ],
         "linbo3_bend": [
             ("mesh-10", (5, 0), "left", "center", "ppw 10"),
-            ("mesh-48", (0, -9), "center", "top", "ppw 48"),
+            ("meshsub-78", (-4, 7), "right", "bottom", "ppw 78 (mc)"),
             ("uniform-60", (0, -8), "center", "top", "60 nm"),
-            ("uniform-17", (0, 7), "center", "bottom", "17 nm"),
+            ("uniform-11.15", (-4, -8), "right", "top", "11.15 nm"),
         ],
     }
 
     vram_end_annotations: dict[str, list[tuple[str, tuple[int, int], str, str, str]]] = {
         "sloped_guide_mode": [
             ("mesh-8", (5, 3), "left", "bottom", "ppw 8"),
-            ("mesh-86", (-3, 7), "center", "bottom", "ppw 86"),
+            ("mesh-142", (-2, 7), "right", "bottom", "ppw 142"),
             ("uniform-64", (4, -5), "left", "top", "64 nm"),
-            ("uniform-7.2", (0, -9), "center", "top", "7.2 nm"),
+            ("uniform-7.2", (-6, 8), "right", "bottom", "7.2 nm"),
+            ("meep:uniform-4.71", (-4, -8), "right", "top", "4.71 nm"),
         ],
         "sloped_guide_fdtd": [
             ("mesh-8", (5, 0), "left", "center", "ppw 8"),
-            ("mesh-86", (-2, 7), "center", "bottom", "ppw 86"),
+            ("mesh-142", (0, -8), "center", "top", "ppw 142"),
             ("uniform-64", (-2, -8), "center", "top", "64 nm"),
-            ("uniform-7.2", (0, -9), "center", "top", "7.2 nm"),
+            ("uniform-7.2", (-6, -8), "right", "top", "7.2 nm"),
+            ("meep:uniform-4.71", (-4, 7), "right", "bottom", "4.71 nm"),
         ],
         "sin_bend": [
             ("mesh-12", (0, 7), "center", "bottom", "ppw 12"),
-            ("mesh-54", (0, 7), "center", "bottom", "ppw 54"),
+            ("meshsub-84", (-4, 7), "right", "bottom", "ppw 84 (mc)"),
             ("uniform-60", (-4, -6), "right", "top", "60 nm"),
-            ("uniform-16.2", (0, -9), "center", "top", "16.2 nm"),
+            ("uniform-11", (-4, -8), "right", "top", "11 nm"),
         ],
         "elevator_coupler": [
             ("mesh-6", (6, -1), "left", "center", "ppw 6"),
-            ("mesh-33", (3, -8), "left", "top", "ppw 33"),
+            ("mesh-52", (-4, -8), "right", "top", "ppw 52"),
             ("uniform-50", (0, 7), "center", "bottom", "50 nm"),
-            ("uniform-12", (-6, -8), "right", "top", "12 nm"),
+            ("uniform-12", (-4, -8), "right", "top", "12 nm"),
+            ("meep:uniform-7.24", (-4, 7), "right", "bottom", "7.24 nm"),
         ],
         "directional_coupler": [
             ("mesh-6", (5, 2), "left", "bottom", "ppw 6"),
-            ("mesh-18", (0, -9), "center", "top", "ppw 18"),
+            ("mesh-30", (-4, -8), "right", "top", "ppw 30"),
             ("uniform-50", (5, 2), "left", "bottom", "50 nm"),
-            ("uniform-16.5", (6, 11), "left", "bottom", "16.5 nm"),
+            ("uniform-10.13", (-4, 7), "right", "bottom", "10.13 nm"),
         ],
         "linbo3_bend": [
             ("mesh-10", (5, -2), "left", "center", "ppw 10"),
-            ("mesh-48", (0, -9), "center", "top", "ppw 48"),
+            ("meshsub-78", (-4, 7), "right", "bottom", "ppw 78 (mc)"),
             ("uniform-60", (-4, -7), "center", "top", "60 nm"),
-            ("uniform-17", (0, 7), "center", "bottom", "17 nm"),
+            ("uniform-11.15", (-4, -8), "right", "top", "11.15 nm"),
         ],
+    }
+
+    cells_xticks = {
+        "sloped_guide": [0.2, 1, 5, 20, 100, 500],
+        "sin_bend": [1, 2, 5, 10, 20, 50, 100, 500],
+        "elevator_coupler": [1, 2, 5, 10, 20, 50, 100, 500],
+        "directional_coupler": [5, 10, 20, 50, 100, 500],
+        "linbo3_bend": [1, 2, 5, 10, 20, 50, 100, 500],
     }
 
     for idx, (ax, title, bench, ylabel, fy) in enumerate(panels):
         _style_ax(ax, title, xlabel, ylabel)
-        ax.xaxis.set_major_locator(ticker.LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
+        if x_axis == "cells":
+            ax.xaxis.set_major_locator(ticker.FixedLocator(cells_xticks[bench]))
+        else:
+            ax.xaxis.set_major_locator(ticker.LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
         ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:g}"))
         ax.set_yscale("linear")
         ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=5))
@@ -561,10 +583,16 @@ def _make_value_figure(src: Path, dsts: list[Path], *, x_axis: Literal["cells", 
         _series(ax, m_u, mfx, fy, color=MEEP, marker="D", ls="-.", label=meep_label, avg=None, label_ends=False, yscale_floor=None, show_avg=show_avg, zorder=2.8)
         ann_key = ("sloped_guide_mode", "sloped_guide_fdtd")[idx] if bench == "sloped_guide" else bench
         rr_sub = _by_bench(rows, bench, "subpixel")
+        meep_by_bench = _meep_by_bench(meep_rows, bench)
         spec_map = annotations if not show_avg else (cells_end_annotations if x_axis == "cells" else vram_end_annotations)
         pts = []
         for kind, off, ha, va, text in spec_map[ann_key]:
-            if kind in rr_sub and fx(rr_sub[kind]) is not None and fy(rr_sub[kind]) is not None:
+            if kind.startswith("meep:"):
+                mk = kind[5:]
+                if mk in meep_by_bench and mfx(meep_by_bench[mk]) is not None and fy(meep_by_bench[mk]) is not None:
+                    r = meep_by_bench[mk]
+                    pts.append((mfx(r), fy(r), text, off, ha, va))
+            elif kind in rr_sub and fx(rr_sub[kind]) is not None and fy(rr_sub[kind]) is not None:
                 r = rr_sub[kind]
                 pts.append((fx(r), fy(r), text, off, ha, va))
         _annotate_points(ax, pts, yscale_floor=None, fontsize=7.5 if not show_avg else 7.2)

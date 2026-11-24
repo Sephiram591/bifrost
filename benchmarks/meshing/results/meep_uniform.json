@@ -1407,5 +1407,93 @@
     "run_s": 6795.31,
     "mpi_procs": 16,
     "equiv_peak_gb": 32.309
+  },
+  {
+    "bench": "aniso_slab",
+    "kind": "uniform-1.5",
+    "solver": "meep",
+    "cells": [
+      4,
+      4,
+      2400
+    ],
+    "cells_z": 2400,
+    "total_cells": 38400,
+    "dx_nm": 1.5,
+    "t_error": 2.05e-05,
+    "equiv_peak_gb": null
+  },
+  {
+    "bench": "sloped_guide",
+    "kind": "uniform-4.71",
+    "solver": "meep",
+    "cells": [
+      1359,
+      679,
+      679
+    ],
+    "total_cells": 626554719,
+    "dx_nm": 4.71,
+    "neff_mode": 2.36971,
+    "neff_fdtd": 2.38127,
+    "equiv_peak_gb": 153.8
+  },
+  {
+    "bench": "sin_bend",
+    "kind": "uniform-11",
+    "solver": "meep",
+    "cells": [
+      1124,
+      1124,
+      436
+    ],
+    "total_cells": 550831936,
+    "dx_nm": 11.0,
+    "T": 0.58193,
+    "equiv_peak_gb": 127.3
+  },
+  {
+    "bench": "elevator_coupler",
+    "kind": "uniform-7.24",
+    "solver": "meep",
+    "cells": [
+      2652,
+      552,
+      442
+    ],
+    "total_cells": 647045568,
+    "dx_nm": 7.24,
+    "T": 0.53697,
+    "equiv_peak_gb": 150.4
+  },
+  {
+    "bench": "directional_coupler",
+    "kind": "uniform-10.13",
+    "solver": "meep",
+    "cells": [
+      4245,
+      632,
+      257
+    ],
+    "total_cells": 689489880,
+    "dx_nm": 10.13,
+    "split_mid": 0.34054,
+    "total_mid": 0.9901,
+    "equiv_peak_gb": 146.4
+  },
+  {
+    "bench": "linbo3_bend",
+    "kind": "uniform-11.15",
+    "solver": "meep",
+    "cells": [
+      1076,
+      1076,
+      430
+    ],
+    "total_cells": 497843680,
+    "dx_nm": 11.15,
+    "T": 0.93227,
+    "T_tm0": 0.04268,
+    "equiv_peak_gb": 114.4
   }
 ]
