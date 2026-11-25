@@ -358,18 +358,73 @@ def _prism_signed_angle_rad(verts: list[list[float]], deg: float) -> float:
     return sign * math.radians(deg)
 
 
+def _axis_aligned_runs(
+    chain: np.ndarray,
+    d_cum: np.ndarray,
+    *,
+    min_len: float = 0.6,
+    tol: float = 1e-6,
+) -> list[tuple[int, int, float, float, float, float, float]]:
+    """Return maximal horizontal/vertical collinear runs ``(axis, sgn, fixed, c0, c1, d0, d1)``."""
+    runs: list[tuple[int, int, float, float, float, float, float]] = []
+    cur: tuple[int, int, float, float, float, float, float] | None = None
+    for i in range(len(chain) - 1):
+        dx = float(chain[i + 1, 0] - chain[i, 0])
+        dy = float(chain[i + 1, 1] - chain[i, 1])
+        if math.hypot(dx, dy) <= 1e-12:
+            continue
+        if abs(dy) <= tol:
+            axis, fixed, c0, c1 = 0, float(chain[i, 1]), float(chain[i, 0]), float(chain[i + 1, 0])
+        elif abs(dx) <= tol:
+            axis, fixed, c0, c1 = 1, float(chain[i, 0]), float(chain[i, 1]), float(chain[i + 1, 1])
+        else:
+            if cur is not None and abs(cur[4] - cur[3]) > min_len:
+                runs.append(cur)
+            cur = None
+            continue
+        sgn = 1 if c1 >= c0 else -1
+        d0, d1 = float(d_cum[i]), float(d_cum[i + 1])
+        if cur is not None and cur[0] == axis and cur[1] == sgn and abs(cur[2] - fixed) <= tol:
+            cur = (axis, sgn, cur[2], cur[3], c1, cur[5], d1)
+        else:
+            if cur is not None and abs(cur[4] - cur[3]) > min_len:
+                runs.append(cur)
+            cur = (axis, sgn, fixed, c0, c1, d0, d1)
+    if cur is not None and abs(cur[4] - cur[3]) > min_len:
+        runs.append(cur)
+    return runs
+
+
+def _extract_chain_by_d(chain: np.ndarray, d_cum: np.ndarray, d0: float, d1: float) -> np.ndarray:
+    """Slice a vertex chain over cumulative arc length ``[d0, d1]``."""
+    p_start = np.array([float(np.interp(d0, d_cum, chain[:, 0])), float(np.interp(d0, d_cum, chain[:, 1]))])
+    p_end = np.array([float(np.interp(d1, d_cum, chain[:, 0])), float(np.interp(d1, d_cum, chain[:, 1]))])
+    inner = chain[(d_cum > d0 + 1e-9) & (d_cum < d1 - 1e-9)]
+    sub = [p_start]
+    if len(inner):
+        sub.extend(inner)
+    sub.append(p_end)
+    return np.asarray(sub, dtype=float)
+
+
 def _split_ribbon_polygon(
     poly: list[list[float]],
     domain: list[list[float]],
     angle_deg: float,
     thickness: float = 0.5,
 ) -> list[list[list[float]]]:
-    """Split long waveguide ribbon polygons into small native mp.Prism chunks with tight AABBs.
+    """Split waveguide ribbon polygons into native ``mp.Prism`` chunks safe against ``libctlgeom`` edge bands.
 
-    For simple ``<= 12``-vertex waveguides (e.g. ``sloped_guide``, ``elevator_coupler``), slicing
-    into ``<= 0.4–0.5 um`` segments prevents ``libctlgeom``'s proportional bounding-box edge
-    tolerance from widening narrow tapers and sidewalls. When ``angle_deg != 0``, adjacent chunks
-    overlap so internal transverse prism bevels remain strictly inside the neighboring chunk.
+    ``libctlgeom``'s point-in-polygon boundary test (``IN_SEGMENT`` with ``THRESH = 1e-5``) creates
+    a band of half-width up to ``L * sqrt(THRESH / 8)`` (~22.4 nm on a 20 um straight edge) around
+    every polygon edge; wherever a prism's exact AABB extends past a long edge, the exterior band
+    is included as core regardless of grid resolution (and ``LIBCTL_EXCLUDE_BOUNDARIES=1`` erodes
+    the interior side instead of removing the bias). For vertical sidewalls, isolating matched
+    axis-aligned straight runs as unbroken 4-vertex rectangles makes their exact AABB coincide
+    with every edge—eliminating both the exterior tolerance band and multi-object internal seam
+    bias—while curved or oblique sections keep short edges. When ``angle_deg != 0``, chunks are
+    kept short and overlapped along the ribbon so internal transverse prism bevels remain strictly
+    inside the neighboring chunk.
     """
     pts = np.asarray(poly, dtype=float)
     if len(pts) <= 12:
@@ -388,6 +443,11 @@ def _split_ribbon_polygon(
                 segs.append([[xa, ymin], [xb, ymin], [xb, ymax], [xa, ymax]])
             return segs
 
+        if len(pts) == 4:
+            diffs = np.abs(np.roll(pts, -1, axis=0) - pts)
+            if bool(np.all(np.minimum(diffs[:, 0], diffs[:, 1]) < 1e-9)):
+                return [pts.tolist()]
+
         from shapely.geometry import Polygon
         from shapely.geometry.polygon import orient
         from shapely.ops import clip_by_rect
@@ -398,8 +458,11 @@ def _split_ribbon_polygon(
             return [pts.tolist()]
         xs = np.linspace(xmin, xmax, max(2, int(math.ceil((xmax - xmin) / 0.5))) + 1)
         clipped_out: list[list[list[float]]] = []
+        ov_x = 0.002
         for k in range(len(xs) - 1):
-            c = clip_by_rect(p_geom, float(xs[k]), ymin - 1.0, float(xs[k + 1]), ymax + 1.0)
+            xa = float(xs[k]) - (ov_x if k > 0 else 0.0)
+            xb = float(xs[k + 1]) + (ov_x if k < len(xs) - 2 else 0.0)
+            c = clip_by_rect(p_geom, xa, ymin - 1.0, xb, ymax + 1.0)
             parts = list(c.geoms) if hasattr(c, "geoms") else [c]
             for part in parts:
                 if isinstance(part, Polygon) and not part.is_empty:
@@ -417,20 +480,89 @@ def _split_ribbon_polygon(
     sa_pts, sb_pts = pts[: m + 1], pts[m + 1 :][::-1]
     da = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(sa_pts, axis=0), axis=1))])
     db = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(sb_pts, axis=0), axis=1))])
-    sa, sb = da / da[-1], db / db[-1]
-    n_ch = max(16, min(32, max(len(sa_pts), len(sb_pts)) // 3))
-    ca = np.round(np.linspace(0, len(sa_pts) - 1, n_ch + 1)).astype(int)
-    cb = np.round(np.interp(sa[ca], sb, np.arange(len(sb_pts)))).astype(int)
-    cb[0], cb[-1] = 0, len(sb_pts) - 1
-    ov = 3 if abs(angle_deg) > 1e-12 else 0
+    da_tot, db_tot = float(da[-1]), float(db[-1])
+
+    runs_a = _axis_aligned_runs(sa_pts, da)
+    runs_b = _axis_aligned_runs(sb_pts, db)
+    matched: list[tuple[float, float, float, float]] = []
+    prev_da1, prev_db1, b_idx_start = 0.0, 0.0, 0
+    for ax_a, sgn_a, _, ca0, ca1, da0_r, da1_r in runs_a:
+        best: tuple[float, int, float, float, float, float] | None = None
+        for j in range(b_idx_start, len(runs_b)):
+            ax_b, sgn_b, _, cb0, cb1, db0_r, db1_r = runs_b[j]
+            if ax_b != ax_a or sgn_b != sgn_a:
+                continue
+            lo = max(min(ca0, ca1), min(cb0, cb1))
+            hi = min(max(ca0, ca1), max(cb0, cb1))
+            if hi - lo <= 0.6:
+                continue
+            c_start, c_end = (lo, hi) if sgn_a > 0 else (hi, lo)
+            da0 = da0_r + ((c_start - ca0) / (ca1 - ca0)) * (da1_r - da0_r)
+            da1 = da0_r + ((c_end - ca0) / (ca1 - ca0)) * (da1_r - da0_r)
+            db0 = db0_r + ((c_start - cb0) / (cb1 - cb0)) * (db1_r - db0_r)
+            db1 = db0_r + ((c_end - cb0) / (cb1 - cb0)) * (db1_r - db0_r)
+            if da0 < prev_da1 - 1e-6 or db0 < prev_db1 - 1e-6:
+                continue
+            da0 = max(da0, prev_da1)
+            db0 = max(db0, prev_db1)
+            if da1 - da0 <= 0.6 or db1 - db0 <= 0.6:
+                continue
+            score = abs(0.5 * (da0 + da1) / da_tot - 0.5 * (db0 + db1) / db_tot)
+            if best is None or score < best[0]:
+                best = (score, j, da0, da1, db0, db1)
+        if best is not None:
+            _, j_best, da0, da1, db0, db1 = best
+            matched.append((da0, da1, db0, db1))
+            prev_da1, prev_db1, b_idx_start = da1, db1, j_best + 1
+
+    sections: list[tuple[str, float, float, float, float]] = []
+    cur_a, cur_b = 0.0, 0.0
+    for da0, da1, db0, db1 in matched:
+        if da0 - cur_a > 1e-6 or db0 - cur_b > 1e-6:
+            sections.append(("curve", cur_a, da0, cur_b, db0))
+        sections.append(("straight", da0, da1, db0, db1))
+        cur_a, cur_b = da1, db1
+    if da_tot - cur_a > 1e-6 or db_tot - cur_b > 1e-6:
+        sections.append(("curve", cur_a, da_tot, cur_b, db_tot))
+
+    is_sloped = abs(angle_deg) > 1e-12
+    ov_len = (2.5 * abs(thickness) * abs(math.tan(math.radians(angle_deg)))) if is_sloped else 0.0
     out: list[list[list[float]]] = []
-    for k in range(n_ch):
-        a0 = max(0, ca[k] - ov) if k > 0 else 0
-        a1 = min(len(sa_pts) - 1, ca[k + 1] + ov) if k < n_ch - 1 else len(sa_pts) - 1
-        b0 = max(0, cb[k] - ov) if k > 0 else 0
-        b1 = min(len(sb_pts) - 1, cb[k + 1] + ov) if k < n_ch - 1 else len(sb_pts) - 1
-        if a1 > a0 and b1 > b0:
-            out.append(np.vstack([sa_pts[a0 : a1 + 1], sb_pts[b0 : b1 + 1][::-1]]).tolist())
+    for kind, da0, da1, db0, db1 in sections:
+        if not is_sloped and kind == "straight":
+            sub_a = _extract_chain_by_d(sa_pts, da, da0, da1)
+            sub_b = _extract_chain_by_d(sb_pts, db, db0, db1)
+            out.append([sub_a[0].tolist(), sub_a[-1].tolist(), sub_b[-1].tolist(), sub_b[0].tolist()])
+            continue
+        if is_sloped:
+            target_len = 0.5
+        else:
+            sec_a = _extract_chain_by_d(sa_pts, da, da0, da1)
+            sec_b = _extract_chain_by_d(sb_pts, db, db0, db1)
+            max_edge = max(
+                float(np.linalg.norm(np.diff(sec_a, axis=0), axis=1).max(initial=0.0)),
+                float(np.linalg.norm(np.diff(sec_b, axis=0), axis=1).max(initial=0.0)),
+            )
+            target_len = 0.5 if max_edge > 0.5 else 2.0
+        n_sub = max(1, int(math.ceil(max(da1 - da0, db1 - db0) / target_len)))
+        for k in range(n_sub):
+            f0, f1 = k / n_sub, (k + 1) / n_sub
+            a_s0 = da0 + f0 * (da1 - da0)
+            a_s1 = da0 + f1 * (da1 - da0)
+            b_s0 = db0 + f0 * (db1 - db0)
+            b_s1 = db0 + f1 * (db1 - db0)
+            if ov_len > 0.0:
+                if a_s0 > 1e-9:
+                    a_s0 = max(0.0, a_s0 - ov_len)
+                if a_s1 < da_tot - 1e-9:
+                    a_s1 = min(da_tot, a_s1 + ov_len)
+                if b_s0 > 1e-9:
+                    b_s0 = max(0.0, b_s0 - ov_len)
+                if b_s1 < db_tot - 1e-9:
+                    b_s1 = min(db_tot, b_s1 + ov_len)
+            sub_a = _extract_chain_by_d(sa_pts, da, a_s0, a_s1)
+            sub_b = _extract_chain_by_d(sb_pts, db, b_s0, b_s1)
+            out.append(np.vstack([sub_a, sub_b[::-1]]).tolist())
     return out
 
 
@@ -553,6 +685,67 @@ def _classify_band_pol(sim: Any, f0: float, axis: Any, vol: Any, band: int) -> s
     return "te" if e_horiz >= e_vert else "tm"
 
 
+def _monitor_chunk_layout(mp: Any, g: dict[str, Any], cell: Any, center: Any, cut_specs: list[dict[str, Any]]) -> Any | None:
+    """Partition X across MPI ranks without placing split planes inside 2D source or monitor planes."""
+    n_procs = int(mp.count_processors())
+    if n_procs <= 1:
+        return None
+    x_lo = float(center.x) - 0.5 * float(cell.x)
+    x_hi = float(center.x) + 0.5 * float(cell.x)
+    margin = 0.25
+    forbidden: list[tuple[float, float]] = []
+    for sp in cut_specs:
+        cx = float(sp["center"][0])
+        sx = float(sp["size"][0])
+        forbidden.append((cx - 0.5 * sx - margin, cx + 0.5 * sx + margin))
+    forbidden.sort()
+    merged: list[tuple[float, float]] = []
+    for a, b in forbidden:
+        if not merged or a > merged[-1][1]:
+            merged.append((max(x_lo, a), min(x_hi, b)))
+        else:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], min(x_hi, b)))
+    safe: list[tuple[float, float]] = []
+    cur = x_lo + 0.1
+    for a, b in merged:
+        if a - cur > 0.2:
+            safe.append((cur, a))
+        cur = max(cur, b)
+    if (x_hi - 0.1) - cur > 0.2:
+        safe.append((cur, x_hi - 0.1))
+    safe_len = sum(b - a for a, b in safe)
+    if safe_len <= 0.2:
+        return None
+    cuts: list[float] = []
+    for rank_i in range(1, n_procs):
+        target = safe_len * (rank_i / n_procs)
+        acc = 0.0
+        for a, b in safe:
+            if acc + (b - a) >= target:
+                pos = a + (target - acc)
+                if not cuts or pos - cuts[-1] > 0.05:
+                    cuts.append(pos)
+                break
+            acc += b - a
+    if not cuts:
+        return None
+
+    def _build_tree(c_list: list[float], leaf_idx: list[int]) -> Any:
+        if not c_list:
+            pid = leaf_idx[0] % n_procs
+            leaf_idx[0] += 1
+            return mp.BinaryPartition(proc_id=pid)
+        mid = len(c_list) // 2
+        return mp.BinaryPartition(
+            split_dir=mp.X,
+            split_pos=float(c_list[mid]),
+            left=_build_tree(c_list[:mid], leaf_idx),
+            right=_build_tree(c_list[mid + 1 :], leaf_idx),
+        )
+
+    return _build_tree(cuts, [0])
+
+
 def _run_3d(g: dict[str, Any], dx_nm: float) -> dict[str, Any]:
     import meep as mp
 
@@ -568,6 +761,8 @@ def _run_3d(g: dict[str, Any], dx_nm: float) -> dict[str, Any]:
     f0 = 1.0 / g["wavelength"]
     src_spec = g["source"]
     src_vol = mp.Volume(center=mp.Vector3(*src_spec["center"]), size=mp.Vector3(*src_spec["size"]))
+    cut_specs = [g[k] for k in ("source", "in", "out", "through", "cross") if k in g]
+    chunk_layout = _monitor_chunk_layout(mp, g, cell, center, cut_specs)
 
     use_y_sym = bench in ("sloped_guide", "elevator_coupler")
     parity = mp.ODD_Y if use_y_sym else mp.NO_PARITY
@@ -590,6 +785,7 @@ def _run_3d(g: dict[str, Any], dx_nm: float) -> dict[str, Any]:
         resolution=res,
         boundary_layers=[mp.PML(g["pml"])],
         symmetries=[mp.Mirror(mp.Y, phase=-1)] if use_y_sym else [],
+        chunk_layout=chunk_layout,
         subpixel_tol=1e-3,
         subpixel_maxeval=2000,
     )

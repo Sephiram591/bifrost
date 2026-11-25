@@ -312,7 +312,7 @@ def make_figure(src: Path, dsts: list[Path], *, meep_src: Path | None = None) ->
 
     # (a) Anisotropic crystal slab: averaging="subpixel" cannot write off-diagonal material tensors
     ax = axes[0, 0]
-    _style_ax(ax, "(a) Anisotropic crystal slab (1.55 µm)", "z cells", "max |t - t_Berreman|")
+    _style_ax(ax, "(a) Anisotropic crystal slab, 1.55 µm (FDTD)", "z cells", "max |t - t_Berreman|")
     for avg in AVERAGINGS:
         slab = _by_bench(rows, "aniso_slab", avg)
         u = [r for k, r in slab.items() if k.startswith("uniform-")]
@@ -328,7 +328,7 @@ def make_figure(src: Path, dsts: list[Path], *, meep_src: Path | None = None) ->
 
     # (b) Sloped SOI waveguide: mode-solver n_eff against the tidy3d continuum reference
     ax = axes[0, 1]
-    _style_ax(ax, "(b) Sloped SOI strip (10° walls)", "total cells (millions)", "|n_eff - n_eff,ref|")
+    _style_ax(ax, "(b) Sloped SOI strip, 10° walls (mode solver)", "total cells (millions)", "|n_eff - n_eff,ref|")
     ax.margins(x=0.14, y=0.16)
     fy_sg = lambda r: abs(r["neff_mode"] - TIDY3D_NEFF_REF)  # noqa: E731
     for avg in AVERAGINGS:
@@ -342,20 +342,20 @@ def make_figure(src: Path, dsts: list[Path], *, meep_src: Path | None = None) ->
 
     # (c) SiN bend (moved from (f) replacing soi_bragg)
     _plot_self_conv_panel(
-        axes[0, 2], "(c) Curved SiN bend on silica substrate", "|T - T(finest uniform)| at 1.55 µm",
+        axes[0, 2], "(c) Curved SiN bend on silica (FDTD)", "|T - T(finest uniform)| at 1.55 µm",
         rows, meep_rows, "sin_bend", max_unif_nm=60.0, has_meshsub=True,
     )
 
     # (d) Elevator coupler
     _plot_self_conv_panel(
-        axes[1, 0], "(d) Two-level SiN elevator coupler", "|T - T(finest uniform)| at 619 nm",
+        axes[1, 0], "(d) Two-level SiN elevator coupler (FDTD)", "|T - T(finest uniform)| at 619 nm",
         rows, meep_rows, "elevator_coupler", max_unif_nm=None, has_meshsub=False,
         mesh_start_offset=((6, 3), "left", "bottom"),
     )
 
     # (e) Directional coupler
     ax = axes[1, 1]
-    _style_ax(ax, "(e) SiN directional coupler (300 nm gap)", "total cells (millions)", "|S_619 - S_0|")
+    _style_ax(ax, "(e) SiN directional coupler, 300 nm gap (FDTD)", "total cells (millions)", "|S_619 - S_0|")
     ax.margins(x=0.14, y=0.16)
     fy_dc = lambda r: abs(r["split_mid"] - DC_S0_REF)  # noqa: E731
     for avg in AVERAGINGS:
@@ -369,7 +369,7 @@ def make_figure(src: Path, dsts: list[Path], *, meep_src: Path | None = None) ->
 
     # (f) X-cut LiNbO3 bend (20 deg sidewalls, anisotropic)
     _plot_self_conv_panel(
-        axes[1, 2], "(f) X-cut LiNbO3 bend (20° walls)", "|T - T(finest uniform)| at 1.55 µm",
+        axes[1, 2], "(f) X-cut LiNbO3 bend, 20° walls (FDTD)", "|T - T(finest uniform)| at 1.55 µm",
         rows, meep_rows, "linbo3_bend", max_unif_nm=60.0, has_meshsub=True,
         unif_fin_offset=((-4, -7), "right", "top"),
     )
@@ -398,12 +398,12 @@ def _make_value_figure(src: Path, dsts: list[Path], *, x_axis: Literal["cells", 
     else:
         raise ValueError(f"Unknown x_axis {x_axis!r}")
     panels = (
-        (axes[0, 0], "(a) Sloped SOI strip: mode solver", "sloped_guide", "n_eff (mode solver)", lambda r: r["neff_mode"]),
-        (axes[0, 1], "(b) Sloped SOI strip: FDTD phase slope", "sloped_guide", "n_eff (FDTD)", lambda r: r["neff_fdtd"]),
-        (axes[0, 2], "(c) Curved SiN bend on silica substrate", "sin_bend", "T at 1.55 µm", lambda r: r["T"]),
-        (axes[1, 0], "(d) Two-level SiN elevator coupler", "elevator_coupler", "T at 619 nm", lambda r: r["T"]),
-        (axes[1, 1], "(e) SiN directional coupler (300 nm gap)", "directional_coupler", "splitting ratio S at 619 nm", lambda r: r["split_mid"]),
-        (axes[1, 2], "(f) X-cut LiNbO3 bend (20° walls)", "linbo3_bend", "TE0 T at 1.55 µm", lambda r: r["T"]),
+        (axes[0, 0], "(a) Sloped SOI strip (mode solver)", "sloped_guide", "n_eff (mode solver)", lambda r: r["neff_mode"]),
+        (axes[0, 1], "(b) Sloped SOI strip (FDTD)", "sloped_guide", "n_eff (FDTD)", lambda r: r["neff_fdtd"]),
+        (axes[0, 2], "(c) Curved SiN bend on silica (FDTD)", "sin_bend", "T at 1.55 µm", lambda r: r["T"]),
+        (axes[1, 0], "(d) Two-level SiN elevator coupler (FDTD)", "elevator_coupler", "T at 619 nm", lambda r: r["T"]),
+        (axes[1, 1], "(e) SiN directional coupler, 300 nm gap (FDTD)", "directional_coupler", "splitting ratio S at 619 nm", lambda r: r["split_mid"]),
+        (axes[1, 2], "(f) X-cut LiNbO3 bend, 20° walls (FDTD)", "linbo3_bend", "TE0 T at 1.55 µm", lambda r: r["T"]),
     )
     coarse = {"sloped_guide": 64, "sin_bend": 60, "elevator_coupler": 50, "directional_coupler": 50, "linbo3_bend": 60}
     present_avgs = {r.get("averaging") for r in rows if r.get("bench") in {p[2] for p in panels}}
