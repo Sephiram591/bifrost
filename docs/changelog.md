@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - `StackDevice(component, layer_stack, ...)` is now the constructor directly (`__init__`), replacing `StackDevice.from_layer_stack`; raw field construction is `StackDevice.from_raw(...)`.
 - [Inverted layers](guide/layer-stacks.md#negative-tone-and-inverted-layers): replaced `fill_layers` in `StackDevice` with `inverted_layers` (default `WAFER`), applying a level's material to the inverse of the layer's drawn polygons (covering the whole plane when the layer has no polygons, and supporting negative-tone trench-etched waveguides with `extend_ports` and port-attached sources and monitors).
@@ -14,6 +14,9 @@
 - Viewer support for non-uniform grids, adaptive meshing controls (defaulting to adaptive `ppw=15` with per-layer dilation sub-cards), and client-side MP4 video export via WebCodecs and `wrap_video`.
 - `averaging="subpixel_full"`: junction sub-cells whose two dominant interface directions carry nearly equal weight blend smoothly toward axis-weighted laminates so the homogenized tensor and its derivatives stay continuous across corner crossings.
 - `place_on_grid` warns when a level excluded during `StackDevice(...)` construction (beyond `level_margin + 0.1` µm) is sampled by a coarse cell at a box face.
+- JAX-differentiable harmonic inversion (`bf.harminv`, `bf.harminv_detector`, `bf.detector_time_grid`, `bf.HarminvResult`) for extracting resonance frequencies, Q factors, and decay rates from time-domain field detectors.
+- Added the `bifrost-field-manual` agent skill under `.agents/skills/bifrost-field-manual/`.
+- Requires `gdsfactoryx >= 9.51.0.post3`.
 
 ## 0.2.0
 

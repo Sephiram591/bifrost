@@ -30,7 +30,7 @@ from .stack import (
 )
 from .timing import record_timings
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "COMPILER_OPTIONS",
